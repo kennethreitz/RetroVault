@@ -1,0 +1,272 @@
+# OpenVault
+
+> **Photos.app for your games.**
+
+OpenVault is a native macOS client for RomM.
+
+It brings your entire game library together into a beautiful, first-class Mac experience. Whether your games live on a server in your home, a NAS, or on the Mac itself, OpenVault makes them feel like they belong.
+
+No importing.
+No duplicate libraries.
+No web browser.
+
+Just your games.
+
+---
+
+## Why?
+
+Retro gaming today is surprisingly fragmented.
+
+You have ROM collections.
+You have emulators.
+You have metadata.
+You have artwork.
+You have save files.
+You have multiple devices.
+
+RomM solved the problem of organizing and serving a game library.
+
+OpenVault exists to make that library feel at home on macOS.
+
+Think of it as **Photos.app**, but for your games.
+
+---
+
+## Principles
+
+OpenVault is built around a few simple ideas.
+
+### RomM is the source of truth
+
+Your library already exists.
+
+OpenVault never asks you to import or reorganize it.
+
+It simply connects to your RomM server and presents your collection as a native macOS application.
+
+### Native first
+
+OpenVault is written specifically for macOS.
+
+SwiftUI.
+AppKit where appropriate.
+Spotlight.
+Quick Look.
+Drag & Drop.
+System Search.
+Beautiful keyboard shortcuts.
+
+It should feel like an Apple application.
+
+### Your games stay yours
+
+Your library belongs to you.
+
+No accounts.
+No cloud lock-in.
+No subscriptions.
+No proprietary database.
+
+Open source from day one.
+
+### One Play button
+
+Playing a game should be effortless.
+
+Select a game.
+
+Press **Play**.
+
+OpenVault handles the rest.
+
+Whether that means launching an external emulator, using a libretro core, or downloading a cached copy from your RomM server is an implementation detail.
+
+---
+
+## Features
+
+### Library
+
+* Native macOS interface
+* Fast search
+* Collections
+* Favorites
+* Recently Played
+* Smart filters
+* Rich artwork
+* Manuals
+* Screenshots
+* Metadata
+
+### RomM Integration
+
+* Connect to local or remote RomM servers
+* Automatic library synchronization
+* Transparent ROM caching
+* Multiple servers
+* Offline mode
+* Save synchronization (planned)
+
+### Game Launching
+
+* Configurable emulator runners
+* Per-system defaults
+* Per-game overrides
+* Native emulator launching
+* libretro support (planned)
+
+### macOS
+
+* Spotlight integration
+* Quick Look previews
+* Dock menus
+* Notifications
+* Shortcuts support
+* Native menu bar
+* Beautiful dark mode
+
+---
+
+## Architecture
+
+OpenVault intentionally separates responsibilities.
+
+```
+             ┌─────────────────────┐
+             │     OpenVault       │
+             │   Native Swift App  │
+             └──────────┬──────────┘
+                        │
+                  RomM REST API
+                        │
+             ┌──────────▼──────────┐
+             │        RomM         │
+             └──────────┬──────────┘
+                        │
+          Local Storage / NAS / Cloud
+                        │
+                  Cached ROMs
+                        │
+             ┌──────────▼──────────┐
+             │ Emulator Runners    │
+             │ Dolphin             │
+             │ RPCS3               │
+             │ RetroArch           │
+             │ OpenEmu             │
+             │ libretro (planned)  │
+             └─────────────────────┘
+```
+
+OpenVault is intentionally modular.
+
+RomM manages the library.
+
+Runner plugins launch games.
+
+OpenVault provides the experience.
+
+---
+
+## Local Libraries
+
+Don't have a RomM server?
+
+OpenVault can create one for you.
+
+On supported versions of macOS, OpenVault can automatically start a local RomM instance using Apple's container technologies.
+
+No Docker knowledge required.
+
+No manual configuration.
+
+Just your library.
+
+---
+
+## Open Source
+
+OpenVault is released under the GPL.
+
+You are free to:
+
+* inspect the source
+* build it yourself
+* modify it
+* contribute improvements
+* redistribute it under the terms of the license
+
+Official signed and notarized builds help fund development.
+
+---
+
+## Roadmap
+
+### Version 1
+
+* Native macOS client
+* RomM integration
+* Transparent caching
+* Emulator runners
+* Beautiful library
+
+### Version 2
+
+* Save synchronization
+* Runner plugins
+* Native artwork management
+* Multiple libraries
+
+### Future
+
+* Embedded libretro support
+* Cloud save providers
+* Companion iPhone and iPad apps
+* Apple TV support
+* Steam Deck companion
+* Plugin ecosystem
+
+---
+
+## Non-Goals
+
+OpenVault is **not**:
+
+* a ROM download service
+* an emulator
+* a replacement for RomM
+* a proprietary launcher
+
+It exists to make your existing library feel incredible.
+
+---
+
+## Contributing
+
+OpenVault welcomes contributions of every kind.
+
+Whether you're fixing bugs, improving documentation, designing icons, building runners, or polishing the user experience, we'd love your help.
+
+---
+
+## Inspiration
+
+OpenVault stands on the shoulders of incredible open-source projects, including:
+
+* RomM
+* OpenEmu
+* RetroArch
+* libretro
+* Dolphin
+* RPCS3
+* PPSSPP
+* Ryujinx (historically)
+* countless emulator authors and preservationists
+
+Thank you for keeping gaming history alive.
+
+---
+
+> **Your games. Beautifully organized.**
+>
+> **OpenVault.**
