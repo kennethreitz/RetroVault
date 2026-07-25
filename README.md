@@ -101,10 +101,9 @@ Whether that means launching an external emulator, using a libretro core, or dow
 
 ### RomM Integration
 
-* Connect to local or remote RomM servers
+* Connect to one local or remote RomM server
 * Automatic library synchronization
 * Transparent ROM caching
-* Multiple servers
 * Offline mode
 * Save synchronization (planned)
 
@@ -215,7 +214,6 @@ Official signed and notarized builds help fund development.
 * Save synchronization
 * Runner plugins
 * Native artwork management
-* Multiple libraries
 
 ### Future
 
@@ -246,6 +244,25 @@ It exists to make your existing library feel incredible.
 OpenVault welcomes contributions of every kind.
 
 Whether you're fixing bugs, improving documentation, designing icons, building runners, or polishing the user experience, we'd love your help.
+
+---
+
+## Development
+
+OpenVault targets macOS 26 and Apple silicon.
+
+Requirements:
+
+* Apple silicon Mac
+* macOS 26 or later
+* Xcode 26 or later
+
+Open `OpenVault.xcodeproj` to build and run the native application. The same
+source tree is also described by `Package.swift` for command-line builds and
+tests.
+
+The project currently has one application dependency: Nuke's core image
+pipeline. All dependencies are managed with Swift Package Manager.
 
 ---
 

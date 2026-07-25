@@ -9,7 +9,8 @@ library as a fast, native macOS experience that remains useful offline.
 
 1. The user enters the RomM server URL.
 2. OpenVault verifies reachability and compatible server behavior.
-3. The user enters an eight-digit pairing code or an existing client API token.
+3. The user enters an eight-character alphanumeric pairing code or an existing
+   client API token.
 4. OpenVault exchanges the pairing code when necessary.
 5. The client token is stored in Keychain.
 6. OpenVault validates the authenticated connection and required scopes.
@@ -26,6 +27,7 @@ No secret is written to source code, logs, fixtures, or ordinary preferences.
 - RomM 5.0 client-token authentication and pairing
 - Keychain credential storage
 - Platforms and paginated library metadata
+- Read-only user-created and smart collections
 - DTO-to-domain mapping
 - SwiftData metadata cache
 - Background refresh and reconciliation
@@ -41,6 +43,7 @@ No secret is written to source code, logs, fixtures, or ordinary preferences.
 
 - A fresh installation can connect using a valid pairing code without storing
   the user's account password.
+- The initial sidebar presents All Games, Systems, and Collections from RomM.
 - OpenVault relaunches into the cached library without waiting for the network.
 - A successful refresh updates changed games and removes games no longer
   returned by RomM.

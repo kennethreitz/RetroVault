@@ -108,9 +108,39 @@ enum ServerConfiguration: Sendable {
 - Secrets must never be stored in source code, fixtures, logs, or ordinary
   preferences.
 - OpenVault requests only the scopes required by the features it implements.
+- The initial read-only library requires `me.read`, `platforms.read`,
+  `roms.read`, and `collections.read`.
 - OpenVault should explain missing-scope failures rather than presenting a
   generic networking error.
 - OIDC is an extension point, not an initial deliverable.
+
+## Library navigation
+
+- The primary library uses a native `NavigationSplitView`.
+- The initial sidebar contains All Games, Systems, and Collections.
+- "Systems" is the user-facing name for RomM platforms.
+- Systems with games are shown directly. Empty systems are collapsed under an
+  Empty Systems disclosure at the bottom of the Systems section so future
+  upload targets remain reachable without cluttering everyday browsing.
+- User-created and smart RomM collections are presented together as read-only
+  navigation destinations.
+- RomM virtual collections span generated genres, franchises, modes, and other
+  filters; they are deferred to a dedicated filtering experience rather than
+  flooding the primary sidebar.
+- Every destination filters one shared, incrementally paginated cover grid.
+- The standard macOS toolbar search field filters the active destination through
+  RomM's server-side search, so results cover the full remote library rather
+  than only the currently loaded page.
+- A Search All Systems checkbox appears for scoped searches and can temporarily
+  lift the active system or collection filter without changing the sidebar
+  selection.
+- A library filter can hide games that do not expose artwork. This is applied to
+  the incrementally loaded results because RomM 5.0 does not expose a dedicated
+  has-artwork query filter.
+- Cover cards keep a consistent footprint while fitting the complete source
+  image, preserving unusually wide or tall artwork without distortion.
+- Collection editing, smart-filter creation, and other RomM mutations remain
+  outside the first slice.
 
 ## Networking and trust
 
@@ -166,7 +196,7 @@ enum ServerConfiguration: Sendable {
 
 ## Dependencies
 
-Milestone 1A should use Apple frameworks:
+Milestone 1A uses Apple frameworks:
 
 - SwiftUI
 - Observation
@@ -175,9 +205,19 @@ Milestone 1A should use Apple frameworks:
 - OSLog
 - SwiftData
 
-It should not initially depend on a networking framework, state-management
-framework, dependency-injection container, Keychain wrapper, or image-loading
-package.
+Nuke 13 is the sole initial application package. It provides the artwork
+pipeline's async loading, request coalescing, prefetching, image processing,
+and bounded memory and disk caches. OpenVault depends on Nuke's core product,
+not its ready-made SwiftUI views, so the app retains control of its native UI.
+
+Swift OpenAPI Generator is deliberately deferred. OpenVault will begin with a
+small hand-written RomM client and reconsider generation after several stable
+endpoints demonstrate that the generated surface would reduce rather than add
+complexity.
+
+OpenVault should not initially depend on another networking framework,
+state-management framework, dependency-injection container, or Keychain
+wrapper.
 
 The Apple Containerization package is deferred until milestone 1B.
 
