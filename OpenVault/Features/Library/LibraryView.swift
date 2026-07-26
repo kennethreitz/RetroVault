@@ -581,7 +581,8 @@ struct LibraryView: View {
           GameDetailsView(
             game: game,
             session: model.session,
-            service: model.service
+            service: model.service,
+            controllerRouter: controllerRouter
           )
           .id(game.id)
         }
@@ -2127,7 +2128,8 @@ private struct LibraryTableView: View {
       GameDetailsView(
         game: game,
         session: model.session,
-        service: model.service
+        service: model.service,
+        controllerRouter: controllerRouter
       )
       .id(game.id)
     }
@@ -3486,7 +3488,8 @@ private struct LibraryGridView: View {
       GameDetailsView(
         game: game,
         session: model.session,
-        service: model.service
+        service: model.service,
+        controllerRouter: controllerRouter
       )
       .id(game.id)
     }

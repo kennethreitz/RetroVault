@@ -138,6 +138,7 @@ struct GameDetailsViewport: Equatable {
 
 struct GameDetailsView: View {
     @Environment(\.openWindow) private var openWindow
+    let controllerRouter: LibraryControllerRouter
     @State private var model: GameDetailsModel
     @State private var selectedTab = GameDetailsTab.overview
     @State private var selectedMediaTab = GameMediaTab.manual
@@ -146,8 +147,10 @@ struct GameDetailsView: View {
     init(
         game: GameSummary,
         session: ServerSession,
-        service: any LibraryServing
+        service: any LibraryServing,
+        controllerRouter: LibraryControllerRouter
     ) {
+        self.controllerRouter = controllerRouter
         _model = State(
             initialValue: GameDetailsModel(
                 game: game,
@@ -183,6 +186,9 @@ struct GameDetailsView: View {
         .navigationTitle(model.details?.name ?? model.game.name)
         .task {
             await model.load()
+        }
+        .onReceive(controllerRouter.commands) { command in
+            handleControllerCommand(command)
         }
         .alert(
             downloadAlertTitle,
@@ -451,6 +457,26 @@ struct GameDetailsView: View {
                 value: fromBeginning ? request.startingFresh() : request
             )
         }
+    }
+
+    private func handleControllerCommand(
+        _ command: LibraryControllerCommand
+    ) {
+        guard
+            command == .activate,
+            let details = model.details,
+            model.playbackCore != nil,
+            !model.isPreparingToPlay,
+            !model.isDownloading,
+            !model.isRemovingDownload,
+            !model.isExporting,
+            model.playbackErrorMessage == nil,
+            !details.isMissingFromFileSystem
+        else {
+            return
+        }
+
+        beginPlayback(details)
     }
 
     private func gameHeader(_ details: GameDetails) -> some View {
