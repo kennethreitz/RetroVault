@@ -369,14 +369,26 @@ struct BigPictureView: View {
 
   private var footer: some View {
     HStack {
-      if page == .home {
-        actionHint(key: "ESC", label: "EXIT")
-      } else {
+      HStack(spacing: 10) {
         actionHint(
-          key: controllerState.backButtonPrompt.label,
-          systemImage: controllerState.backButtonPrompt.systemImage,
-          label: "BACK"
+          key:
+            controllerState.isConnected
+            ? controllerState.exitButtonPrompt.label
+            : "ESC",
+          systemImage:
+            controllerState.isConnected
+            ? controllerState.exitButtonPrompt.systemImage
+            : nil,
+          label: "EXIT"
         )
+
+        if page != .home {
+          actionHint(
+            key: controllerState.backButtonPrompt.label,
+            systemImage: controllerState.backButtonPrompt.systemImage,
+            label: "BACK"
+          )
+        }
       }
 
       Spacer()
@@ -671,6 +683,11 @@ struct BigPictureView: View {
   }
 
   private func handle(_ command: BigPictureCommand) {
+    if command == .exit {
+      dismissWindow(id: BigPictureScene.id)
+      return
+    }
+
     if playbackErrorMessage != nil {
       switch command {
       case .activate:
@@ -680,7 +697,7 @@ struct BigPictureView: View {
         }
       case .back:
         playbackErrorMessage = nil
-      case .up, .down, .pageUp, .pageDown:
+      case .up, .down, .pageUp, .pageDown, .exit:
         break
       }
       return
@@ -712,6 +729,8 @@ struct BigPictureView: View {
       activate(rows[selectedIndex])
     case .back:
       navigateBack()
+    case .exit:
+      break
     }
   }
 
@@ -965,6 +984,7 @@ enum BigPictureCommand: Equatable, Sendable {
   case pageDown
   case activate
   case back
+  case exit
 }
 
 enum BigPictureKeyboardNavigation {
@@ -1017,11 +1037,13 @@ struct BigPictureControllerState: Equatable, Sendable {
   var right = false
   var activate = false
   var back = false
+  var exitsBigPicture = false
   var opensBigPicture = false
   var pageUp = false
   var pageDown = false
   var activateButtonPrompt = BigPictureControllerPrompt(label: "B")
   var backButtonPrompt = BigPictureControllerPrompt(label: "A")
+  var exitButtonPrompt = BigPictureControllerPrompt(label: "SELECT")
 
   static var current: Self {
     let controllers = GCController.controllers()
@@ -1047,6 +1069,11 @@ struct BigPictureControllerState: Equatable, Sendable {
         localizedName: backButton.localizedName,
         systemImage: backButton.sfSymbolsName,
         fallbackLabel: layout == .nintendo ? "B" : "A"
+      )
+      state.exitButtonPrompt = buttonPrompt(
+        localizedName: gamepad.buttonOptions?.localizedName,
+        systemImage: gamepad.buttonOptions?.sfSymbolsName,
+        fallbackLabel: "SELECT"
       )
     }
 
@@ -1077,6 +1104,9 @@ struct BigPictureControllerState: Equatable, Sendable {
           || gamepad.dpad.right.isPressed
           || gamepad.leftThumbstick.xAxis.value > 0.72
         state.activate = state.activate || faceButtons.activate
+        state.exitsBigPicture =
+          state.exitsBigPicture
+          || gamepad.buttonOptions?.isPressed == true
         state.opensBigPicture =
           state.opensBigPicture
           || gamepad.buttonMenu.isPressed
@@ -1194,6 +1224,9 @@ struct BigPictureControllerNavigation: Sendable {
       previousState = state
     }
 
+    if state.exitsBigPicture, !previousState.exitsBigPicture {
+      return .exit
+    }
     if state.back, !previousState.back {
       return .back
     }

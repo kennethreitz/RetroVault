@@ -475,6 +475,18 @@ struct BigPictureCatalogTests {
     #expect(right == .pageDown)
   }
 
+  @Test("Maps Select to exit Big Picture without repeating a hold")
+  func mapsSelectToExitBigPicture() {
+    var navigation = BigPictureControllerNavigation()
+    let select = BigPictureControllerState(
+      isConnected: true,
+      exitsBigPicture: true
+    )
+
+    #expect(navigation.command(for: select, at: 21) == .exit)
+    #expect(navigation.command(for: select, at: 21.1) == nil)
+  }
+
   @Test("Maps the right face button to select and bottom face button to back")
   func mapsFaceButtonPositions() {
     let xboxA = BigPictureControllerState.extendedFaceButtonActions(
