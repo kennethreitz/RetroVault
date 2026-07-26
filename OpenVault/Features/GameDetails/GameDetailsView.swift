@@ -1401,6 +1401,13 @@ private struct GameDetailsBackdrop: View {
                 cornerRadius: 0,
                 imagePadding: 0
             )
+            .frame(
+                minWidth: 0,
+                maxWidth: .infinity,
+                minHeight: 0,
+                maxHeight: .infinity
+            )
+            .clipped()
             .blur(radius: 52)
             .scaleEffect(1.2)
             .opacity(details.coverURL == nil ? 0 : 0.19)
@@ -1414,6 +1421,13 @@ private struct GameDetailsBackdrop: View {
                 endPoint: .bottom
             )
         }
+        .frame(
+            minWidth: 0,
+            maxWidth: .infinity,
+            minHeight: 0,
+            maxHeight: .infinity
+        )
+        .clipped()
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)

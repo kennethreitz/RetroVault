@@ -50,6 +50,12 @@ struct RomMImageView: View {
                     .foregroundStyle(.tertiary)
             }
         }
+        .frame(
+            minWidth: 0,
+            maxWidth: .infinity,
+            minHeight: 0,
+            maxHeight: .infinity
+        )
         .clipShape(.rect(cornerRadius: cornerRadius))
         .overlay {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
