@@ -255,15 +255,17 @@ struct BigPictureView: View {
               activate(row)
             } label: {
               HStack(spacing: 16) {
-                Text(row.title)
-                  .lineLimit(1)
-
-                if row.isFavorite {
+                if page.isGameList {
                   Image(systemName: "star.fill")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.yellow)
+                    .opacity(row.isFavorite ? 1 : 0)
+                    .accessibilityHidden(!row.isFavorite)
                     .accessibilityLabel("Favorite")
                 }
+
+                Text(row.title)
+                  .lineLimit(1)
 
                 Spacer(minLength: 20)
 
