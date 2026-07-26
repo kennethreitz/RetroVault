@@ -198,6 +198,10 @@ enum ServerConfiguration: Sendable {
   back or exits, and the shoulder buttons page through long lists. OpenVault
   reads every connected extended or compact controller rather than binding
   navigation to the first device returned by the system.
+- Big Picture directional selection clamps at the beginning and end of a list
+  instead of wrapping unexpectedly. Pointer hover can update selection without
+  issuing a programmatic scroll, preventing wheel scrolling from feeding back
+  into a jump toward the first rows.
 - Starting a game reuses the production details, download, firmware, save-sync,
   and Libretro preparation pipeline. Large uncached ROMs show byte and
   percentage progress rather than an indefinite Preparing state.

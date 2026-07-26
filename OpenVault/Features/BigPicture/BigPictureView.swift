@@ -21,6 +21,7 @@ struct BigPictureView: View {
   @State private var page = BigPicturePage.home
   @State private var history: [BigPictureHistoryEntry] = []
   @State private var selectedIndex = 0
+  @State private var scrollTargetID: BigPictureRow.ID?
   @State private var controllerState = BigPictureControllerState()
   @State private var controllerNavigation = BigPictureControllerNavigation()
   @State private var bigPictureWindow: NSWindow?
@@ -216,7 +217,7 @@ struct BigPictureView: View {
           ForEach(rows.indices, id: \.self) { index in
             let row = rows[index]
             Button {
-              selectedIndex = index
+              selectRow(at: index, scrollsIntoView: false)
               activate(row)
             } label: {
               HStack(spacing: 16) {
@@ -251,7 +252,7 @@ struct BigPictureView: View {
             .id(row.id)
             .onHover { isHovering in
               if isHovering {
-                selectedIndex = index
+                selectRow(at: index, scrollsIntoView: false)
               }
             }
             .accessibilityAddTraits(
@@ -262,11 +263,17 @@ struct BigPictureView: View {
         .padding(.vertical, 6)
       }
       .scrollIndicators(.hidden)
-      .onChange(of: selectedIndex) { _, newIndex in
-        guard rows.indices.contains(newIndex) else {
+      .onChange(of: scrollTargetID) { _, targetID in
+        guard let targetID else {
           return
         }
-        proxy.scrollTo(rows[newIndex].id, anchor: .center)
+        proxy.scrollTo(targetID, anchor: .center)
+
+        Task { @MainActor in
+          if scrollTargetID == targetID {
+            scrollTargetID = nil
+          }
+        }
       }
     }
   }
@@ -608,9 +615,9 @@ struct BigPictureView: View {
     case .down:
       moveSelection(by: 1)
     case .pageUp:
-      moveSelection(by: -pageSelectionStride, wraps: false)
+      moveSelection(by: -pageSelectionStride)
     case .pageDown:
-      moveSelection(by: pageSelectionStride, wraps: false)
+      moveSelection(by: pageSelectionStride)
     case .activate:
       guard rows.indices.contains(selectedIndex) else {
         return
@@ -625,17 +632,28 @@ struct BigPictureView: View {
     page == .home ? 7 : 10
   }
 
-  private func moveSelection(by offset: Int, wraps: Bool = true) {
+  private func moveSelection(by offset: Int) {
     guard !rows.isEmpty else {
       return
     }
-    if wraps {
-      selectedIndex = (selectedIndex + offset + rows.count) % rows.count
-    } else {
-      selectedIndex = min(
-        max(selectedIndex + offset, 0),
-        rows.count - 1
-      )
+    let newIndex = BigPictureSelectionNavigation.index(
+      afterMovingFrom: selectedIndex,
+      by: offset,
+      itemCount: rows.count
+    )
+    selectRow(at: newIndex, scrollsIntoView: true)
+  }
+
+  private func selectRow(
+    at index: Int,
+    scrollsIntoView: Bool
+  ) {
+    guard rows.indices.contains(index) else {
+      return
+    }
+    selectedIndex = index
+    if scrollsIntoView {
+      scrollTargetID = rows[index].id
     }
   }
 
@@ -648,6 +666,7 @@ struct BigPictureView: View {
       page = destination
       rows = makeRows(for: destination, catalog: catalog)
       selectedIndex = 0
+      scrollTargetID = rows.first?.id
     case .play(let game):
       play(game)
     }
@@ -661,6 +680,9 @@ struct BigPictureView: View {
     page = previous.page
     rows = makeRows(for: previous.page, catalog: catalog)
     selectedIndex = previous.selectedIndex
+    if rows.indices.contains(selectedIndex) {
+      scrollTargetID = rows[selectedIndex].id
+    }
   }
 
   private func play(_ game: GameSummary) {
@@ -952,6 +974,19 @@ struct BigPictureControllerNavigation: Sendable {
     }
     nextRepeatTime = uptime + Self.repeatInterval
     return directionalCommand
+  }
+}
+
+enum BigPictureSelectionNavigation {
+  static func index(
+    afterMovingFrom index: Int,
+    by offset: Int,
+    itemCount: Int
+  ) -> Int {
+    guard itemCount > 0 else {
+      return 0
+    }
+    return min(max(index + offset, 0), itemCount - 1)
   }
 }
 

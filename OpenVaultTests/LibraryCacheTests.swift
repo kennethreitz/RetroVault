@@ -227,6 +227,31 @@ struct BigPictureCatalogTests {
     #expect(pageDown == .pageDown)
   }
 
+  @Test("Keeps Big Picture selection at list boundaries")
+  func clampsBigPictureSelection() {
+    #expect(
+      BigPictureSelectionNavigation.index(
+        afterMovingFrom: 0,
+        by: -1,
+        itemCount: 20
+      ) == 0
+    )
+    #expect(
+      BigPictureSelectionNavigation.index(
+        afterMovingFrom: 19,
+        by: 1,
+        itemCount: 20
+      ) == 19
+    )
+    #expect(
+      BigPictureSelectionNavigation.index(
+        afterMovingFrom: 7,
+        by: 10,
+        itemCount: 20
+      ) == 17
+    )
+  }
+
   @Test("Does not carry held gameplay input back into Big Picture")
   func suppressesHeldInputWhileInactive() {
     var navigation = BigPictureControllerNavigation()
