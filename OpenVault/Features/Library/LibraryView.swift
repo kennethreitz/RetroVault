@@ -2172,6 +2172,7 @@ private struct LibraryTableView: View {
     .onChange(of: model.selection) { _, _ in
       clearBrowserFilters()
       selectedGameIDs.removeAll()
+      controllerBrowserColumnIndex = nil
     }
     .onChange(of: model.searchTerm) { _, _ in
       selectedGameIDs.removeAll()
@@ -2263,10 +2264,12 @@ private struct LibraryTableView: View {
       .customizationID("game")
       .disabledCustomizationBehavior(.visibility)
 
-      TableColumn("System", value: \.systemName)
-        .width(min: 120, ideal: 170)
-        .customizationID("system")
-        .defaultVisibility(.visible)
+      if !isSingleSystemView {
+        TableColumn("System", value: \.systemName)
+          .width(min: 120, ideal: 170)
+          .customizationID("system")
+          .defaultVisibility(.visible)
+      }
 
       TableColumn("Save", value: \.saveSortValue) { game in
         AvailabilityCheckbox(
@@ -2711,7 +2714,7 @@ private struct LibraryTableView: View {
     orderedBrowserColumns.filter { column in
       switch column {
       case .system:
-        true
+        !isSingleSystemView
       case .genre:
         showsGenreBrowser
       case .year:
@@ -2728,6 +2731,13 @@ private struct LibraryTableView: View {
         showsArtworkBrowser
       }
     }
+  }
+
+  private var isSingleSystemView: Bool {
+    if case .system = model.selection {
+      return true
+    }
+    return false
   }
 
   private var orderedBrowserColumns: [LibraryBrowserColumn] {
