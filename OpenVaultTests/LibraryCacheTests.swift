@@ -237,12 +237,22 @@ struct BigPictureCatalogTests {
       for: BigPictureControllerState(isConnected: true, pageDown: true),
       at: 20.5
     )
+    let left = navigation.command(
+      for: BigPictureControllerState(isConnected: true, left: true),
+      at: 20.6
+    )
+    let right = navigation.command(
+      for: BigPictureControllerState(isConnected: true, right: true),
+      at: 20.7
+    )
 
     #expect(activate == .activate)
     #expect(heldActivate == nil)
     #expect(back == .back)
     #expect(pageUp == .pageUp)
     #expect(pageDown == .pageDown)
+    #expect(left == .pageUp)
+    #expect(right == .pageDown)
   }
 
   @Test("Maps Xbox B to select and Xbox A to back")

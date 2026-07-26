@@ -68,9 +68,9 @@ struct BigPictureView: View {
       case .down:
         handle(.down)
       case .left:
-        handle(.back)
+        handle(.pageUp)
       case .right:
-        handle(.activate)
+        handle(.pageDown)
       default:
         break
       }
@@ -337,7 +337,7 @@ struct BigPictureView: View {
 
       HStack(spacing: 10) {
         if rows.count > pageSelectionStride {
-          actionHint(key: "L/R", label: "PAGE")
+          actionHint(key: "←/→", label: "PAGE")
         }
         actionHint(
           key: "B",
@@ -971,10 +971,10 @@ struct BigPictureControllerNavigation: Sendable {
       return .pageDown
     }
     if state.left, !previousState.left {
-      return .back
+      return .pageUp
     }
     if state.right, !previousState.right {
-      return .activate
+      return .pageDown
     }
 
     let directionalCommand: BigPictureCommand? =
