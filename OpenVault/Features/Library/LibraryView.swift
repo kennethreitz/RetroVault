@@ -19,6 +19,7 @@ private enum LibraryPreferenceKey {
   static let browserOrder = "library.column-browser.order.v1"
   static let expandsSmartCollections = "library.smart-collections.expanded.v1"
   static let expandsVirtualCollections = "library.virtual-collections.expanded.v1"
+  static let sidebarSystemSort = "library.sidebar-system-sort.v1"
 }
 
 private enum LibraryPresentation: String {
@@ -100,6 +101,47 @@ enum ArtworkSort: String, CaseIterable, Identifiable, Sendable {
       return lhs.id < rhs.id
     }
     return comparison == .orderedAscending
+  }
+}
+
+enum SidebarSystemSort: String, CaseIterable, Identifiable, Sendable {
+  case alphabetical
+  case gameCount
+
+  var id: Self {
+    self
+  }
+
+  var title: String {
+    switch self {
+    case .alphabetical:
+      "Alphabetical"
+    case .gameCount:
+      "Game Count"
+    }
+  }
+
+  var systemImage: String {
+    switch self {
+    case .alphabetical:
+      "textformat"
+    case .gameCount:
+      "number"
+    }
+  }
+
+  nonisolated func sorted(_ systems: [LibrarySystem]) -> [LibrarySystem] {
+    systems.sorted { lhs, rhs in
+      if self == .gameCount, lhs.gameCount != rhs.gameCount {
+        return lhs.gameCount > rhs.gameCount
+      }
+
+      let comparison = lhs.name.localizedStandardCompare(rhs.name)
+      if comparison == .orderedSame {
+        return lhs.id < rhs.id
+      }
+      return comparison == .orderedAscending
+    }
   }
 }
 
@@ -240,6 +282,8 @@ struct LibraryView: View {
   private var collectionPresentation = LibraryPresentation.list
   @AppStorage(LibraryPreferenceKey.artworkSort)
   private var artworkSort = ArtworkSort.alphabetical
+  @AppStorage(LibraryPreferenceKey.sidebarSystemSort)
+  private var sidebarSystemSort = SidebarSystemSort.alphabetical
   @FocusState private var hasSidebarFocus: Bool
 
   var body: some View {
@@ -289,7 +333,7 @@ struct LibraryView: View {
             }
           }
 
-          Section("Systems") {
+          Section {
             ForEach(supportedPopulatedSystems) { system in
               Text(system.name)
                 .badge(system.gameCount)
@@ -335,6 +379,40 @@ struct LibraryView: View {
                 )
                 .badge(emptySystems.count)
               }
+            }
+          } header: {
+            HStack(spacing: 6) {
+              Text("Systems")
+
+              Spacer()
+
+              Menu {
+                ForEach(SidebarSystemSort.allCases) { option in
+                  Button {
+                    sidebarSystemSort = option
+                  } label: {
+                    Label(
+                      option.title,
+                      systemImage: sidebarSystemSort == option
+                        ? "checkmark"
+                        : option.systemImage
+                    )
+                  }
+                }
+              } label: {
+                Label(
+                  "Sort Systems",
+                  systemImage: "arrow.up.arrow.down"
+                )
+                .labelStyle(.iconOnly)
+              }
+              .menuStyle(.borderlessButton)
+              .fixedSize()
+              .help(
+                "Sort systems by \(sidebarSystemSort.title.lowercased())"
+              )
+              .accessibilityLabel("Sort Sidebar Systems")
+              .accessibilityValue(sidebarSystemSort.title)
             }
           }
         }
@@ -581,11 +659,13 @@ struct LibraryView: View {
   }
 
   private var populatedSystems: [LibrarySystem] {
-    model.systems.filter {
-      $0.gameCount > 0
-        && (!model.hidesGamesWithoutArtwork
-          || !model.systemIDsWithoutArtwork.contains($0.id))
-    }
+    sidebarSystemSort.sorted(
+      model.systems.filter {
+        $0.gameCount > 0
+          && (!model.hidesGamesWithoutArtwork
+            || !model.systemIDsWithoutArtwork.contains($0.id))
+      }
+    )
   }
 
   private var supportedPopulatedSystems: [LibrarySystem] {
@@ -647,7 +727,9 @@ struct LibraryView: View {
   }
 
   private var emptySystems: [LibrarySystem] {
-    model.systems.filter { $0.gameCount == 0 }
+    sidebarSystemSort.sorted(
+      model.systems.filter { $0.gameCount == 0 }
+    )
   }
 
   private var shouldOfferAllSystemsSearch: Bool {

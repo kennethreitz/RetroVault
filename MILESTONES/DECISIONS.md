@@ -143,6 +143,9 @@ enum ServerConfiguration: Sendable {
 - Systems with games are shown directly. Empty systems are collapsed under an
   Empty Systems disclosure at the bottom of the Systems section so future
   upload targets remain reachable without cluttering everyday browsing.
+- The Systems section can be sorted alphabetically or by descending game count.
+  The selected order is persisted and applies consistently to supported,
+  unsupported, and empty-system groups.
 - User-created RomM collections are read-only navigation destinations. Smart
   collections use a collapsible subgroup whose expanded state is remembered.
 - RomM's automatically generated virtual collections are synchronized with

@@ -62,6 +62,28 @@ struct ArtworkSortTests {
   }
 }
 
+@Suite("Sidebar system sorting")
+struct SidebarSystemSortTests {
+  @Test("Sorts systems alphabetically or by descending game count")
+  func sortsSidebarSystems() {
+    let systems = [
+      LibrarySystem(id: 1, name: "Game Boy", gameCount: 587),
+      LibrarySystem(id: 2, name: "Atari 2600", gameCount: 443),
+      LibrarySystem(id: 3, name: "DOS", gameCount: 3_061),
+      LibrarySystem(id: 4, name: "Arcade", gameCount: 2_160),
+    ]
+
+    #expect(
+      SidebarSystemSort.alphabetical.sorted(systems).map(\.name)
+        == ["Arcade", "Atari 2600", "DOS", "Game Boy"]
+    )
+    #expect(
+      SidebarSystemSort.gameCount.sorted(systems).map(\.name)
+        == ["DOS", "Arcade", "Game Boy", "Atari 2600"]
+    )
+  }
+}
+
 @Suite("Big Picture catalog")
 struct BigPictureCatalogTests {
   @Test("Builds recent, downloaded, system, and collection menus offline")
