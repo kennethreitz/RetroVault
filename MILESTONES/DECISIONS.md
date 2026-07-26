@@ -185,7 +185,9 @@ enum ServerConfiguration: Sendable {
 ## Big Picture
 
 - The library toolbar exposes a TV button that opens a dedicated, single
-  Big Picture window and enters native macOS full screen.
+  Big Picture window and enters native macOS full screen. The window remains
+  resizable and fullscreen-capable, with an explicit control and the standard
+  Control-Command-F shortcut for moving between windowed and fullscreen modes.
 - Big Picture follows MinUI's visual grammar: a black canvas, large rounded
   typography, an inverted white selection, shallow navigation, and persistent
   controller action hints. It does not reuse the desktop sidebar, toolbar,
@@ -204,9 +206,10 @@ enum ServerConfiguration: Sendable {
   extended or compact controller rather than binding navigation to the first
   device returned by the system.
 - Big Picture directional selection clamps at the beginning and end of a list
-  instead of wrapping unexpectedly. Pointer hover can update selection without
-  issuing a programmatic scroll, preventing wheel scrolling from feeding back
-  into a jump toward the first rows.
+  instead of wrapping unexpectedly. Keyboard or controller input suppresses
+  pointer-hover selection until the pointer physically moves, so a stationary
+  cursor cannot steal focus as the list scrolls beneath it. Pointer hover does
+  not issue a programmatic scroll.
 - Starting a game reuses the production details, download, firmware, save-sync,
   and Libretro preparation pipeline. Large uncached ROMs show byte and
   percentage progress rather than an indefinite Preparing state.

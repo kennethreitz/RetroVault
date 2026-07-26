@@ -23,7 +23,9 @@ struct BigPictureView: View {
   @State private var scrollTargetID: BigPictureRow.ID?
   @State private var controllerState = BigPictureControllerState()
   @State private var controllerNavigation = BigPictureControllerNavigation()
+  @State private var inputPriority = BigPictureInputPriority()
   @State private var bigPictureWindow: NSWindow?
+  @State private var isBigPictureFullScreen = false
   @State private var playbackModel: GameDetailsModel?
   @State private var playbackTask: Task<Void, Never>?
   @State private var isLoadingGameDetails = false
@@ -49,6 +51,8 @@ struct BigPictureView: View {
     .background {
       BigPictureWindowProbe { window in
         bigPictureWindow = window
+        isBigPictureFullScreen =
+          window?.styleMask.contains(.fullScreen) == true
       }
     }
     .task {
@@ -59,6 +63,26 @@ struct BigPictureView: View {
     }
     .task {
       await pollControllers()
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(
+        for: NSWindow.didEnterFullScreenNotification
+      )
+    ) { notification in
+      guard notification.object as? NSWindow === bigPictureWindow else {
+        return
+      }
+      isBigPictureFullScreen = true
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(
+        for: NSWindow.didExitFullScreenNotification
+      )
+    ) { notification in
+      guard notification.object as? NSWindow === bigPictureWindow else {
+        return
+      }
+      isBigPictureFullScreen = false
     }
     .onDisappear {
       playbackTask?.cancel()
@@ -97,13 +121,13 @@ struct BigPictureView: View {
     .onMoveCommand { direction in
       switch direction {
       case .up:
-        handle(.up)
+        handleNavigationInput(.up)
       case .down:
-        handle(.down)
+        handleNavigationInput(.down)
       case .left:
-        handle(.pageUp)
+        handleNavigationInput(.pageUp)
       case .right:
-        handle(.pageDown)
+        handleNavigationInput(.pageDown)
       default:
         break
       }
@@ -112,15 +136,25 @@ struct BigPictureView: View {
       handleEscape()
     }
     .onKeyPress(.return) {
-      handle(.activate)
+      handleNavigationInput(.activate)
       return .handled
     }
     .onKeyPress(.space) {
-      handle(.activate)
+      handleNavigationInput(.activate)
       return .handled
     }
     .onKeyPress(.escape) {
       handleEscape()
+      return .handled
+    }
+    .onKeyPress("f", phases: .down) { keyPress in
+      guard
+        keyPress.modifiers.contains(.command),
+        keyPress.modifiers.contains(.control)
+      else {
+        return .ignored
+      }
+      toggleBigPictureFullScreen()
       return .handled
     }
   }
@@ -146,6 +180,30 @@ struct BigPictureView: View {
         }
 
         statusPill
+
+        Button {
+          toggleBigPictureFullScreen()
+        } label: {
+          Image(
+            systemName: isBigPictureFullScreen
+              ? "arrow.down.right.and.arrow.up.left"
+              : "arrow.up.left.and.arrow.down.right"
+          )
+          .font(.system(size: 15, weight: .black))
+          .frame(width: 36, height: 36)
+          .background(.white.opacity(0.12), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .help(
+          isBigPictureFullScreen
+            ? "Exit Full Screen"
+            : "Enter Full Screen"
+        )
+        .accessibilityLabel(
+          isBigPictureFullScreen
+            ? "Exit Big Picture Full Screen"
+            : "Enter Big Picture Full Screen"
+        )
 
         TimelineView(.periodic(from: .now, by: 30)) { context in
           Text(
@@ -270,8 +328,12 @@ struct BigPictureView: View {
             }
             .buttonStyle(.plain)
             .id(row.id)
-            .onHover { isHovering in
-              if isHovering {
+            .onContinuousHover { phase in
+              if case .active = phase,
+                inputPriority.acceptsPointerHover(
+                  at: NSEvent.mouseLocation
+                )
+              {
                 selectRow(at: index, scrollsIntoView: false)
               }
             }
@@ -705,6 +767,7 @@ struct BigPictureView: View {
   }
 
   private func handleEscape() {
+    recordNavigationInput()
     if playbackErrorMessage != nil
       || isPreparingPlayback
       || !history.isEmpty
@@ -713,6 +776,25 @@ struct BigPictureView: View {
     } else {
       dismissWindow(id: BigPictureScene.id)
     }
+  }
+
+  private func handleNavigationInput(_ command: BigPictureCommand) {
+    recordNavigationInput()
+    handle(command)
+  }
+
+  private func recordNavigationInput() {
+    inputPriority.recordNavigationInput(
+      pointerPosition: NSEvent.mouseLocation
+    )
+  }
+
+  private func toggleBigPictureFullScreen() {
+    guard let bigPictureWindow else {
+      return
+    }
+    bigPictureWindow.collectionBehavior.insert(.fullScreenPrimary)
+    bigPictureWindow.toggleFullScreen(nil)
   }
 
   private func play(_ game: GameSummary) {
@@ -769,6 +851,7 @@ struct BigPictureView: View {
     }
     activePlayerRequest = nil
     controllerNavigation.synchronize(with: .current)
+    recordNavigationInput()
 
     Task { @MainActor in
       await Task.yield()
@@ -833,7 +916,7 @@ struct BigPictureView: View {
         for: currentState,
         at: ProcessInfo.processInfo.systemUptime
       ) {
-        handle(command)
+        handleNavigationInput(command)
       }
       try? await Task.sleep(for: .milliseconds(30))
     }
@@ -1051,6 +1134,37 @@ enum BigPictureSelectionNavigation {
   }
 }
 
+struct BigPictureInputPriority: Sendable {
+  private static let pointerMovementThreshold: CGFloat = 3
+  private var navigationPointerPosition: CGPoint?
+
+  mutating func recordNavigationInput(pointerPosition: CGPoint) {
+    navigationPointerPosition = pointerPosition
+  }
+
+  mutating func acceptsPointerHover(at pointerPosition: CGPoint) -> Bool {
+    guard let navigationPointerPosition else {
+      return true
+    }
+
+    let horizontalMovement =
+      pointerPosition.x - navigationPointerPosition.x
+    let verticalMovement =
+      pointerPosition.y - navigationPointerPosition.y
+    let movementSquared =
+      horizontalMovement * horizontalMovement
+      + verticalMovement * verticalMovement
+    let thresholdSquared =
+      Self.pointerMovementThreshold * Self.pointerMovementThreshold
+
+    guard movementSquared >= thresholdSquared else {
+      return false
+    }
+    self.navigationPointerPosition = nil
+    return true
+  }
+}
+
 private struct BigPictureWindowProbe: NSViewRepresentable {
   let didMoveToWindow: @MainActor (NSWindow?) -> Void
 
@@ -1079,6 +1193,7 @@ private final class BigPictureProbeView: NSView {
 
     window.backgroundColor = .black
     window.collectionBehavior.insert(.fullScreenPrimary)
+    window.styleMask.insert(.resizable)
     window.titleVisibility = .hidden
     window.titlebarAppearsTransparent = true
     window.toolbar?.isVisible = false
