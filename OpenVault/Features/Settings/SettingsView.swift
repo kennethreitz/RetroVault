@@ -3,6 +3,8 @@ import SwiftUI
 struct SettingsView: View {
     let model: AppModel
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(BigPictureScene.launchesAutomaticallyPreferenceKey)
+    private var launchesBigPictureAutomatically = false
     @State private var showsPurgeConfirmation = false
 
     var body: some View {
@@ -104,6 +106,23 @@ struct SettingsView: View {
                     This content-free core verifies native video, input, local save memory, \
                     save states, and the separate player window before OpenVault enables \
                     reviewed console cores for RomM games.
+                    """
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            Section("Big Picture") {
+                Toggle(
+                    "Launch OpenVault in Big Picture",
+                    isOn: $launchesBigPictureAutomatically
+                )
+
+                Text(
+                    """
+                    Opens the controller-first fullscreen library automatically \
+                    after OpenVault restores its RomM connection. This takes effect \
+                    the next time OpenVault launches.
                     """
                 )
                 .font(.caption)

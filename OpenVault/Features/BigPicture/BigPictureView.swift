@@ -4,6 +4,8 @@ import SwiftUI
 
 enum BigPictureScene {
   static let id = "big-picture"
+  static let launchesAutomaticallyPreferenceKey =
+    "big-picture.launches-automatically.v1"
 }
 
 struct BigPictureView: View {
