@@ -2304,6 +2304,17 @@ private struct LibraryTableView: View {
           .defaultVisibility(.visible)
       }
 
+      TableColumn("Downloaded") { game in
+        AvailabilityCheckbox(
+          value: model.downloadedGameIDs.contains(game.id),
+          availableLabel: "Downloaded",
+          unavailableLabel: "Not downloaded"
+        )
+      }
+      .width(86)
+      .customizationID("downloaded")
+      .defaultVisibility(.visible)
+
       TableColumn("Save", value: \.saveSortValue) { game in
         AvailabilityCheckbox(
           value: game.hasSave,
