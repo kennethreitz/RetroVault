@@ -47,6 +47,10 @@ struct LibretroRunRequest: Codable, Hashable, Sendable {
         skipsQuickStateRestore != true
     }
 
+    var allowsRewind: Bool {
+        LibretroRewindPolicy.isEnabled(forCoreID: coreID)
+    }
+
     func startingFresh() -> Self {
         Self(
             title: title,
@@ -76,6 +80,14 @@ struct LibretroRunRequest: Codable, Hashable, Sendable {
         coreID: "libretro-2048",
         contentURL: nil
     )
+}
+
+enum LibretroRewindPolicy {
+    static func isEnabled(forCoreID coreID: String) -> Bool {
+        let normalizedCoreID = coreID.lowercased()
+        return !normalizedCoreID.contains("n64")
+            && !normalizedCoreID.contains("mupen64")
+    }
 }
 
 struct LibretroVideoFrame: Sendable {
@@ -420,6 +432,10 @@ final class LibretroSession {
     private(set) var canRewind = false
     private(set) var saveSyncPhase: SaveSyncPhase = .idle
     private(set) var shouldClosePlayer = false
+
+    var allowsRewind: Bool {
+        request.allowsRewind
+    }
 
     private let engine: LibretroEngine
     private let syncCartridgeSave:
@@ -2018,7 +2034,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             byteLimit: Self.rewindByteLimit,
             entryLimit: Self.rewindEntryLimit
         )
-        var rewindIsSupported = true
+        var rewindIsSupported = request.allowsRewind
         var nextRewindCapture = 0.0
 
         defer {
@@ -2205,7 +2221,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 case .reset:
                     core.reset()
                     rewindBuffer.removeAll()
-                    rewindIsSupported = true
+                    rewindIsSupported = request.allowsRewind
                     nextRewindCapture = 0
                     emit(.rewindAvailabilityChanged(false))
                 case .saveQuickState:
@@ -2222,12 +2238,15 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     let data = try Data(contentsOf: quickStateURL)
                     try core.loadState(data)
                     rewindBuffer.removeAll()
-                    rewindIsSupported = true
+                    rewindIsSupported = request.allowsRewind
                     nextRewindCapture = 0
                     audioOutput.flush()
                     emit(.rewindAvailabilityChanged(false))
                     emit(.quickStateLoaded)
                 case .rewind:
+                    guard rewindIsSupported else {
+                        continue
+                    }
                     guard let state = rewindBuffer.popLast() else {
                         emit(.rewindAvailabilityChanged(false))
                         continue

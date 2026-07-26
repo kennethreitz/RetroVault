@@ -183,7 +183,11 @@ struct LibretroGameView: View {
                 }
                 .buttonRepeatBehavior(.enabled)
                 .disabled(!isRunning || !session.canRewind)
-                .help("Rewind about one second; hold to continue rewinding")
+                .help(
+                    session.allowsRewind
+                        ? "Rewind about one second; hold to continue rewinding"
+                        : "Rewind is disabled for Nintendo 64 games"
+                )
 
                 Menu {
                     Button("Save Quick State") {

@@ -591,6 +591,25 @@ struct LibretroCoreManifestTests {
         #expect(rewind.byteCount == 0)
     }
 
+    @Test("Disables rewind for Nintendo 64 cores")
+    func disablesNintendo64Rewind() {
+        #expect(
+            !LibretroRewindPolicy.isEnabled(
+                forCoreID: "libretro-parallel-n64"
+            )
+        )
+        #expect(
+            !LibretroRewindPolicy.isEnabled(
+                forCoreID: "libretro-mupen64plus-next"
+            )
+        )
+        #expect(
+            LibretroRewindPolicy.isEnabled(
+                forCoreID: "libretro-bsnes-mercury-balanced"
+            )
+        )
+    }
+
     @Test("Start and Select request one clean exit per button chord")
     func detectsControllerExitChord() {
         var chord = LibretroControllerExitChord()
