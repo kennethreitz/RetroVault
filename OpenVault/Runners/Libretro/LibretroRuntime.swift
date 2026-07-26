@@ -229,7 +229,11 @@ final class LibretroInputState: @unchecked Sendable {
     }
 
     func pollController() {
-        guard let gamepad = GCController.controllers().first?.extendedGamepad else {
+        let controllers = GCController.controllers()
+        guard
+            let controller = GCController.current ?? controllers.first,
+            let gamepad = controller.extendedGamepad
+        else {
             lock.lock()
             _ = exitChord.update(startPressed: false, selectPressed: false)
             controllerButtons = 0
@@ -254,10 +258,16 @@ final class LibretroInputState: @unchecked Sendable {
         buttons.set(.down, when: gamepad.dpad.down.isPressed)
         buttons.set(.left, when: gamepad.dpad.left.isPressed)
         buttons.set(.right, when: gamepad.dpad.right.isPressed)
-        buttons.set(.b, when: gamepad.buttonA.isPressed)
-        buttons.set(.a, when: gamepad.buttonB.isPressed)
-        buttons.set(.y, when: gamepad.buttonX.isPressed)
-        buttons.set(.x, when: gamepad.buttonY.isPressed)
+        buttons |= Self.faceButtonMask(
+            buttonAPressed: gamepad.buttonA.isPressed,
+            buttonBPressed: gamepad.buttonB.isPressed,
+            buttonXPressed: gamepad.buttonX.isPressed,
+            buttonYPressed: gamepad.buttonY.isPressed,
+            layout: ControllerFaceButtonLayout.resolve(
+                vendorName: controller.vendorName,
+                productCategory: controller.productCategory
+            )
+        )
         buttons.set(.l, when: gamepad.leftShoulder.isPressed)
         buttons.set(.r, when: gamepad.rightShoulder.isPressed)
         buttons.set(.l2, when: gamepad.leftTrigger.isPressed)
@@ -285,6 +295,31 @@ final class LibretroInputState: @unchecked Sendable {
         rightAnalogY = analogAxis(-gamepad.rightThumbstick.yAxis.value)
         pendingKeyboardPresses = 0
         lock.unlock()
+    }
+
+    static func faceButtonMask(
+        buttonAPressed: Bool,
+        buttonBPressed: Bool,
+        buttonXPressed: Bool,
+        buttonYPressed: Bool,
+        layout: ControllerFaceButtonLayout
+    ) -> UInt16 {
+        var buttons: UInt16 = 0
+
+        switch layout {
+        case .standard:
+            buttons.set(.b, when: buttonAPressed)
+            buttons.set(.a, when: buttonBPressed)
+            buttons.set(.y, when: buttonXPressed)
+            buttons.set(.x, when: buttonYPressed)
+        case .nintendo:
+            buttons.set(.a, when: buttonAPressed)
+            buttons.set(.b, when: buttonBPressed)
+            buttons.set(.x, when: buttonXPressed)
+            buttons.set(.y, when: buttonYPressed)
+        }
+
+        return buttons
     }
 
     func consumeExitRequest() -> Bool {

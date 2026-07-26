@@ -600,7 +600,7 @@ struct BigPictureCatalogTests {
     #expect(switchB.back)
     #expect(!switchB.activate)
     #expect(
-      BigPictureControllerState.controllerLayout(
+      ControllerFaceButtonLayout.resolve(
         vendorName: "Nintendo Co., Ltd.",
         productCategory: "Switch"
       ) == .nintendo

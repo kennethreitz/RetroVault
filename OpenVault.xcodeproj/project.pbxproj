@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		A80000000000000000000002 /* BigPictureCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000002 /* BigPictureCatalog.swift */; };
 		A80000000000000000000001 /* BigPictureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000001 /* BigPictureView.swift */; };
+		A90000000000000000000001 /* ControllerFaceButtonLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90000000000000000000001 /* ControllerFaceButtonLayout.swift */; };
 		A70000000000000000000001 /* LibretroLogShim.c in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000001 /* LibretroLogShim.c */; };
 		A60000000000000000000001 /* LiquidGlass.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60000000000000000000001 /* LiquidGlass.swift */; };
 		A50000000000000000000002 /* LogViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000002 /* LogViewerView.swift */; };
@@ -69,6 +70,7 @@
 /* Begin PBXFileReference section */
 		B80000000000000000000002 /* BigPictureCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BigPictureCatalog.swift; sourceTree = "<group>"; };
 		B80000000000000000000001 /* BigPictureView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BigPictureView.swift; sourceTree = "<group>"; };
+		B90000000000000000000001 /* ControllerFaceButtonLayout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControllerFaceButtonLayout.swift; sourceTree = "<group>"; };
 		B70000000000000000000001 /* LibretroLogShim.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; path = LibretroLogShim.c; sourceTree = "<group>"; };
 		B60000000000000000000001 /* LiquidGlass.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiquidGlass.swift; sourceTree = "<group>"; };
 		B50000000000000000000002 /* LogViewerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LogViewerView.swift; sourceTree = "<group>"; };
@@ -281,6 +283,7 @@
 			isa = PBXGroup;
 			children = (
 				C70000000000000000000001 /* LibretroLogShim */,
+				B90000000000000000000001 /* ControllerFaceButtonLayout.swift */,
 				B60000000000000000000001 /* LiquidGlass.swift */,
 				B50000000000000000000001 /* OpenVaultDiagnostics.swift */,
 			);
@@ -516,6 +519,7 @@
 			files = (
 				A80000000000000000000002 /* BigPictureCatalog.swift in Sources */,
 				A80000000000000000000001 /* BigPictureView.swift in Sources */,
+				A90000000000000000000001 /* ControllerFaceButtonLayout.swift in Sources */,
 				A70000000000000000000001 /* LibretroLogShim.c in Sources */,
 				7FB6894CA3D75799680F2756 /* AppEnvironment.swift in Sources */,
 				FDD0BB6FEFC2631F2868A349 /* AppModel.swift in Sources */,

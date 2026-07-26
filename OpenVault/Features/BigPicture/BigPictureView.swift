@@ -1537,7 +1537,7 @@ struct BigPictureControllerState: Equatable, Sendable {
     if let controller = GCController.current ?? controllers.first,
        let gamepad = controller.extendedGamepad
     {
-      let layout = controllerLayout(
+      let layout = ControllerFaceButtonLayout.resolve(
         vendorName: controller.vendorName,
         productCategory: controller.productCategory
       )
@@ -1572,7 +1572,7 @@ struct BigPictureControllerState: Equatable, Sendable {
         let faceButtons = Self.extendedFaceButtonActions(
           buttonAPressed: gamepad.buttonA.isPressed,
           buttonBPressed: gamepad.buttonB.isPressed,
-          layout: controllerLayout(
+          layout: ControllerFaceButtonLayout.resolve(
             vendorName: controller.vendorName,
             productCategory: controller.productCategory
           )
@@ -1631,7 +1631,7 @@ struct BigPictureControllerState: Equatable, Sendable {
   static func extendedFaceButtonActions(
     buttonAPressed: Bool,
     buttonBPressed: Bool,
-    layout: BigPictureControllerLayout = .standard
+    layout: ControllerFaceButtonLayout = .standard
   ) -> (activate: Bool, back: Bool) {
     switch layout {
     case .standard:
@@ -1663,20 +1663,6 @@ struct BigPictureControllerState: Equatable, Sendable {
     )
   }
 
-  static func controllerLayout(
-    vendorName: String?,
-    productCategory: String
-  ) -> BigPictureControllerLayout {
-    let identity = [vendorName, productCategory]
-      .compactMap { $0 }
-      .joined(separator: " ")
-      .lowercased()
-
-    return identity.contains("nintendo") || identity.contains("switch")
-      ? .nintendo
-      : .standard
-  }
-
   static func buttonPrompt(
     localizedName: String?,
     systemImage: String?,
@@ -1700,11 +1686,6 @@ struct BigPictureControllerState: Equatable, Sendable {
 struct BigPictureControllerPrompt: Equatable, Sendable {
   let label: String
   var systemImage: String?
-}
-
-enum BigPictureControllerLayout: Equatable, Sendable {
-  case standard
-  case nintendo
 }
 
 struct BigPictureControllerNavigation: Sendable {

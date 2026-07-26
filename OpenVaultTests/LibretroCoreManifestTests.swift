@@ -5,6 +5,75 @@ import Testing
 
 @Suite("Bundled Libretro cores")
 struct LibretroCoreManifestTests {
+    @Test("Maps Xbox and Nintendo face buttons to matching positions")
+    func mapsControllerFaceButtonPositions() {
+        let xboxBottom = LibretroInputState.faceButtonMask(
+            buttonAPressed: true,
+            buttonBPressed: false,
+            buttonXPressed: false,
+            buttonYPressed: false,
+            layout: .standard
+        )
+        let switchBottom = LibretroInputState.faceButtonMask(
+            buttonAPressed: false,
+            buttonBPressed: true,
+            buttonXPressed: false,
+            buttonYPressed: false,
+            layout: .nintendo
+        )
+        let xboxRight = LibretroInputState.faceButtonMask(
+            buttonAPressed: false,
+            buttonBPressed: true,
+            buttonXPressed: false,
+            buttonYPressed: false,
+            layout: .standard
+        )
+        let switchRight = LibretroInputState.faceButtonMask(
+            buttonAPressed: true,
+            buttonBPressed: false,
+            buttonXPressed: false,
+            buttonYPressed: false,
+            layout: .nintendo
+        )
+        let xboxLeft = LibretroInputState.faceButtonMask(
+            buttonAPressed: false,
+            buttonBPressed: false,
+            buttonXPressed: true,
+            buttonYPressed: false,
+            layout: .standard
+        )
+        let switchLeft = LibretroInputState.faceButtonMask(
+            buttonAPressed: false,
+            buttonBPressed: false,
+            buttonXPressed: false,
+            buttonYPressed: true,
+            layout: .nintendo
+        )
+        let xboxTop = LibretroInputState.faceButtonMask(
+            buttonAPressed: false,
+            buttonBPressed: false,
+            buttonXPressed: false,
+            buttonYPressed: true,
+            layout: .standard
+        )
+        let switchTop = LibretroInputState.faceButtonMask(
+            buttonAPressed: false,
+            buttonBPressed: false,
+            buttonXPressed: true,
+            buttonYPressed: false,
+            layout: .nintendo
+        )
+
+        #expect(xboxBottom == LibretroButton.b.mask)
+        #expect(switchBottom == xboxBottom)
+        #expect(xboxRight == LibretroButton.a.mask)
+        #expect(switchRight == xboxRight)
+        #expect(xboxLeft == LibretroButton.y.mask)
+        #expect(switchLeft == xboxLeft)
+        #expect(xboxTop == LibretroButton.x.mask)
+        #expect(switchTop == xboxTop)
+    }
+
     @Test("Selects only reviewed cores for compatible RomM games")
     func selectsReviewedCore() throws {
         let manifestURL = URL(fileURLWithPath: #filePath)
