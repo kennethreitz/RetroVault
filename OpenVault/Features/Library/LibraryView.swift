@@ -13,6 +13,7 @@ enum LibraryControllerCommand: Equatable, Sendable {
   case right
   case activate
   case back
+  case openBigPicture
   case focusContent
 }
 
@@ -43,6 +44,9 @@ struct LibraryControllerNavigation: Sendable {
       previousState = state
     }
 
+    if state.opensBigPicture, !previousState.opensBigPicture {
+      return .openBigPicture
+    }
     if state.back, !previousState.back {
       return .back
     }
@@ -671,7 +675,7 @@ struct LibraryView: View {
             } label: {
               Label("Big Picture", systemImage: "tv")
             }
-            .help("Enter Big Picture mode")
+            .help("Enter Big Picture mode (or press Home/Menu on a controller)")
             .accessibilityLabel("Enter Big Picture Mode")
           }
         }
@@ -1433,6 +1437,11 @@ struct LibraryView: View {
   }
 
   private func handleControllerCommand(_ command: LibraryControllerCommand) {
+    if command == .openBigPicture {
+      openWindow(id: BigPictureScene.id)
+      return
+    }
+
     guard hasSidebarFocus else {
       emitControllerEvent(command)
       return
@@ -1446,7 +1455,7 @@ struct LibraryView: View {
     case .right, .activate:
       hasSidebarFocus = false
       emitControllerEvent(.focusContent)
-    case .left, .back, .focusContent:
+    case .left, .back, .openBigPicture, .focusContent:
       break
     }
   }
@@ -1740,6 +1749,8 @@ private struct VirtualCollectionGalleryView: View {
       openCollection(collections[selectedIndex])
     case .back:
       focusSidebar()
+    case .openBigPicture:
+      break
     }
   }
 
@@ -2432,6 +2443,8 @@ private struct LibraryTableView: View {
         hasTableFocus = false
         focusSidebar()
       }
+    case .openBigPicture:
+      break
     }
   }
 
@@ -3655,6 +3668,8 @@ private struct LibraryGridView: View {
     case .back:
       hasGridFocus = false
       focusSidebar()
+    case .openBigPicture:
+      break
     }
   }
 

@@ -416,6 +416,19 @@ struct BigPictureCatalogTests {
     )
   }
 
+  @Test("Maps the controller Menu button to Big Picture")
+  func mapsControllerMenuToBigPicture() {
+    var navigation = LibraryControllerNavigation()
+    let menu = BigPictureControllerState(
+      isConnected: true,
+      back: true,
+      opensBigPicture: true
+    )
+
+    #expect(navigation.command(for: menu, at: 30) == .openBigPicture)
+    #expect(navigation.command(for: menu, at: 30.1) == nil)
+  }
+
   @Test("Maps controller actions and shoulders without repeating a hold")
   func mapsControllerNavigationActions() {
     var navigation = BigPictureControllerNavigation()

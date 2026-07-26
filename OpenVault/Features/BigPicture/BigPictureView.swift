@@ -1003,6 +1003,7 @@ struct BigPictureControllerState: Equatable, Sendable {
   var right = false
   var activate = false
   var back = false
+  var opensBigPicture = false
   var pageUp = false
   var pageDown = false
   var activateButtonPrompt = BigPictureControllerPrompt(label: "B")
@@ -1062,6 +1063,10 @@ struct BigPictureControllerState: Equatable, Sendable {
           || gamepad.dpad.right.isPressed
           || gamepad.leftThumbstick.xAxis.value > 0.72
         state.activate = state.activate || faceButtons.activate
+        state.opensBigPicture =
+          state.opensBigPicture
+          || gamepad.buttonMenu.isPressed
+          || gamepad.buttonHome?.isPressed == true
         state.back =
           state.back
           || faceButtons.back
