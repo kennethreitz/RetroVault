@@ -294,6 +294,19 @@ struct BigPictureCatalogTests {
     #expect(!xboxB.back)
   }
 
+  @Test("Maps Backspace to Big Picture back navigation")
+  func mapsBackspaceToBack() {
+    #expect(
+      BigPictureKeyboardNavigation.command(for: .delete) == .back
+    )
+    #expect(
+      BigPictureKeyboardNavigation.command(for: .return) == .activate
+    )
+    #expect(
+      BigPictureKeyboardNavigation.command(for: .space) == .activate
+    )
+  }
+
   @Test("Keeps Big Picture selection at list boundaries")
   func clampsBigPictureSelection() {
     #expect(

@@ -123,12 +123,13 @@ struct BigPictureView: View {
       handleEscape()
     }
     .onKeyPress(.return) {
-      handleNavigationInput(.activate)
-      return .handled
+      handleKeyboardKey(.return)
     }
     .onKeyPress(.space) {
-      handleNavigationInput(.activate)
-      return .handled
+      handleKeyboardKey(.space)
+    }
+    .onKeyPress(.delete) {
+      handleKeyboardKey(.delete)
     }
     .onKeyPress(.escape) {
       handleEscape()
@@ -736,6 +737,16 @@ struct BigPictureView: View {
     handle(command)
   }
 
+  private func handleKeyboardKey(
+    _ key: KeyEquivalent
+  ) -> KeyPress.Result {
+    guard let command = BigPictureKeyboardNavigation.command(for: key) else {
+      return .ignored
+    }
+    handleNavigationInput(command)
+    return .handled
+  }
+
   private func recordNavigationInput() {
     inputPriority.recordNavigationInput(
       pointerPosition: NSEvent.mouseLocation
@@ -899,6 +910,19 @@ enum BigPictureCommand: Equatable, Sendable {
   case pageDown
   case activate
   case back
+}
+
+enum BigPictureKeyboardNavigation {
+  static func command(for key: KeyEquivalent) -> BigPictureCommand? {
+    switch key {
+    case .return, .space:
+      .activate
+    case .delete:
+      .back
+    default:
+      nil
+    }
+  }
 }
 
 private struct BigPictureRow: Identifiable {
