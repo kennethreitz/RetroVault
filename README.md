@@ -1,325 +1,288 @@
-# OpenVault
+<p align="center">
+  <img src=".github/assets/openvault-hero.png" alt="OpenVault — a luminous game vault surrounded by a native game library" width="100%">
+</p>
 
-> **Photos.app for your games.**
+<p align="center">
+  <img src="OpenVault/Resources/Assets.xcassets/AppIcon.appiconset/icon_512x512@2x.png" alt="OpenVault app icon" width="128" height="128">
+</p>
 
-OpenVault is a native macOS client for RomM.
+<h1 align="center">OpenVault</h1>
 
-It brings your entire game library together into a beautiful, first-class Mac experience. Whether your games live on a server in your home, a NAS, or on the Mac itself, OpenVault makes them feel like they belong.
+<p align="center">
+  <strong>Your RomM library, at home on the Mac.</strong>
+</p>
 
-No importing.
-No duplicate libraries.
-No web browser.
+<p align="center">
+  <a href="MILESTONES/README.md"><img src="https://img.shields.io/badge/status-active_development-7657ff?style=flat-square" alt="Active development"></a>
+  <img src="https://img.shields.io/badge/macOS-26-111827?style=flat-square&logo=apple" alt="macOS 26">
+  <img src="https://img.shields.io/badge/architecture-Apple_silicon-111827?style=flat-square" alt="Apple silicon">
+  <img src="https://img.shields.io/badge/Swift-6.2-f05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 6.2">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-2563eb?style=flat-square" alt="GPL-3.0"></a>
+</p>
 
-Just your games.
+OpenVault is a native macOS client for [RomM](https://romm.app). It turns the
+library you already have into a fast, artwork-rich Mac experience inspired by
+Music and Photos—without importing, reorganizing, or creating a competing
+catalog.
 
----
+Connect one server. Browse everything. Keep the metadata and games you choose
+available offline. Press Play.
 
-## Why?
+> [!IMPORTANT]
+> OpenVault is under active development and is not ready for a general release.
+> It currently targets macOS 26 on Apple silicon and the RomM 5.x API. Expect
+> rough edges, especially in emulator compatibility and save synchronization.
 
-Retro gaming today is surprisingly fragmented.
+## Development status
 
-You have ROM collections.
-You have emulators.
-You have metadata.
-You have artwork.
-You have save files.
-You have multiple devices.
+OpenVault is already being exercised against a real 18,000+ game RomM library.
+The native library and offline foundation are working; playback and
+living-room features are in active compatibility testing.
 
-RomM solved the problem of organizing and serving a game library.
+| Area | Status | What that means today |
+| --- | --- | --- |
+| Remote RomM library | **Working** | Pair with one RomM server, synchronize its complete library, and browse systems and collections. |
+| Native library UI | **Working** | Artwork and List views, an iTunes-style column browser, search, sorting, multiple selection, and contextual actions. |
+| Offline experience | **Working** | Cached metadata, details, artwork, search, collections, downloaded games, firmware, and saves remain useful without RomM. |
+| Downloads and export | **Working** | Download keeps a managed local copy; Export writes a shareable copy to Downloads. Bulk operations report live byte progress. |
+| Game details | **Working** | Rich metadata, files, media, save data, editable personal status, and confirmed deletion from RomM. |
+| Bundled Libretro | **In testing** | 24 reviewed ARM64 cores, native Metal presentation, audio, controllers, fullscreen, rewind, and quick states. |
+| Save synchronization | **In testing** | Cartridge save RAM is refreshed before play and uploaded as a new RomM revision after it changes. Quick states stay local. |
+| Big Picture | **In testing** | A controller-first, fullscreen interface with the same cached library and playback pipeline. |
+| Managed local RomM | **Planned** | A future milestone will provision RomM through Apple's container technologies without Docker. |
+| Signed public release | **Not yet** | Keychain migration, compatibility hardening, signing, notarization, and release packaging remain blockers. |
 
-OpenVault exists to make that library feel at home on macOS.
+The detailed scope and acceptance criteria live in
+[`MILESTONES/`](MILESTONES/README.md).
 
-Think of it as **Photos.app**, but for your games.
+## What works
 
----
+### A library that feels native
 
-## Principles
+- Artwork-first system and collection views
+- A fast native List for All Games
+- Reorderable, persistent column-browser filters
+- User-created, smart, and automatic virtual RomM collections
+- Favorites, Downloaded, and recently added views
+- Toolbar search across the active destination or every system
+- Persisted filters for BIOS entries and missing artwork
+- Background artwork pre-caching with visible progress
+- Full keyboard navigation and native multiple selection
+- A built-in unified-log viewer
 
-OpenVault is built around a few simple ideas.
+### RomM, online or off
 
-### RomM is the source of truth
+- Pairing-code exchange and direct client-token entry
+- One configured local or remote server
+- HTTPS plus explicitly configured local-network HTTP
+- Transactional full-library synchronization
+- Cache-first launch and offline library browsing
+- Managed local ROM downloads and explicit exports
+- System firmware fetched from RomM, verified, and cached
+- Editable completion, rating, difficulty, play status, backlog, and visibility
+- Read-only browsing of RomM saves and save states
 
-Your library already exists.
+### Native playback
 
-OpenVault never asks you to import or reorganize it.
+- A Swift-owned Libretro frontend with reviewed, bundled ARM64 cores
+- Software and OpenGL video presented through a nearest-neighbor Metal pipeline
+- Core Audio output and native GameController support
+- Windowed and immersive fullscreen play
+- Automatic local quick-state resume with a **Start Fresh** option
+- Bounded in-memory rewind
+- Automatic quick state on clean or implicit exit
+- Cartridge-save refresh before launch and revisioned upload after play
+- Play-on-demand caching, so a game can launch again while RomM is offline
 
-It simply connects to your RomM server and presents your collection as a native macOS application.
+### Big Picture
 
-### Native first
+- Dedicated fullscreen presentation inspired by MinUI
+- Controller, keyboard, and mouse navigation
+- Recently Added, Downloaded, systems, and RomM collections
+- In-place game launch and a clean return to the library
+- Live progress for large downloads
 
-OpenVault is written specifically for macOS.
+## Reviewed systems
 
-SwiftUI.
-AppKit where appropriate.
-Spotlight.
-Quick Look.
-Drag & Drop.
-System Search.
-Beautiful keyboard shortcuts.
+The application currently bundles the following reviewed core paths. Game and
+firmware compatibility still varies by title while OpenVault is in development.
 
-It should feel like an Apple application.
+| Family | Systems | Core |
+| --- | --- | --- |
+| Nintendo | Game Boy, Game Boy Color | Gambatte |
+| Nintendo | Game Boy Advance | mGBA |
+| Nintendo | NES | Nestopia UE |
+| Nintendo | SNES | bsnes-mercury Balanced |
+| Nintendo | Nintendo 64 | ParaLLEl-N64 |
+| Nintendo | Nintendo DS | melonDS |
+| Nintendo | GameCube, Wii | Dolphin |
+| Sega | Master System, Game Gear, SG-1000 | Gearsystem |
+| Sega | Genesis / Mega Drive, Sega CD / Mega CD | Genesis Plus GX |
+| Sega | Sega 32X | PicoDrive |
+| Sony | PlayStation | PCSX-ReARMed |
+| Sony | PlayStation Portable | PPSSPP |
+| NEC | PC Engine / TurboGrafx-16, SuperGrafx, PC Engine CD | Geargrafx |
+| Atari | Atari 2600 | Stella 2014 |
+| Atari | Atari 5200 | A5200 |
+| Atari | Atari 7800 | ProSystem |
+| SNK | Neo Geo Pocket, Neo Geo Pocket Color | Beetle NeoPop |
+| Bandai | WonderSwan, WonderSwan Color | Beetle Cygne |
+| Other | Arcade | FinalBurn Neo |
+| Other | DOS | DOSBox Pure |
+| Other | Virtual Boy | Beetle VB |
+| Other | Pokémon Mini | PokeMini |
+| Other | Arduboy | Arduous |
+| Other | Pico-8 | FAKE-08 |
 
-### Your games stay yours
+Core revisions, licenses, hashes, build instructions, and frontend requirements
+are recorded in [`Libretro/CoreManifest.json`](Libretro/CoreManifest.json).
+OpenVault does not bundle games, firmware, BIOS files, or cryptographic keys.
 
-Your library belongs to you.
+## How OpenVault thinks about your library
 
-No accounts.
-No cloud lock-in.
-No subscriptions.
-No proprietary database.
+**RomM is the source of truth.** OpenVault synchronizes metadata and presents
+it natively. It does not ask you to import or reorganize your server library.
 
-Open source from day one.
+**Offline is a first-class state.** The last complete snapshot remains
+available if the server restarts, Wi-Fi disappears, or RomM is temporarily
+unreachable.
 
-### One Play button
+**Download and Export are different.** Download keeps a game inside OpenVault's
+managed local library for offline play. Export creates a copy outside the app
+for sharing or archival use.
 
-Playing a game should be effortless.
+**Saves and states are different.** Battery-backed cartridge saves synchronize
+with RomM. Quick states and rewind history are core-specific local conveniences.
 
-Select a game.
-
-Press **Play**.
-
-OpenVault handles the rest.
-
-Whether that means launching an external emulator, using a libretro core, or downloading a cached copy from your RomM server is an implementation detail.
-
----
-
-## Features
-
-### Library
-
-* Native macOS interface
-* Fast search
-* Collections
-* Favorites
-* Recently Played
-* Smart filters
-* Rich artwork
-* Manuals
-* Screenshots
-* Metadata
-
-### RomM Integration
-
-* Connect to one local or remote RomM server
-* Automatic library synchronization
-* Transparent ROM caching
-* Offline mode
-* Save synchronization (planned)
-
-### Game Launching
-
-* Configurable emulator runners
-* Per-system defaults
-* Per-game overrides
-* Native emulator launching
-* Native bundled Libretro runtime
-* Game Boy and Game Boy Color through Gambatte
-* NES through Nestopia UE
-* SNES through bsnes-mercury Balanced
-* GameCube through Dolphin
-* PSP through PPSSPP
-
-### macOS
-
-* Spotlight integration
-* Quick Look previews
-* Dock menus
-* Notifications
-* Shortcuts support
-* Native menu bar
-* Beautiful dark mode
-
----
+**The Mac comes first.** SwiftUI, AppKit, Swift concurrency, Metal, Core Audio,
+GameController, keyboard shortcuts, and standard macOS behavior take priority
+over a web-shaped interface.
 
 ## Architecture
 
-OpenVault intentionally separates responsibilities.
+OpenVault is a modular monolith with explicit internal boundaries:
 
-```
-             ┌─────────────────────┐
-             │     OpenVault       │
-             │   Native Swift App  │
-             └──────────┬──────────┘
-                        │
-                  RomM REST API
-                        │
-             ┌──────────▼──────────┐
-             │        RomM         │
-             └──────────┬──────────┘
-                        │
-          Local Storage / NAS / Cloud
-                        │
-                  Cached ROMs
-                        │
-             ┌──────────▼──────────┐
-             │ Emulator Runners    │
-             │ Dolphin             │
-             │ RPCS3               │
-             │ RetroArch           │
-             │ OpenEmu             │
-             │ libretro            │
-             └─────────────────────┘
+```text
+App
+ └─ Features
+     ├─ Library / Search / Game Details
+     ├─ Big Picture / Settings
+     └─ Runners
+         └─ Libretro
+             ├─ Core manifest
+             ├─ Native runtime
+             └─ Metal / Audio / Input
+          │
+          ▼
+       Services
+       ├─ RomM library and save coordination
+       ├─ Downloads, export, artwork, and firmware
+       └─ Offline cache
+          │
+          ├─ Networking → RomM API
+          ├─ Persistence → SwiftData / files
+          └─ Models → immutable Sendable values
 ```
 
-OpenVault is intentionally modular.
+Features do not reach directly into `URLSession`, credential persistence, or
+SwiftData. Protocols mark meaningful seams, public behavior is tested, and
+RomM-specific DTOs do not leak into the domain model.
 
-RomM manages the library.
+See [`MILESTONES/DECISIONS.md`](MILESTONES/DECISIONS.md) for the decisions that
+shape the project.
 
-Runner plugins launch games.
-
-OpenVault provides the experience.
-
----
-
-## Local Libraries
-
-Don't have a RomM server?
-
-OpenVault can create one for you.
-
-On supported versions of macOS, OpenVault can automatically start a local RomM instance using Apple's container technologies.
-
-No Docker knowledge required.
-
-No manual configuration.
-
-Just your library.
-
----
-
-## Open Source
-
-OpenVault is released under the GPL.
-
-You are free to:
-
-* inspect the source
-* build it yourself
-* modify it
-* contribute improvements
-* redistribute it under the terms of the license
-
-Official signed and notarized builds help fund development.
-
----
-
-## Roadmap
-
-### Version 1
-
-* Native macOS client
-* RomM integration
-* Transparent caching
-* Emulator runners
-* Beautiful library
-
-### Version 2
-
-* Save synchronization
-* Runner plugins
-* Native artwork management
-
-### Future
-
-* Additional reviewed Libretro cores and systems
-* Cloud save providers
-* Companion iPhone and iPad apps
-* Apple TV support
-* Steam Deck companion
-* Plugin ecosystem
-
----
-
-## Non-Goals
-
-OpenVault is **not**:
-
-* a ROM download service
-* an emulator
-* a replacement for RomM
-* a proprietary launcher
-
-It exists to make your existing library feel incredible.
-
----
-
-## Contributing
-
-OpenVault welcomes contributions of every kind.
-
-Whether you're fixing bugs, improving documentation, designing icons, building runners, or polishing the user experience, we'd love your help.
-
----
-
-## Development
-
-OpenVault targets macOS 26 and Apple silicon.
+## Build
 
 Requirements:
 
-* Apple silicon Mac
-* macOS 26 or later
-* Xcode 26 or later
+- Apple silicon Mac
+- macOS 26 or later
+- Xcode 26 or later
 
-Open `OpenVault.xcodeproj` to build and run the native application. The same
-source tree is also described by `Package.swift` for command-line builds and
-tests.
+Open the project and run the `OpenVault` scheme:
 
-The project currently has two application dependencies: Nuke's core image
-pipeline and ZIPFoundation for safe extraction of archived game content. The
-Libretro frontend uses Apple frameworks and a small Swift-owned C ABI bridge
-rather than a frontend package. All dependencies are managed with Swift
-Package Manager.
+```shell
+open OpenVault.xcodeproj
+```
 
-The bundled Libretro pipeline is intentionally separate from ordinary
-development builds. Its manifest, validation command, and build instructions
-live in [`Libretro/`](Libretro/README.md). Run
-`Scripts/build-libretro-cores.sh` to produce reviewed ARM64 core artifacts
-before making a Release build.
+The same source tree supports command-line builds and tests:
 
-The reviewed user-facing core catalog supports Game Boy, Game Boy Color, Game
-Boy Advance, NES, SNES, Master System, Game Gear, SG-1000, Atari 2600, Atari
-5200, Atari 7800, Nintendo 64, Arcade, Virtual Boy, Neo Geo Pocket and Pocket
-Color, WonderSwan and WonderSwan Color, Pokémon Mini, PlayStation, Nintendo
-DS, PC Engine / TurboGrafx-16, SuperGrafx, CHD-based PC Engine CD /
-TurboGrafx-CD, Genesis / Mega Drive, Sega CD / Mega CD, Sega 32X, DOS,
-Arduboy, Pico-8, GameCube, Wii, and PSP. A content-free 2048 core remains
-available from Settings as a frontend smoke test.
+```shell
+swift build
+swift test
+```
 
-Compatible RomM games expose Play in their details header. Play-on-demand
-copies use a disposable 20 GB runtime cache, while an explicit Download keeps
-a managed local copy in OpenVault. Export writes a shareable copy to Downloads
-without changing the Downloaded collection. ZIP-wrapped games are supported
-when the archive contains a file type declared by the selected core. Disc sets
-use their cue sheet and preserve its companion tracks in the same extraction
-directory.
+OpenVault intentionally keeps its dependency surface small:
 
-Firmware is a RomM system-level resource. OpenVault requests it by platform
-through the authenticated firmware API, validates it, and keeps a
-server-scoped local copy for offline playback. Firmware is not bundled in the
-application and is not inferred from `[BIOS]` games.
+- [Nuke](https://github.com/kean/Nuke) for the artwork pipeline
+- [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) for safe archive extraction
 
----
+The Libretro build pipeline is separate from normal app development. See
+[`Libretro/README.md`](Libretro/README.md) or run:
 
-## Inspiration
+```shell
+Scripts/build-libretro-cores.sh
+```
 
-OpenVault stands on the shoulders of incredible open-source projects, including:
+## Roadmap
 
-* RomM
-* OpenEmu
-* RetroArch
-* libretro
-* Dolphin
-* RPCS3
-* PPSSPP
-* Ryujinx (historically)
-* countless emulator authors and preservationists
+### Toward the first public beta
 
-Thank you for keeping gaming history alive.
+- Continue real-library and per-title emulator compatibility work
+- Resolve save conflicts and harden save round trips
+- Move development token storage back to Keychain
+- Finish accessibility, performance, and controller QA
+- Produce signed and notarized release artifacts
 
----
+### Managed local RomM
 
-> **Your games. Beautifully organized.**
->
-> **OpenVault.**
+OpenVault's next major infrastructure milestone is an optional, app-managed
+RomM stack using Apple's container technologies. It will use the same API
+boundary as a paired server and mount the user's selected library without
+copying or reorganizing it.
+
+### Later
+
+- More reviewed systems and cores
+- Richer native media and metadata tools
+- Plugin boundaries where real use cases justify them
+- Companion experiences on other Apple platforms
+
+## Non-goals
+
+OpenVault is not:
+
+- A ROM download service
+- A replacement or competing database for RomM
+- A multi-server aggregator
+- A marketplace for arbitrary emulator cores
+- A reason to surrender ownership of your library
+
+## Contributing
+
+OpenVault is a young open-source project, and contributions are welcome:
+Swift architecture, RomM fixtures, emulator compatibility reports,
+accessibility, documentation, design, testing, and careful UI polish all help.
+
+Please keep changes focused, testable, native-first, and aligned with the
+documented milestones.
+
+## License
+
+OpenVault is free software released under the
+[GNU General Public License v3.0](LICENSE).
+
+Some bundled emulator cores have additional noncommercial restrictions.
+Their exact licenses and release implications are recorded in the Libretro
+manifest and must be reviewed before redistribution.
+
+## Thanks
+
+OpenVault stands on the shoulders of RomM, libretro, OpenEmu, RetroArch,
+Dolphin, PPSSPP, and the countless emulator authors and preservationists who
+keep gaming history accessible.
+
+<p align="center">
+  <strong>Your games. Beautifully organized.</strong><br>
+  <sub>OpenVault.</sub>
+</p>
