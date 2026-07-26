@@ -46,7 +46,7 @@ living-room features are in active compatibility testing.
 | Offline experience | **Working** | Cached metadata, details, artwork, search, collections, downloaded games, firmware, and saves remain useful without RomM. |
 | Downloads and export | **Working** | Download keeps a managed local copy; Export writes a shareable copy to Downloads. Bulk operations report live byte progress. |
 | Game details | **Working** | Rich metadata, files, media, save data, editable personal status, and confirmed deletion from RomM. |
-| Bundled Libretro | **In testing** | 24 reviewed ARM64 cores, native Metal presentation, audio, controllers, fullscreen, rewind, and quick states. |
+| Bundled Libretro | **In testing** | 25 reviewed ARM64 cores, native Metal presentation, audio, controllers, fullscreen, rewind, and quick states. |
 | Save synchronization | **In testing** | Cartridge save RAM is refreshed before play and uploaded as a new RomM revision after it changes. Quick states stay local. |
 | Big Picture | **In testing** | A controller-first, fullscreen interface with the same cached library and playback pipeline. |
 | Managed local RomM | **Planned** | A future milestone will provision RomM through Apple's container technologies without Docker. |
@@ -125,6 +125,7 @@ firmware compatibility still varies by title while OpenVault is in development.
 | Atari | Atari 2600 | Stella 2014 |
 | Atari | Atari 5200 | A5200 |
 | Atari | Atari 7800 | ProSystem |
+| Coleco | ColecoVision | Gearcoleco |
 | SNK | Neo Geo Pocket, Neo Geo Pocket Color | Beetle NeoPop |
 | Bandai | WonderSwan, WonderSwan Color | Beetle Cygne |
 | Other | Arcade | FinalBurn Neo |

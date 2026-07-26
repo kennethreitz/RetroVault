@@ -112,6 +112,8 @@ struct LibretroCoreManifest: Decodable, Sendable {
             "gg"
         case "sg-1000", "sega sg-1000":
             "sg-1000"
+        case "colecovision", "coleco vision", "coleco colecovision":
+            "colecovision"
         case "genesis", "mega drive", "sega genesis", "sega mega drive",
              "sega mega drive/genesis":
             "genesis"

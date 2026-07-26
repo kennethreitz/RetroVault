@@ -85,6 +85,7 @@ struct LibretroCoreManifestTests {
 
         #expect(manifest.supportsSystem(named: "Game Boy"))
         #expect(manifest.supportsSystem(named: "Sega Master System/Mark III"))
+        #expect(manifest.supportsSystem(named: "ColecoVision"))
         #expect(manifest.supportsSystem(named: "Nintendo GameCube"))
         #expect(manifest.supportsSystem(named: "PlayStation Portable"))
         #expect(manifest.supportsSystem(named: "Virtual Boy"))
@@ -114,6 +115,21 @@ struct LibretroCoreManifestTests {
                 systemName: "Sega Master System",
                 fileExtension: "sms"
             )?.id == "libretro-gearsystem"
+        )
+        #expect(
+            manifest.compatibleCore(
+                systemName: "ColecoVision",
+                fileExtension: "col"
+            )?.id == "libretro-gearcoleco"
+        )
+        #expect(
+            manifest.core(id: "libretro-gearcoleco")?
+                .firmware.map(\.fileName)
+                == ["colecovision.rom"]
+        )
+        #expect(
+            manifest.core(id: "libretro-gearcoleco")?
+                .firmware.allSatisfy(\.required) == true
         )
         #expect(
             manifest.compatibleCore(

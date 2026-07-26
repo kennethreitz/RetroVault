@@ -282,6 +282,56 @@
       }
     },
     {
+      "id": "libretro-gearcoleco",
+      "displayName": "Gearcoleco",
+      "status": "bundled",
+      "binaryName": "gearcoleco_libretro.dylib",
+      "systems": [
+        "colecovision"
+      ],
+      "fileExtensions": [
+        "bin",
+        "col",
+        "cv",
+        "rom"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization"
+      ],
+      "firmware": [
+        {
+          "id": "colecovision-bios",
+          "fileName": "colecovision.rom",
+          "description": "ColecoVision BIOS",
+          "required": true,
+          "sha256": [],
+          "sha1": []
+        }
+      ],
+      "source": {
+        "repository": "https://github.com/drhelius/Gearcoleco.git",
+        "revision": "0803d3e28f11d5aece83eb822dadcefa9a06f0d0",
+        "licenseFile": "LICENSE"
+      },
+      "license": {
+        "spdx": "GPL-3.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/drhelius/Gearcoleco/blob/0803d3e28f11d5aece83eb822dadcefa9a06f0d0/LICENSE"
+      },
+      "build": {
+        "workingDirectory": "platforms/libretro",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "gearcoleco_libretro.dylib"
+      }
+    },
+    {
       "id": "libretro-stella2014",
       "displayName": "Stella 2014",
       "status": "bundled",

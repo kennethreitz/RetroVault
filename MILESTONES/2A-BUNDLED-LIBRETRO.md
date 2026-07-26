@@ -33,11 +33,11 @@ through the same service boundary.
   fullscreen, bounded in-memory rewind, quick save/load, stop, and clean
   library-window isolation.
 - The content-free 2048 core remains a Settings smoke test.
-- Twenty-three reviewed user-facing cores support Game Boy, Game Boy Color, Game
+- Twenty-five reviewed user-facing cores support Game Boy, Game Boy Color, Game
   Boy Advance, NES, SNES, Master System, Game Gear, SG-1000, Atari 2600,
-  Atari 5200, Atari 7800, Nintendo 64, Arcade, Virtual Boy, Neo Geo Pocket and
-  Pocket Color, WonderSwan and WonderSwan Color, Pokémon Mini, PlayStation,
-  Nintendo DS, PC Engine / TurboGrafx-16, SuperGrafx, PC Engine CD /
+  Atari 5200, Atari 7800, ColecoVision, Nintendo 64, Arcade, Virtual Boy, Neo
+  Geo Pocket and Pocket Color, WonderSwan and WonderSwan Color, Pokémon Mini,
+  PlayStation, Nintendo DS, PC Engine / TurboGrafx-16, SuperGrafx, PC Engine CD /
   TurboGrafx-CD, Genesis / Mega Drive, Sega CD / Mega CD, Sega 32X, DOS,
   Arduboy, Pico-8, GameCube, Wii, and PSP.
 - Compatible RomM details expose Play. Content is downloaded into a
@@ -125,6 +125,7 @@ The reviewed user-facing catalog includes:
 - Nestopia UE for NES
 - bsnes-mercury Balanced for SNES
 - Gearsystem for Master System, Game Gear, and SG-1000
+- Gearcoleco for ColecoVision
 - Stella 2014 for Atari 2600
 - A5200 for Atari 5200
 - ProSystem for Atari 7800

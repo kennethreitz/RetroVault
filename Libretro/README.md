@@ -3,12 +3,12 @@
 `CoreManifest.json` is the reviewed source of truth for every libretro binary
 that may ship with OpenVault.
 
-The manifest includes a content-free 2048 pipeline test plus 24 reviewed
+The manifest includes a content-free 2048 pipeline test plus 25 reviewed
 user-facing cores. The current catalog supports Game Boy, Game Boy Color,
 Game Boy Advance, NES, SNES, Master System, Game Gear, SG-1000, Atari 2600,
-Atari 5200, Atari 7800, Nintendo 64, Arcade, Virtual Boy, Neo Geo Pocket and
-Pocket Color, WonderSwan and WonderSwan Color, Pokémon Mini, PlayStation,
-Nintendo DS, PC Engine /
+Atari 5200, Atari 7800, ColecoVision, Nintendo 64, Arcade, Virtual Boy, Neo Geo
+Pocket and Pocket Color, WonderSwan and WonderSwan Color, Pokémon Mini,
+PlayStation, Nintendo DS, PC Engine /
 TurboGrafx-16, SuperGrafx, PC Engine CD / TurboGrafx-CD, Genesis / Mega Drive,
 Sega CD / Mega CD, Sega 32X, DOS, Arduboy, Pico-8, GameCube, Wii, and PSP.
 
@@ -59,6 +59,7 @@ Scripts/build-libretro-cores.sh --core libretro-nestopia
 Scripts/build-libretro-cores.sh --core libretro-bsnes-mercury-balanced
 Scripts/build-libretro-cores.sh --core libretro-mgba
 Scripts/build-libretro-cores.sh --core libretro-melonds
+Scripts/build-libretro-cores.sh --core libretro-gearcoleco
 Scripts/build-libretro-cores.sh --core libretro-geargrafx
 Scripts/build-libretro-cores.sh --core libretro-a5200
 Scripts/build-libretro-cores.sh --core libretro-fbneo
@@ -146,6 +147,10 @@ Geargrafx uses RomM's `syscard3.pce` system firmware for PC Engine CD content.
 HuCard and SuperGrafx games do not require it. CD support initially accepts
 single-file CHD images; multi-file CUE sets remain disabled until OpenVault can
 prepare their complete track set safely.
+
+Gearcoleco requires RomM's `colecovision.rom` system firmware. OpenVault fetches
+and verifies it through the same platform-scoped firmware cache before starting
+ColecoVision content.
 
 Dolphin provides GameCube playback through an OpenGL 4.1 Libretro hardware
 context, with OpenVault presenting the completed frame through its native Metal
