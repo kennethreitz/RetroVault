@@ -369,7 +369,7 @@ struct BigPictureView: View {
           .lineLimit(2)
 
         HStack(spacing: 12) {
-          Text(game.systemName.uppercased())
+          Text(selectedGameSecondaryText(game).uppercased())
           if model.downloadedGameIDs.contains(game.id) {
             Label("LOCAL", systemImage: "arrow.down.circle.fill")
           }
@@ -772,6 +772,13 @@ struct BigPictureView: View {
       return game
     }
     return nil
+  }
+
+  private func selectedGameSecondaryText(_ game: GameSummary) -> String {
+    if case .games(.system) = page {
+      return game.releaseYear.map(String.init) ?? "Unknown Year"
+    }
+    return game.systemName
   }
 
   private func gameOptions(

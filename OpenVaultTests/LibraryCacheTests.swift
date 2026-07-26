@@ -5,7 +5,7 @@ import Testing
 
 @Suite("Artwork sorting")
 struct ArtworkSortTests {
-  @Test("Sorts alphabetically or by newest RomM addition")
+  @Test("Sorts artwork alphabetically, by addition, or by release year")
   func sortsArtworkGames() {
     let olderGame = GameSummary(
       id: 1,
@@ -13,6 +13,7 @@ struct ArtworkSortTests {
       systemID: 1,
       systemName: "Nintendo",
       coverURL: nil,
+      releaseYear: 1991,
       createdAt: "2025-01-02T03:04:05Z"
     )
     let newerGame = GameSummary(
@@ -21,6 +22,7 @@ struct ArtworkSortTests {
       systemID: 1,
       systemName: "Nintendo",
       coverURL: nil,
+      releaseYear: 2001,
       createdAt: "2026-07-26T12:34:56.789Z"
     )
     let unknownDateGame = GameSummary(
@@ -39,6 +41,10 @@ struct ArtworkSortTests {
     )
     #expect(
       ArtworkSort.dateAdded.sorted(games).map(\.id)
+        == [newerGame.id, olderGame.id, unknownDateGame.id]
+    )
+    #expect(
+      ArtworkSort.releaseYear.sorted(games).map(\.id)
         == [newerGame.id, olderGame.id, unknownDateGame.id]
     )
   }

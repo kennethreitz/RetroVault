@@ -120,6 +120,7 @@ private enum LibraryPresentation: String {
 enum ArtworkSort: String, CaseIterable, Identifiable, Sendable {
   case alphabetical
   case dateAdded
+  case releaseYear
 
   var id: Self {
     self
@@ -131,6 +132,8 @@ enum ArtworkSort: String, CaseIterable, Identifiable, Sendable {
       "Alphabetical"
     case .dateAdded:
       "Date Added"
+    case .releaseYear:
+      "Year"
     }
   }
 
@@ -140,6 +143,8 @@ enum ArtworkSort: String, CaseIterable, Identifiable, Sendable {
       "textformat"
     case .dateAdded:
       "calendar.badge.plus"
+    case .releaseYear:
+      "calendar"
     }
   }
 
@@ -179,6 +184,19 @@ enum ArtworkSort: String, CaseIterable, Identifiable, Sendable {
         }
       }
       .map(\.game)
+    case .releaseYear:
+      return games.sorted { lhs, rhs in
+        switch (lhs.releaseYear, rhs.releaseYear) {
+        case let (left?, right?) where left != right:
+          return left > right
+        case (_?, nil):
+          return true
+        case (nil, _?):
+          return false
+        default:
+          return Self.isAlphabeticallyOrdered(lhs, rhs)
+        }
+      }
     }
   }
 
@@ -3494,6 +3512,7 @@ private struct LibraryGridView: View {
                 isFavorite:
                   model.prioritizesFavoritesInCurrentView
                   && model.favoriteGameIDs.contains(game.id),
+                secondaryText: cardSecondaryText(for: game),
                 isPreparingToPlay: preparingGameID == game.id,
                 isPlaybackBusy: preparingGameID != nil,
                 selectionNamespace: selectionHighlight,
@@ -3643,6 +3662,13 @@ private struct LibraryGridView: View {
       game,
       downloadedGameIDs: model.downloadedGameIDs
     )
+  }
+
+  private func cardSecondaryText(for game: GameSummary) -> String {
+    if case .system = model.selection {
+      return game.releaseYear.map(String.init) ?? "Unknown Year"
+    }
+    return game.systemName
   }
 
   private func play(
@@ -4000,6 +4026,7 @@ private struct ArtworkGameItem: View {
   let isSelected: Bool
   let isPlayable: Bool
   let isFavorite: Bool
+  let secondaryText: String
   let isPreparingToPlay: Bool
   let isPlaybackBusy: Bool
   let selectionNamespace: Namespace.ID
@@ -4016,7 +4043,8 @@ private struct ArtworkGameItem: View {
           game: game,
           session: session,
           service: service,
-          isFavorite: isFavorite
+          isFavorite: isFavorite,
+          secondaryText: secondaryText
         )
         .padding(5)
       }
@@ -4130,6 +4158,7 @@ private struct GameCard: View {
   let session: ServerSession
   let service: any LibraryServing
   let isFavorite: Bool
+  let secondaryText: String
 
   var body: some View {
     VStack(alignment: .leading, spacing: 9) {
@@ -4152,7 +4181,7 @@ private struct GameCard: View {
         }
       }
 
-      Text(game.systemName)
+      Text(secondaryText)
         .font(.caption)
         .foregroundStyle(.secondary)
         .lineLimit(1)
@@ -4160,7 +4189,7 @@ private struct GameCard: View {
     .contentShape(.rect)
     .accessibilityElement(children: .combine)
     .accessibilityLabel(
-      "\(game.name), \(game.systemName)\(isFavorite ? ", Favorite" : "")"
+      "\(game.name), \(secondaryText)\(isFavorite ? ", Favorite" : "")"
     )
   }
 }
