@@ -615,6 +615,7 @@ final class LibretroSession {
 private enum LibretroRuntimeError: LocalizedError {
     case alreadyRunning
     case couldNotLoadCore(String)
+    case couldNotStageContent(String)
     case missingSymbol(String)
     case unsupportedAPIVersion(UInt32)
     case contentRejected
@@ -630,6 +631,8 @@ private enum LibretroRuntimeError: LocalizedError {
             "OpenVault currently supports one active Libretro session."
         case let .couldNotLoadCore(reason):
             "The Libretro core could not be loaded: \(reason)"
+        case let .couldNotStageContent(reason):
+            "The game could not be prepared for this Libretro core: \(reason)"
         case let .missingSymbol(symbol):
             "The bundled core is invalid because it does not export \(symbol)."
         case let .unsupportedAPIVersion(version):
@@ -646,6 +649,117 @@ private enum LibretroRuntimeError: LocalizedError {
             "This core does not expose save states for the current game."
         case let .stateOperationFailed(reason):
             "The save state operation failed: \(reason)"
+        }
+    }
+}
+
+final class LibretroStagedContent {
+    // Several otherwise modern cores still use 256-byte path buffers internally.
+    // Leave room for a descriptor (CUE/M3U) to resolve adjacent disc files.
+    private static let maximumUnstagedPathLength = 192
+
+    let contentURL: URL?
+
+    private let stagingDirectory: URL?
+
+    private init(contentURL: URL?, stagingDirectory: URL?) {
+        self.contentURL = contentURL
+        self.stagingDirectory = stagingDirectory
+    }
+
+    deinit {
+        if let stagingDirectory {
+            try? FileManager.default.removeItem(at: stagingDirectory)
+        }
+    }
+
+    static func prepare(
+        contentURL: URL?,
+        needsFullPath: Bool,
+        fileManager: FileManager = .default
+    ) throws -> LibretroStagedContent {
+        guard
+            needsFullPath,
+            let contentURL,
+            contentURL.path.utf8.count >= maximumUnstagedPathLength
+        else {
+            return LibretroStagedContent(
+                contentURL: contentURL,
+                stagingDirectory: nil
+            )
+        }
+
+        let stagingRoot = fileManager.temporaryDirectory
+            .appending(path: "ov-play", directoryHint: .isDirectory)
+        let stagingDirectory = stagingRoot.appending(
+            path: String(UUID().uuidString.prefix(8)),
+            directoryHint: .isDirectory
+        )
+
+        do {
+            try fileManager.createDirectory(
+                at: stagingDirectory,
+                withIntermediateDirectories: true
+            )
+
+            let sourceDirectory = contentURL.deletingLastPathComponent()
+            let siblings = try fileManager.contentsOfDirectory(
+                at: sourceDirectory,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+            for sibling in siblings {
+                let values = try sibling.resourceValues(
+                    forKeys: [.isRegularFileKey]
+                )
+                guard values.isRegularFile == true else {
+                    continue
+                }
+                try fileManager.createSymbolicLink(
+                    at: stagingDirectory.appending(path: sibling.lastPathComponent),
+                    withDestinationURL: sibling
+                )
+            }
+
+            let fileExtension = contentURL.pathExtension
+            var launchName = fileExtension.isEmpty
+                ? "content"
+                : "content.\(fileExtension)"
+            if launchName == contentURL.lastPathComponent {
+                launchName = fileExtension.isEmpty
+                    ? "launch"
+                    : "launch.\(fileExtension)"
+            }
+            let stagedURL = stagingDirectory.appending(path: launchName)
+            try fileManager.createSymbolicLink(
+                at: stagedURL,
+                withDestinationURL: contentURL
+            )
+
+            guard
+                stagedURL.path.utf8.count < maximumUnstagedPathLength,
+                fileManager.fileExists(atPath: stagedURL.path)
+            else {
+                throw LibretroRuntimeError.couldNotStageContent(
+                    "The temporary compatibility path is still too long."
+                )
+            }
+
+            OpenVaultLog.libretro.notice(
+                "Using a short compatibility path for core content"
+            )
+            return LibretroStagedContent(
+                contentURL: stagedURL,
+                stagingDirectory: stagingDirectory
+            )
+        } catch {
+            try? fileManager.removeItem(at: stagingDirectory)
+            if let runtimeError = error as? LibretroRuntimeError {
+                throw runtimeError
+            }
+            throw LibretroRuntimeError.couldNotStageContent(
+                error.localizedDescription
+            )
         }
     }
 }
@@ -1899,6 +2013,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         var initialized = false
         var loaded = false
         var failed = false
+        var stagedContent: LibretroStagedContent?
         var rewindBuffer = LibretroRewindBuffer(
             byteLimit: Self.rewindByteLimit,
             entryLimit: Self.rewindEntryLimit
@@ -1958,8 +2073,12 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             let systemInfo = try loadedCore.systemInfo()
             loadedCore.initialize()
             initialized = true
-            try loadedCore.loadGame(
+            stagedContent = try LibretroStagedContent.prepare(
                 contentURL: request.contentURL,
+                needsFullPath: systemInfo.needsFullPath
+            )
+            try loadedCore.loadGame(
+                contentURL: stagedContent?.contentURL,
                 needsFullPath: systemInfo.needsFullPath
             )
             loaded = true

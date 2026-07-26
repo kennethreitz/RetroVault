@@ -372,6 +372,118 @@ struct LibretroCoreManifestTests {
         )
     }
 
+    @Test("Runs a PlayStation smoke-test image when one is provided")
+    @MainActor
+    func runsPlayStationSmokeTestImage() async throws {
+        guard
+            let path = ProcessInfo.processInfo.environment[
+                "OPENVAULT_PLAYSTATION_TEST_ROM"
+            ],
+            FileManager.default.fileExists(atPath: path)
+        else {
+            return
+        }
+
+        let repositoryURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let coresDirectory = ProcessInfo.processInfo.environment[
+            "OPENVAULT_TEST_CORES_DIRECTORY"
+        ].map(URL.init(fileURLWithPath:))
+            ?? repositoryURL.appending(
+                path: "Build/LibretroCores/Cores",
+                directoryHint: .isDirectory
+            )
+        let installation = try LibretroInstallation(
+            manifestURL: repositoryURL.appending(
+                path: "Libretro/CoreManifest.json"
+            ),
+            coresDirectory: coresDirectory
+        )
+        let session = LibretroSession(
+            request: LibretroRunRequest(
+                title: "PlayStation Integration Test",
+                coreID: "libretro-pcsx-rearmed",
+                contentURL: URL(fileURLWithPath: path)
+            ),
+            installation: installation
+        )
+        session.start()
+        defer {
+            session.stop()
+        }
+
+        var didStart = false
+        for _ in 0..<300 {
+            switch session.phase {
+            case .running:
+                didStart = true
+                if let frame = session.videoBuffer.snapshot(),
+                   containsVisiblePixels(frame) {
+                    return
+                }
+            case let .failed(message):
+                Issue.record("PCSX-ReARMed failed to start: \(message)")
+                return
+            case .idle, .starting, .stopped:
+                break
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+
+        Issue.record(
+            didStart
+                ? "PCSX-ReARMed returned no visible frame within 30 seconds."
+                : "PCSX-ReARMed did not start within 30 seconds."
+        )
+    }
+
+    @Test("Stages long full-path content with adjacent disc files")
+    func stagesLongFullPathContent() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let sourceDirectory = root
+            .appending(
+                path: String(repeating: "long-directory-", count: 8),
+                directoryHint: .isDirectory
+            )
+            .appending(
+                path: String(repeating: "nested-", count: 8),
+                directoryHint: .isDirectory
+            )
+        defer {
+            try? fileManager.removeItem(at: root)
+        }
+        try fileManager.createDirectory(
+            at: sourceDirectory,
+            withIntermediateDirectories: true
+        )
+
+        let cueURL = sourceDirectory.appending(path: "game.cue")
+        let binURL = sourceDirectory.appending(path: "game.bin")
+        try Data("FILE \"game.bin\" BINARY\n".utf8).write(to: cueURL)
+        try Data([0x00, 0x01, 0x02]).write(to: binURL)
+        #expect(cueURL.path.utf8.count >= 192)
+
+        let staged = try LibretroStagedContent.prepare(
+            contentURL: cueURL,
+            needsFullPath: true
+        )
+        let stagedURL = try #require(staged.contentURL)
+
+        #expect(stagedURL != cueURL)
+        #expect(stagedURL.path.utf8.count < 192)
+        #expect(try Data(contentsOf: stagedURL) == Data(contentsOf: cueURL))
+        #expect(
+            try Data(
+                contentsOf: stagedURL
+                    .deletingLastPathComponent()
+                    .appending(path: "game.bin")
+            ) == Data(contentsOf: binURL)
+        )
+    }
+
     @Test("Renders visible N64 pixels when a smoke-test ROM is provided")
     @MainActor
     func rendersN64SmokeTestROM() async throws {
