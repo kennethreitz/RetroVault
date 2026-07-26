@@ -76,7 +76,7 @@ struct BigPictureView: View {
       }
     }
     .onExitCommand {
-      handle(.back)
+      handleEscape()
     }
     .onKeyPress(.return) {
       handle(.activate)
@@ -87,7 +87,7 @@ struct BigPictureView: View {
       return .handled
     }
     .onKeyPress(.escape) {
-      handle(.back)
+      handleEscape()
       return .handled
     }
     .background {
@@ -192,7 +192,11 @@ struct BigPictureView: View {
           .font(.system(size: 42, weight: .light))
         Text("NO GAMES")
           .font(.system(size: 24, weight: .black, design: .rounded))
-        Text("Press A or Escape to go back.")
+        Text(
+          page == .home
+            ? "Press Escape to exit."
+            : "Press A or Escape to go back."
+        )
           .foregroundStyle(.white.opacity(0.55))
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -317,7 +321,7 @@ struct BigPictureView: View {
   private var footer: some View {
     HStack {
       if page == .home {
-        actionHint(key: "A", label: "EXIT")
+        actionHint(key: "ESC", label: "EXIT")
       } else {
         actionHint(key: "A", label: "BACK")
       }
@@ -674,7 +678,6 @@ struct BigPictureView: View {
 
   private func navigateBack() {
     guard let previous = history.popLast() else {
-      dismissWindow(id: BigPictureScene.id)
       return
     }
     page = previous.page
@@ -682,6 +685,17 @@ struct BigPictureView: View {
     selectedIndex = previous.selectedIndex
     if rows.indices.contains(selectedIndex) {
       scrollTargetID = rows[selectedIndex].id
+    }
+  }
+
+  private func handleEscape() {
+    if playbackErrorMessage != nil
+      || isPreparingPlayback
+      || !history.isEmpty
+    {
+      handle(.back)
+    } else {
+      dismissWindow(id: BigPictureScene.id)
     }
   }
 

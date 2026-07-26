@@ -198,9 +198,10 @@ enum ServerConfiguration: Sendable {
   work when RomM is unavailable.
 - Keyboard, mouse, and extended game controllers share one navigation model.
   D-pad or left stick moves with hold-to-repeat, B opens or plays, A moves
-  back or exits, and the shoulder buttons page through long lists. OpenVault
-  reads every connected extended or compact controller rather than binding
-  navigation to the first device returned by the system.
+  back within the hierarchy but does nothing at the root, and the shoulder
+  buttons page through long lists. Escape explicitly leaves Big Picture.
+  OpenVault reads every connected extended or compact controller rather than
+  binding navigation to the first device returned by the system.
 - Big Picture directional selection clamps at the beginning and end of a list
   instead of wrapping unexpectedly. Pointer hover can update selection without
   issuing a programmatic scroll, preventing wheel scrolling from feeding back
