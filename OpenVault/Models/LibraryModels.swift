@@ -38,6 +38,61 @@ struct LibraryCollection: Codable, Identifiable, Hashable, Sendable {
   }
 }
 
+/// RomM's Favorites collection projected into game-level presentation state.
+///
+/// Favorites remain server-owned collection metadata. OpenVault derives this set
+/// from the synchronized collection membership so it also works from the offline
+/// library snapshot.
+enum RomMFavorites {
+  static func gameIDs(
+    collections: [LibraryCollection],
+    memberships: [LibrarySnapshot.CollectionMembership]
+  ) -> Set<Int> {
+    let favoriteCollections = collections.filter {
+      $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        .localizedCaseInsensitiveCompare("Favorites") == .orderedSame
+    }
+    let favoriteCollectionIDs = Set(favoriteCollections.map(\.id))
+    guard !favoriteCollectionIDs.isEmpty else {
+      return []
+    }
+
+    var gameIDs = Set(
+      favoriteCollections.flatMap { $0.memberGameIDs ?? [] }
+    )
+    for membership in memberships
+    where favoriteCollectionIDs.contains(membership.collectionID) {
+      gameIDs.formUnion(membership.gameIDs)
+    }
+    return gameIDs
+  }
+
+  /// Stable-partitions an already sorted list without changing its secondary order.
+  static func prioritizing(
+    _ games: [GameSummary],
+    gameIDs: Set<Int>
+  ) -> [GameSummary] {
+    guard !gameIDs.isEmpty else {
+      return games
+    }
+
+    var favorites: [GameSummary] = []
+    var remainingGames: [GameSummary] = []
+    favorites.reserveCapacity(min(gameIDs.count, games.count))
+    remainingGames.reserveCapacity(games.count)
+
+    for game in games {
+      if gameIDs.contains(game.id) {
+        favorites.append(game)
+      } else {
+        remainingGames.append(game)
+      }
+    }
+    favorites.append(contentsOf: remainingGames)
+    return favorites
+  }
+}
+
 /// The subset of RomM game metadata needed to render the library grid.
 struct GameSummary: Codable, Identifiable, Hashable, Sendable {
   let id: Int

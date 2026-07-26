@@ -60,6 +60,53 @@ struct ArtworkSortTests {
     #expect(progress.currentGameNumber == 2)
     #expect(progress.fractionCompleted == 0.3125)
   }
+
+  @Test("Prioritizes RomM favorites without changing secondary order")
+  func prioritizesFavorites() {
+    let games = [
+      GameSummary(
+        id: 1,
+        name: "Asteroids",
+        systemID: 1,
+        systemName: "Atari 2600",
+        coverURL: nil
+      ),
+      GameSummary(
+        id: 2,
+        name: "Centipede",
+        systemID: 1,
+        systemName: "Atari 2600",
+        coverURL: nil
+      ),
+      GameSummary(
+        id: 3,
+        name: "Yars' Revenge",
+        systemID: 1,
+        systemName: "Atari 2600",
+        coverURL: nil
+      ),
+    ]
+    let favoriteCollection = LibraryCollection(
+      id: .regular(10),
+      name: "Favorites",
+      gameCount: 2
+    )
+    let favoriteIDs = RomMFavorites.gameIDs(
+      collections: [favoriteCollection],
+      memberships: [
+        LibrarySnapshot.CollectionMembership(
+          collectionID: favoriteCollection.id,
+          gameIDs: [2, 3]
+        )
+      ]
+    )
+
+    #expect(favoriteIDs == [2, 3])
+    #expect(
+      RomMFavorites.prioritizing(games, gameIDs: favoriteIDs).map(\.id)
+        == [2, 3, 1]
+    )
+  }
 }
 
 @Suite("Sidebar system sorting")
@@ -89,6 +136,7 @@ struct BigPictureCatalogTests {
   @Test("Builds recent, downloaded, system, and collection menus offline")
   func buildsControllerFirstCatalog() {
     let collectionID = LibraryCollection.ID.virtual("mario")
+    let favoritesID = LibraryCollection.ID.regular(10)
     let olderGame = GameSummary(
       id: 1,
       name: "Zelda",
@@ -126,18 +174,27 @@ struct BigPictureCatalogTests {
         ],
         collections: [
           LibraryCollection(
+            id: favoritesID,
+            name: "Favorites",
+            gameCount: 1
+          ),
+          LibraryCollection(
             id: collectionID,
             name: "Mario",
             gameCount: 2,
             virtualType: "collection"
-          )
+          ),
         ],
         games: [olderGame, handheldGame, newerGame],
         collectionMemberships: [
           LibrarySnapshot.CollectionMembership(
+            collectionID: favoritesID,
+            gameIDs: [1]
+          ),
+          LibrarySnapshot.CollectionMembership(
             collectionID: collectionID,
             gameIDs: [1, 2]
-          )
+          ),
         ],
         downloadedGameIDs: [3]
       ),
@@ -151,8 +208,9 @@ struct BigPictureCatalogTests {
       ])
     #expect(catalog.recentlyAddedGames.map(\.id) == [2, 1, 3])
     #expect(catalog.downloadedGames.map(\.id) == [3])
-    #expect(catalog.games(in: .system(1)).map(\.id) == [2, 1])
+    #expect(catalog.games(in: .system(1)).map(\.id) == [1, 2])
     #expect(catalog.games(in: .collection(collectionID)).map(\.id) == [2, 1])
+    #expect(catalog.favoriteGameIDs == [1])
     #expect(catalog.title(for: .collection(collectionID)) == "Mario")
   }
 

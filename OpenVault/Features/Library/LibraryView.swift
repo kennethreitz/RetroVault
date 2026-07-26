@@ -1662,6 +1662,15 @@ private struct LibraryTableView: View {
 
             Text(game.name)
               .lineLimit(1)
+
+            if model.prioritizesFavoritesInCurrentView,
+              model.favoriteGameIDs.contains(game.id)
+            {
+              Image(systemName: "star.fill")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.yellow)
+                .accessibilityLabel("Favorite")
+            }
           }
         }
         .buttonStyle(.plain)
@@ -2432,6 +2441,10 @@ private struct LibraryTableView: View {
 
     let games = filteredGames
     let requestedSortOrder = sortOrder
+    let favoriteGameIDs =
+      model.prioritizesFavoritesInCurrentView
+      ? model.favoriteGameIDs
+      : []
     let shouldRestoreTableFocus =
       hasTableFocus || (!hasPreparedRows && automaticallyFocusesContent)
     guard !games.isEmpty else {
@@ -2443,7 +2456,10 @@ private struct LibraryTableView: View {
 
     isSorting = true
     let sorted = await Task.detached(priority: .userInitiated) {
-      games.sorted(using: requestedSortOrder)
+      RomMFavorites.prioritizing(
+        games.sorted(using: requestedSortOrder),
+        gameIDs: favoriteGameIDs
+      )
     }.value
 
     guard sortingRequestID == requestID, !Task.isCancelled else {
@@ -2484,7 +2500,11 @@ private struct LibraryTableView: View {
       selectedSaveData: showsSaveDataBrowser ? selectedSaveData : nil,
       selectedDownloaded: showsDownloadedBrowser ? selectedDownloaded : nil,
       downloadedGameIDs: model.downloadedGameIDs,
-      selectedArtwork: showsArtworkBrowser ? selectedArtwork : nil
+      selectedArtwork: showsArtworkBrowser ? selectedArtwork : nil,
+      favoriteGameIDs:
+        model.prioritizesFavoritesInCurrentView
+        ? model.favoriteGameIDs
+        : []
     )
   }
 }
@@ -2731,6 +2751,9 @@ private struct LibraryGridView: View {
                 service: model.service,
                 isSelected: selectedGameIDs.contains(game.id),
                 isPlayable: isPlayable(game),
+                isFavorite:
+                  model.prioritizesFavoritesInCurrentView
+                  && model.favoriteGameIDs.contains(game.id),
                 isPreparingToPlay: preparingGameID == game.id,
                 isPlaybackBusy: preparingGameID != nil,
                 openGame: {
@@ -3065,6 +3088,10 @@ private struct LibraryGridView: View {
 
     let games = model.displayedGames
     let requestedSort = sort
+    let favoriteGameIDs =
+      model.prioritizesFavoritesInCurrentView
+      ? model.favoriteGameIDs
+      : []
     guard !games.isEmpty else {
       sortedGames = []
       isSorting = false
@@ -3073,7 +3100,10 @@ private struct LibraryGridView: View {
 
     isSorting = true
     let sorted = await Task.detached(priority: .userInitiated) {
-      requestedSort.sorted(games)
+      RomMFavorites.prioritizing(
+        requestedSort.sorted(games),
+        gameIDs: favoriteGameIDs
+      )
     }.value
 
     guard sortingRequestID == requestID, !Task.isCancelled else {
@@ -3097,6 +3127,10 @@ private struct LibraryGridView: View {
       hidesBIOSGames: model.hidesBIOSGames,
       hidesGamesWithoutArtwork: model.hidesGamesWithoutArtwork,
       downloadedGameIDs: model.downloadedGameIDs,
+      favoriteGameIDs:
+        model.prioritizesFavoritesInCurrentView
+        ? model.favoriteGameIDs
+        : [],
       sort: sort
     )
   }
@@ -3199,6 +3233,7 @@ private struct LibraryTableRowsKey: Hashable {
   let selectedDownloaded: String?
   let downloadedGameIDs: Set<Int>
   let selectedArtwork: String?
+  let favoriteGameIDs: Set<Int>
 }
 
 private struct LibraryArtworkRowsKey: Hashable {
@@ -3209,6 +3244,7 @@ private struct LibraryArtworkRowsKey: Hashable {
   let hidesBIOSGames: Bool
   let hidesGamesWithoutArtwork: Bool
   let downloadedGameIDs: Set<Int>
+  let favoriteGameIDs: Set<Int>
   let sort: ArtworkSort
 }
 
@@ -3218,6 +3254,7 @@ private struct ArtworkGameItem: View {
   let service: any LibraryServing
   let isSelected: Bool
   let isPlayable: Bool
+  let isFavorite: Bool
   let isPreparingToPlay: Bool
   let isPlaybackBusy: Bool
   let openGame: () -> Void
@@ -3231,7 +3268,8 @@ private struct ArtworkGameItem: View {
         GameCard(
           game: game,
           session: session,
-          service: service
+          service: service,
+          isFavorite: isFavorite
         )
         .padding(5)
       }
@@ -3324,6 +3362,7 @@ private struct GameCard: View {
   let game: GameSummary
   let session: ServerSession
   let service: any LibraryServing
+  let isFavorite: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: 9) {
@@ -3333,9 +3372,18 @@ private struct GameCard: View {
         service: service
       )
 
-      Text(game.name)
-        .font(.headline)
-        .lineLimit(2)
+      HStack(alignment: .firstTextBaseline, spacing: 6) {
+        Text(game.name)
+          .font(.headline)
+          .lineLimit(2)
+
+        if isFavorite {
+          Image(systemName: "star.fill")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.yellow)
+            .accessibilityLabel("Favorite")
+        }
+      }
 
       Text(game.systemName)
         .font(.caption)
@@ -3344,7 +3392,9 @@ private struct GameCard: View {
     }
     .contentShape(.rect)
     .accessibilityElement(children: .combine)
-    .accessibilityLabel("\(game.name), \(game.systemName)")
+    .accessibilityLabel(
+      "\(game.name), \(game.systemName)\(isFavorite ? ", Favorite" : "")"
+    )
   }
 }
 

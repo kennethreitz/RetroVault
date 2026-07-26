@@ -34,6 +34,7 @@ struct BigPictureCatalog: Sendable {
   let collections: [LibraryCollection]
   let recentlyAddedGames: [GameSummary]
   let downloadedGames: [GameSummary]
+  let favoriteGameIDs: Set<Int>
 
   private let gamesBySystem: [Int: [GameSummary]]
   private let gamesByCollection: [LibraryCollection.ID: [GameSummary]]
@@ -60,6 +61,11 @@ struct BigPictureCatalog: Sendable {
         : comparison == .orderedAscending
     }
     let visibleGameIDs = Set(alphabeticalGames.map(\.id))
+    let favoriteIDs = RomMFavorites.gameIDs(
+      collections: source.collections,
+      memberships: source.collectionMemberships
+    )
+    favoriteGameIDs = favoriteIDs
 
     systems =
       supportedSystems
@@ -83,7 +89,9 @@ struct BigPictureCatalog: Sendable {
     gamesBySystem = Dictionary(
       grouping: alphabeticalGames,
       by: \.systemID
-    )
+    ).mapValues {
+      RomMFavorites.prioritizing($0, gameIDs: favoriteIDs)
+    }
 
     let gamesByID = Dictionary(
       uniqueKeysWithValues: alphabeticalGames.map { ($0.id, $0) }

@@ -256,6 +256,13 @@ struct BigPictureView: View {
                 Text(row.title)
                   .lineLimit(1)
 
+                if row.isFavorite {
+                  Image(systemName: "star.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.yellow)
+                    .accessibilityLabel("Favorite")
+                }
+
                 Spacer(minLength: 20)
 
                 if let detail = row.detail {
@@ -484,18 +491,21 @@ struct BigPictureView: View {
           id: .home("recent"),
           title: "Recently Added",
           detail: catalog.recentlyAddedGames.count.formatted(),
+          isFavorite: false,
           action: .navigate(.games(.recentlyAdded))
         ),
         BigPictureRow(
           id: .home("downloaded"),
           title: "Downloaded",
           detail: catalog.downloadedGames.count.formatted(),
+          isFavorite: false,
           action: .navigate(.games(.downloaded))
         ),
         BigPictureRow(
           id: .home("collections"),
           title: "Collections",
           detail: catalog.collections.count.formatted(),
+          isFavorite: false,
           action: .navigate(.collections)
         ),
       ]
@@ -504,6 +514,7 @@ struct BigPictureView: View {
             id: .system(system.id),
             title: system.name,
             detail: system.gameCount.formatted(),
+            isFavorite: false,
             action: .navigate(.games(.system(system.id)))
           )
         }
@@ -514,6 +525,7 @@ struct BigPictureView: View {
           id: .collection(collection.id),
           title: collection.name,
           detail: collectionDetail(collection),
+          isFavorite: false,
           action: .navigate(.games(.collection(collection.id)))
         )
       }
@@ -527,6 +539,8 @@ struct BigPictureView: View {
             downloadedGameIDs.contains(game.id)
             ? "LOCAL"
             : game.releaseYear.map(String.init),
+          isFavorite:
+            scope.isSystem && catalog.favoriteGameIDs.contains(game.id),
           action: .play(game)
         )
       }
@@ -941,7 +955,17 @@ private struct BigPictureRow: Identifiable {
   let id: ID
   let title: String
   let detail: String?
+  let isFavorite: Bool
   let action: Action
+}
+
+extension BigPictureScope {
+  fileprivate var isSystem: Bool {
+    if case .system = self {
+      return true
+    }
+    return false
+  }
 }
 
 struct BigPictureControllerState: Equatable, Sendable {

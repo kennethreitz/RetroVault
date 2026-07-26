@@ -37,6 +37,7 @@ final class LibraryModel {
   private(set) var systems: [LibrarySystem] = []
   private(set) var collections: [LibraryCollection] = []
   private(set) var collectionPreviewGames: [LibraryCollection.ID: [GameSummary]] = [:]
+  private(set) var favoriteGameIDs: Set<Int> = []
   private(set) var downloadedGameIDs: Set<Int> = []
   private(set) var managedDownloadedGameIDs: Set<Int> = []
   private(set) var games: [GameSummary] = []
@@ -112,6 +113,13 @@ final class LibraryModel {
       return libraryGames
     }
     return libraryGames.filter { $0.coverURL != nil }
+  }
+
+  var prioritizesFavoritesInCurrentView: Bool {
+    if case .system = selection {
+      return true
+    }
+    return false
   }
 
   var downloadedGameCount: Int {
@@ -283,6 +291,7 @@ final class LibraryModel {
     systems = []
     collections = []
     collectionPreviewGames = [:]
+    favoriteGameIDs = []
     games = []
     systemIDsWithArtwork = []
     systemIDsWithoutArtwork = []
@@ -1003,6 +1012,10 @@ final class LibraryModel {
 
   private func apply(_ librarySnapshot: LibrarySnapshot) {
     snapshot = librarySnapshot
+    favoriteGameIDs = RomMFavorites.gameIDs(
+      collections: librarySnapshot.collections,
+      memberships: librarySnapshot.collectionMemberships
+    )
     let visibleGames = gamesVisibleUnderBIOSFilter(
       in: librarySnapshot
     )
@@ -1077,6 +1090,10 @@ final class LibraryModel {
 
     systems = progress.systems
     collections = progress.collections
+    favoriteGameIDs = RomMFavorites.gameIDs(
+      collections: progress.collections,
+      memberships: []
+    )
     allGameCount = progress.totalGameCount
     validateSelection()
 
