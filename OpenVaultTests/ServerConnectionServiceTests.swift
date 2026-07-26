@@ -664,6 +664,77 @@ struct LibraryTests {
         #expect(!FileManager.default.fileExists(atPath: offlineURL.path))
     }
 
+    @Test("Reuses a managed download after RomM metadata changes")
+    func reusesManagedDownloadAfterMetadataChange() async throws {
+        let token = try ClientToken(
+            rawValue: "rmm_" + String(repeating: "a", count: 64)
+        )
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let managedROMDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: managedROMDirectory)
+        }
+
+        let expectedData = Data(repeating: 0x42, count: 1_024)
+        let service = RomMLibraryService(
+            api: MockRomMClient(
+                token: token,
+                user: RomMUser(
+                    id: 1,
+                    username: "kenneth",
+                    scopes: ["roms.read"]
+                ),
+                downloadData: expectedData
+            ),
+            credentialStore: credentials,
+            managedROMDirectory: managedROMDirectory
+        )
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let downloadedGame = mockGameDetails(
+            id: 1_134,
+            updatedAt: "2026-07-26T09:02:35+00:00"
+        )
+        let downloadedURL = try await service.downloadGame(
+            downloadedGame,
+            in: session
+        )
+
+        // Recreate the directory layout used before cache identities stopped
+        // depending on the volatile RomM record timestamp.
+        let legacyVersion = "\(downloadedGame.fileSizeBytes)-\(downloadedGame.updatedAt)"
+        let legacyDigest = SHA256.hash(data: Data(legacyVersion.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let legacyDirectory = downloadedURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: legacyDigest, directoryHint: .isDirectory)
+        try FileManager.default.moveItem(
+            at: downloadedURL.deletingLastPathComponent(),
+            to: legacyDirectory
+        )
+
+        await credentials.removeToken()
+        let refreshedGame = mockGameDetails(
+            id: downloadedGame.id,
+            updatedAt: "2026-07-26T15:09:24+00:00"
+        )
+        let preparedURL = try await service.prepareGameForPlay(
+            refreshedGame,
+            in: session,
+            supportedFileExtensions: ["gb"]
+        )
+
+        #expect(preparedURL.path.hasPrefix(legacyDirectory.path))
+        #expect(try Data(contentsOf: preparedURL) == expectedData)
+        #expect(await service.managedDownloadedGameIDs(in: session) == [1_134])
+    }
+
     @Test("Preserves archives for cores that load them as game content")
     func preservesCoreNativeArchive() async throws {
         let token = try ClientToken(
@@ -1458,7 +1529,8 @@ func mockGameDetails(
     id: Int,
     fileName: String? = nil,
     systemName: String = "Game Boy",
-    saves: [GameSaveDataItem] = []
+    saves: [GameSaveDataItem] = [],
+    updatedAt: String = ""
 ) -> GameDetails {
     let resolvedFileName = fileName ?? "Game \(id).gb"
     return GameDetails(
@@ -1502,7 +1574,7 @@ func mockGameDetails(
         manualURL: nil,
         videoURL: nil,
         createdAt: "",
-        updatedAt: "",
+        updatedAt: updatedAt,
         userMetadata: GameUserMetadata(
             status: nil,
             lastPlayed: nil,

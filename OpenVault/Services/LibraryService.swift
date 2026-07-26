@@ -567,21 +567,26 @@ actor RomMLibraryService: LibraryServing {
     let destination = managedROMURL(for: game, in: session)
     let fileManager = FileManager.default
 
-    if isValidCachedGame(at: destination, expectedSize: game.fileSizeBytes) {
+    if let cachedURL = cachedGameURL(
+      for: game,
+      in: managedROMServerDirectory(in: session)
+    ) {
       try? fileManager.setAttributes(
         [.modificationDate: now()],
-        ofItemAtPath: destination.path
+        ofItemAtPath: cachedURL.path
       )
       notifyDownloadedGamesDidChange()
-      return destination
+      return cachedURL
     }
 
     if fileManager.fileExists(atPath: destination.path) {
       try? fileManager.removeItem(at: destination)
     }
 
-    let runtimeURL = runtimeCacheURL(for: game, in: session)
-    if isValidCachedGame(at: runtimeURL, expectedSize: game.fileSizeBytes) {
+    if let runtimeURL = cachedGameURL(
+      for: game,
+      in: runtimeCacheServerDirectory(in: session)
+    ) {
       do {
         try fileManager.createDirectory(
           at: destination.deletingLastPathComponent(),
@@ -666,11 +671,16 @@ actor RomMLibraryService: LibraryServing {
   }
 
   func exportGame(_ game: GameDetails, in session: ServerSession) async throws -> URL {
-    let managedURL = managedROMURL(for: game, in: session)
-    let runtimeURL = runtimeCacheURL(for: game, in: session)
-    if let localURL = [managedURL, runtimeURL].first(where: {
-      isValidCachedGame(at: $0, expectedSize: game.fileSizeBytes)
-    }) {
+    let localURL =
+      cachedGameURL(
+        for: game,
+        in: managedROMServerDirectory(in: session)
+      )
+      ?? cachedGameURL(
+        for: game,
+        in: runtimeCacheServerDirectory(in: session)
+      )
+    if let localURL {
       return try saveExport(
         from: localURL,
         suggestedFileName: game.fileName,
@@ -815,8 +825,10 @@ actor RomMLibraryService: LibraryServing {
     loadsArchivesDirectly: Bool = false,
     onProgress: @escaping @Sendable (RomMDownloadProgress) -> Void
   ) async throws -> URL {
-    let managedURL = managedROMURL(for: game, in: session)
-    if isValidCachedGame(at: managedURL, expectedSize: game.fileSizeBytes) {
+    if let managedURL = cachedGameURL(
+      for: game,
+      in: managedROMServerDirectory(in: session)
+    ) {
       let contentURL = try playableContent(
         from: managedURL,
         supportedFileExtensions: supportedFileExtensions,
@@ -828,7 +840,11 @@ actor RomMLibraryService: LibraryServing {
 
     let destination = runtimeCacheURL(for: game, in: session)
     let fileManager = FileManager.default
-    if !isValidCachedGame(at: destination, expectedSize: game.fileSizeBytes) {
+    let cachedRuntimeURL = cachedGameURL(
+      for: game,
+      in: runtimeCacheServerDirectory(in: session)
+    )
+    if cachedRuntimeURL == nil {
       if fileManager.fileExists(atPath: destination.path) {
         try? fileManager.removeItem(at: destination)
       }
@@ -865,13 +881,13 @@ actor RomMLibraryService: LibraryServing {
     } else {
       try? fileManager.setAttributes(
         [.modificationDate: now()],
-        ofItemAtPath: destination.path
+        ofItemAtPath: cachedRuntimeURL?.path ?? destination.path
       )
     }
 
     do {
       let contentURL = try playableContent(
-        from: destination,
+        from: cachedRuntimeURL ?? destination,
         supportedFileExtensions: supportedFileExtensions,
         loadsArchivesDirectly: loadsArchivesDirectly
       )
@@ -1543,11 +1559,7 @@ actor RomMLibraryService: LibraryServing {
     for game: GameDetails,
     in serverDirectory: URL
   ) -> URL {
-    let version =
-      nonEmpty(game.sha1Hash)
-      ?? nonEmpty(game.md5Hash)
-      ?? nonEmpty(game.crcHash)
-      ?? "\(game.fileSizeBytes)-\(game.updatedAt)"
+    let version = gameContentVersion(for: game)
     let versionDigest = SHA256.hash(data: Data(version.utf8))
       .map { String(format: "%02x", $0) }
       .joined()
@@ -1567,6 +1579,141 @@ actor RomMLibraryService: LibraryServing {
       .appending(path: String(game.id), directoryHint: .isDirectory)
       .appending(path: versionDigest, directoryHint: .isDirectory)
       .appending(path: fileName)
+  }
+
+  private func gameContentVersion(for game: GameDetails) -> String {
+    if let sha1Hash = nonEmpty(game.sha1Hash) {
+      return "sha1:\(sha1Hash.lowercased())"
+    }
+    if let md5Hash = nonEmpty(game.md5Hash) {
+      return "md5:\(md5Hash.lowercased())"
+    }
+    if let crcHash = nonEmpty(game.crcHash) {
+      return "crc:\(crcHash.lowercased())"
+    }
+
+    let files = game.files
+      .filter(\.isTopLevel)
+      .sorted {
+        $0.name.localizedStandardCompare($1.name) == .orderedAscending
+      }
+    if !files.isEmpty {
+      let fileVersions = files.map { file in
+        "\(file.name):\(fileContentVersion(for: file))"
+      }
+      return "files:\(fileVersions.joined(separator: "|"))"
+    }
+
+    // A RomM game record's updatedAt changes for metadata and save activity.
+    // Those changes must not invalidate an otherwise identical local ROM.
+    return "file:\(game.fileName):size:\(game.fileSizeBytes)"
+  }
+
+  private func fileContentVersion(for file: GameFile) -> String {
+    if let sha1Hash = nonEmpty(file.sha1Hash) {
+      return "sha1:\(sha1Hash.lowercased())"
+    }
+    if let md5Hash = nonEmpty(file.md5Hash) {
+      return "md5:\(md5Hash.lowercased())"
+    }
+    if let crcHash = nonEmpty(file.crcHash) {
+      return "crc:\(crcHash.lowercased())"
+    }
+    if let chdSHA1Hash = nonEmpty(file.chdSHA1Hash) {
+      return "chd-sha1:\(chdSHA1Hash.lowercased())"
+    }
+    return "size:\(file.sizeBytes):modified:\(file.lastModified)"
+  }
+
+  private func hasStrongContentIdentity(_ game: GameDetails) -> Bool {
+    if nonEmpty(game.sha1Hash) != nil
+      || nonEmpty(game.md5Hash) != nil
+      || nonEmpty(game.crcHash) != nil
+    {
+      return true
+    }
+
+    return game.files.contains { file in
+      nonEmpty(file.sha1Hash) != nil
+        || nonEmpty(file.md5Hash) != nil
+        || nonEmpty(file.crcHash) != nil
+        || nonEmpty(file.chdSHA1Hash) != nil
+    }
+  }
+
+  private func cachedGameURL(
+    for game: GameDetails,
+    in serverDirectory: URL
+  ) -> URL? {
+    let expectedURL = storedGameURL(for: game, in: serverDirectory)
+    if isValidCachedGame(at: expectedURL, expectedSize: game.fileSizeBytes) {
+      return expectedURL
+    }
+
+    // Before stable content identities were introduced, OpenVault included
+    // the volatile RomM record timestamp in this directory name. Recover that
+    // complete download instead of fetching hundreds of megabytes again.
+    guard !hasStrongContentIdentity(game) else {
+      return nil
+    }
+
+    let gameDirectory = serverDirectory
+      .appending(path: String(game.id), directoryHint: .isDirectory)
+    let fileManager = FileManager.default
+    guard
+      let versionDirectories = try? fileManager.contentsOfDirectory(
+        at: gameDirectory,
+        includingPropertiesForKeys: [.isDirectoryKey],
+        options: [.skipsHiddenFiles]
+      )
+    else {
+      return nil
+    }
+
+    let expectedExtension = expectedURL.pathExtension.lowercased()
+    let candidates = versionDirectories.flatMap { versionDirectory -> [URL] in
+      guard
+        (try? versionDirectory.resourceValues(forKeys: [.isDirectoryKey])
+          .isDirectory) == true
+      else {
+        return []
+      }
+      return (try? fileManager.contentsOfDirectory(
+        at: versionDirectory,
+        includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+        options: [.skipsHiddenFiles]
+      )) ?? []
+    }
+    .filter { candidate in
+      guard
+        (try? candidate.resourceValues(forKeys: [.isRegularFileKey])
+          .isRegularFile) == true
+      else {
+        return false
+      }
+      return expectedExtension.isEmpty
+        || candidate.pathExtension.lowercased() == expectedExtension
+    }
+    .filter {
+      isValidCachedGame(at: $0, expectedSize: game.fileSizeBytes)
+    }
+    .sorted {
+      let lhsDate = (try? $0.resourceValues(
+        forKeys: [.contentModificationDateKey]
+      ))?.contentModificationDate ?? .distantPast
+      let rhsDate = (try? $1.resourceValues(
+        forKeys: [.contentModificationDateKey]
+      ))?.contentModificationDate ?? .distantPast
+      return lhsDate > rhsDate
+    }
+
+    guard let recoveredURL = candidates.first else {
+      return nil
+    }
+    OpenVaultLog.library.notice(
+      "Reusing legacy cached ROM for game \(game.id, privacy: .public)"
+    )
+    return recoveredURL
   }
 
   private func runtimeCacheServerDirectory(in session: ServerSession) -> URL {
@@ -1628,6 +1775,11 @@ actor RomMLibraryService: LibraryServing {
         return false
       }
       guard expectedSize > 0 else {
+        return true
+      }
+
+      let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+      if Int64(fileSize ?? -1) == expectedSize {
         return true
       }
 
