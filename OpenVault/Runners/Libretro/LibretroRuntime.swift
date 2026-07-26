@@ -12,25 +12,43 @@ import OSLog
 @_silgen_name("openvault_libretro_log_callback_pointer")
 private func openVaultLibretroLogCallbackPointer() -> UnsafeMutableRawPointer
 
+enum LibretroPlayerOrigin: String, Codable, Hashable, Sendable {
+    case bigPicture
+}
+
 struct LibretroRunRequest: Codable, Hashable, Sendable {
     let title: String
     let coreID: String
     let contentURL: URL?
     let systemDirectory: URL?
     let saveSync: CartridgeSaveSyncConfiguration?
+    let playerOrigin: LibretroPlayerOrigin?
 
     init(
         title: String,
         coreID: String,
         contentURL: URL?,
         systemDirectory: URL? = nil,
-        saveSync: CartridgeSaveSyncConfiguration? = nil
+        saveSync: CartridgeSaveSyncConfiguration? = nil,
+        playerOrigin: LibretroPlayerOrigin? = nil
     ) {
         self.title = title
         self.coreID = coreID
         self.contentURL = contentURL
         self.systemDirectory = systemDirectory
         self.saveSync = saveSync
+        self.playerOrigin = playerOrigin
+    }
+
+    func launched(from origin: LibretroPlayerOrigin) -> Self {
+        Self(
+            title: title,
+            coreID: coreID,
+            contentURL: contentURL,
+            systemDirectory: systemDirectory,
+            saveSync: saveSync,
+            playerOrigin: origin
+        )
     }
 
     static let pipelineTest = Self(
@@ -463,6 +481,21 @@ final class LibretroSession {
         input.releaseKeyboard()
     }
 
+    func exitPlayer() {
+        shouldClosePlayer = true
+        message = "Closing game…"
+        stop()
+    }
+
+    var isReadyToClosePlayer: Bool {
+        switch phase {
+        case .idle, .stopped, .failed:
+            true
+        case .starting, .running:
+            false
+        }
+    }
+
     func retrySaveSync() {
         guard case .failed = saveSyncPhase else {
             return
@@ -509,11 +542,10 @@ final class LibretroSession {
         case .saveMemoryPersisted:
             synchronizeCartridgeSave()
         case .controllerExitRequested:
-            shouldClosePlayer = true
-            message = "Closing game…"
             OpenVaultLog.libretro.notice(
                 "Start and Select pressed; requesting clean exit"
             )
+            exitPlayer()
         }
     }
 

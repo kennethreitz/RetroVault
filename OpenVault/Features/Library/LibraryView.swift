@@ -210,6 +210,7 @@ struct LibraryView: View {
   private var collectionPresentation = LibraryPresentation.list
   @AppStorage(LibraryPreferenceKey.artworkSort)
   private var artworkSort = ArtworkSort.alphabetical
+  @FocusState private var hasSidebarFocus: Bool
 
   var body: some View {
     NavigationSplitView {
@@ -307,6 +308,7 @@ struct LibraryView: View {
             }
           }
         }
+        .focused($hasSidebarFocus)
 
         Divider()
         sidebarStatus
@@ -330,6 +332,7 @@ struct LibraryView: View {
             case .list:
               LibraryTableView(
                 model: model,
+                automaticallyFocusesContent: !hasSidebarFocus,
                 setHidesGamesWithoutArtwork: setHidesGamesWithoutArtwork,
                 requestGameDownload: requestGameDownload,
                 requestGameDownloadRemoval: requestGameDownloadRemoval,
@@ -340,6 +343,7 @@ struct LibraryView: View {
               LibraryGridView(
                 model: model,
                 sort: artworkSort,
+                automaticallyFocusesContent: !hasSidebarFocus,
                 setHidesGamesWithoutArtwork: setHidesGamesWithoutArtwork,
                 requestGameDownload: requestGameDownload,
                 requestGameDownloadRemoval: requestGameDownloadRemoval,
@@ -348,6 +352,12 @@ struct LibraryView: View {
               )
             }
           }
+        }
+        .onMoveCommand { direction in
+          guard direction == .left else {
+            return
+          }
+          hasSidebarFocus = true
         }
         .navigationTitle(model.title)
         .searchable(
@@ -1309,6 +1319,7 @@ private struct VirtualCollectionCard: View {
 
 private struct LibraryTableView: View {
   let model: LibraryModel
+  let automaticallyFocusesContent: Bool
   let setHidesGamesWithoutArtwork: (Bool) -> Void
   let requestGameDownload: ([GameSummary]) -> Void
   let requestGameDownloadRemoval: ([GameSummary]) -> Void
@@ -1323,6 +1334,7 @@ private struct LibraryTableView: View {
   @State private var sortingRequestID = UUID()
   @State private var tableIdentity = UUID()
   @State private var selectedGameIDs: Set<Int> = []
+  @State private var hasPreparedRows = false
   @FocusState private var hasTableFocus: Bool
   @AppStorage(LibraryPreferenceKey.tableColumns)
   private var columnCustomization = TableColumnCustomization<GameSummary>()
@@ -1411,7 +1423,6 @@ private struct LibraryTableView: View {
     .onChange(of: model.selection) { _, _ in
       clearBrowserFilters()
       selectedGameIDs.removeAll()
-      hasTableFocus = true
     }
     .onChange(of: model.searchTerm) { _, _ in
       selectedGameIDs.removeAll()
@@ -2200,8 +2211,11 @@ private struct LibraryTableView: View {
 
     let games = filteredGames
     let requestedSortOrder = sortOrder
+    let shouldRestoreTableFocus =
+      hasTableFocus || (!hasPreparedRows && automaticallyFocusesContent)
     guard !games.isEmpty else {
       sortedGames = []
+      hasPreparedRows = true
       isSorting = false
       return
     }
@@ -2221,7 +2235,10 @@ private struct LibraryTableView: View {
     sortedGames = sorted
     selectedGameIDs.formIntersection(sorted.lazy.map(\.id))
     tableIdentity = UUID()
-    hasTableFocus = true
+    hasPreparedRows = true
+    if shouldRestoreTableFocus {
+      hasTableFocus = true
+    }
     isSorting = false
   }
 
@@ -2380,6 +2397,7 @@ private struct LibraryBrowserPane: View {
 private struct LibraryGridView: View {
   let model: LibraryModel
   let sort: ArtworkSort
+  let automaticallyFocusesContent: Bool
   let setHidesGamesWithoutArtwork: (Bool) -> Void
   let requestGameDownload: ([GameSummary]) -> Void
   let requestGameDownloadRemoval: ([GameSummary]) -> Void
@@ -2603,7 +2621,9 @@ private struct LibraryGridView: View {
           return .handled
         }
         .onAppear {
-          hasGridFocus = true
+          if automaticallyFocusesContent {
+            hasGridFocus = true
+          }
         }
       }
     }

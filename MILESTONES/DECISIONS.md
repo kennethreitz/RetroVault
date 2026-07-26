@@ -133,6 +133,9 @@ enum ServerConfiguration: Sendable {
 
 - The primary library uses a native `NavigationSplitView`.
 - The sidebar contains All Games, Collections, and Systems.
+- Pressing Left from the regular library content moves keyboard focus to the
+  sidebar. Subsequent Up and Down commands continue navigating sidebar
+  destinations instead of the rebuilt game table reclaiming focus.
 - "Systems" is the user-facing name for RomM platforms.
 - Systems with games are shown directly. Empty systems are collapsed under an
   Empty Systems disclosure at the bottom of the Systems section so future
@@ -198,6 +201,11 @@ enum ServerConfiguration: Sendable {
 - Starting a game reuses the production details, download, firmware, save-sync,
   and Libretro preparation pipeline. Large uncached ROMs show byte and
   percentage progress rather than an indefinite Preparing state.
+- A player launched from Big Picture treats Escape, the standard window-close
+  shortcut, and Start + Select as a clean return to the still-open Big Picture
+  library. Local save memory is persisted and RomM synchronization begins
+  before the player window closes. Desktop-launched players retain the native
+  fullscreen Escape behavior.
 
 ## Game details
 

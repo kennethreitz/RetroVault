@@ -95,20 +95,26 @@ struct LibretroGameView: View {
             session.stop()
         }
         .onExitCommand {
-            if isFullScreen {
+            if session.request.playerOrigin == .bigPicture {
+                session.exitPlayer()
+            } else if isFullScreen {
                 playerWindow?.toggleFullScreen(nil)
             } else {
                 session.stop()
             }
         }
         .onChange(of: session.shouldClosePlayer) { _, shouldClosePlayer in
-            guard shouldClosePlayer, session.phase == .stopped else {
+            guard shouldClosePlayer, session.isReadyToClosePlayer else {
                 return
             }
             playerWindow?.performClose(nil)
         }
         .onChange(of: session.phase) { _, phase in
-            guard phase == .stopped, session.shouldClosePlayer else {
+            guard
+                phase == .stopped,
+                session.shouldClosePlayer,
+                session.isReadyToClosePlayer
+            else {
                 return
             }
             playerWindow?.performClose(nil)

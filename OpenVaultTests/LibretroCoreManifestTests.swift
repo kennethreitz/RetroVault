@@ -482,6 +482,34 @@ struct LibretroCoreManifestTests {
         #expect(secondChord)
     }
 
+    @Test("Marks Big Picture launches without breaking restored requests")
+    func preservesPlayerOrigin() throws {
+        let legacyRequest = try JSONDecoder().decode(
+            LibretroRunRequest.self,
+            from: Data(
+                #"{"title":"2048","coreID":"libretro-2048","contentURL":null}"#
+                    .utf8
+            )
+        )
+        let bigPictureRequest = legacyRequest.launched(from: .bigPicture)
+
+        #expect(legacyRequest.playerOrigin == nil)
+        #expect(bigPictureRequest.playerOrigin == .bigPicture)
+        #expect(bigPictureRequest.title == legacyRequest.title)
+        #expect(bigPictureRequest.coreID == legacyRequest.coreID)
+    }
+
+    @MainActor
+    @Test("A clean exit can immediately dismiss an inactive player")
+    func exitsInactivePlayer() {
+        let session = LibretroSession(request: .pipelineTest)
+
+        session.exitPlayer()
+
+        #expect(session.shouldClosePlayer)
+        #expect(session.isReadyToClosePlayer)
+    }
+
     private func containsVisiblePixels(_ frame: LibretroVideoFrame) -> Bool {
         frame.pixels.withUnsafeBytes { bytes in
             guard let pixels = bytes.baseAddress?.assumingMemoryBound(

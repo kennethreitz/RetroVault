@@ -16,6 +16,7 @@ struct BigPictureView: View {
   @Environment(\.openWindow) private var openWindow
 
   @State private var catalog = BigPictureCatalog.empty
+  @State private var rows: [BigPictureRow] = []
   @State private var isBuildingCatalog = true
   @State private var page = BigPicturePage.home
   @State private var history: [BigPictureHistoryEntry] = []
@@ -212,9 +213,8 @@ struct BigPictureView: View {
     ScrollViewReader { proxy in
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 4) {
-          ForEach(Array(rows.enumerated()), id: \.element.id) {
-            index,
-            row in
+          ForEach(rows.indices, id: \.self) { index in
+            let row = rows[index]
             Button {
               selectedIndex = index
               activate(row)
@@ -266,9 +266,7 @@ struct BigPictureView: View {
         guard rows.indices.contains(newIndex) else {
           return
         }
-        withAnimation(.snappy(duration: 0.18)) {
-          proxy.scrollTo(rows[newIndex].id, anchor: .center)
-        }
+        proxy.scrollTo(rows[newIndex].id, anchor: .center)
       }
     }
   }
@@ -430,10 +428,15 @@ struct BigPictureView: View {
     .shadow(color: .black.opacity(0.8), radius: 50)
   }
 
-  private var rows: [BigPictureRow] {
-    switch page {
+  private func makeRows(
+    for page: BigPicturePage,
+    catalog: BigPictureCatalog
+  ) -> [BigPictureRow] {
+    let downloadedGameIDs = model.downloadedGameIDs
+
+    return switch page {
     case .home:
-      var rows: [BigPictureRow] = [
+      [
         BigPictureRow(
           id: .home("recent"),
           title: "Recently Added",
@@ -453,8 +456,7 @@ struct BigPictureView: View {
           action: .navigate(.collections)
         ),
       ]
-      rows.append(
-        contentsOf: catalog.systems.map { system in
+        + catalog.systems.map { system in
           BigPictureRow(
             id: .system(system.id),
             title: system.name,
@@ -462,11 +464,9 @@ struct BigPictureView: View {
             action: .navigate(.games(.system(system.id)))
           )
         }
-      )
-      return rows
 
     case .collections:
-      return catalog.collections.map { collection in
+      catalog.collections.map { collection in
         BigPictureRow(
           id: .collection(collection.id),
           title: collection.name,
@@ -476,12 +476,12 @@ struct BigPictureView: View {
       }
 
     case .games(let scope):
-      return catalog.games(in: scope).map { game in
+      catalog.games(in: scope).map { game in
         BigPictureRow(
           id: .game(game.id),
           title: game.name,
           detail:
-            model.downloadedGameIDs.contains(game.id)
+            downloadedGameIDs.contains(game.id)
             ? "LOCAL"
             : game.releaseYear.map(String.init),
           action: .play(game)
@@ -571,6 +571,7 @@ struct BigPictureView: View {
       return
     }
     catalog = preparedCatalog
+    rows = makeRows(for: page, catalog: preparedCatalog)
     isBuildingCatalog = false
     selectedIndex = min(selectedIndex, max(rows.count - 1, 0))
   }
@@ -645,6 +646,7 @@ struct BigPictureView: View {
         BigPictureHistoryEntry(page: page, selectedIndex: selectedIndex)
       )
       page = destination
+      rows = makeRows(for: destination, catalog: catalog)
       selectedIndex = 0
     case .play(let game):
       play(game)
@@ -657,6 +659,7 @@ struct BigPictureView: View {
       return
     }
     page = previous.page
+    rows = makeRows(for: previous.page, catalog: catalog)
     selectedIndex = previous.selectedIndex
   }
 
@@ -703,7 +706,7 @@ struct BigPictureView: View {
       }
 
       await model.reloadDownloadedGames()
-      openWindow(value: request)
+      openWindow(value: request.launched(from: .bigPicture))
       finishPlaybackPreparation()
     }
   }
