@@ -13,6 +13,7 @@ struct BigPictureView: View {
   @Bindable var model: LibraryModel
 
   @Environment(\.dismissWindow) private var dismissWindow
+  @Environment(\.accessibilityReduceMotion) private var reducesMotion
 
   @State private var catalog = BigPictureCatalog.empty
   @State private var rows: [BigPictureRow] = []
@@ -31,6 +32,7 @@ struct BigPictureView: View {
   @State private var playbackErrorMessage: String?
   @State private var requestedGame: GameSummary?
   @State private var activePlayerRequest: LibretroRunRequest?
+  @Namespace private var selectionHighlight
   @FocusState private var hasInterfaceFocus: Bool
 
   var body: some View {
@@ -281,10 +283,16 @@ struct BigPictureView: View {
               .foregroundStyle(index == selectedIndex ? .black : .white)
               .padding(.horizontal, 20)
               .frame(height: rowHeight)
-              .background(
-                index == selectedIndex ? Color.white : Color.clear,
-                in: Capsule()
-              )
+              .background {
+                if index == selectedIndex {
+                  Capsule()
+                    .fill(.white)
+                    .matchedGeometryEffect(
+                      id: "big-picture-selection",
+                      in: selectionHighlight
+                    )
+                }
+              }
               .contentShape(Capsule())
             }
             .buttonStyle(.plain)
@@ -310,7 +318,9 @@ struct BigPictureView: View {
         guard let targetID else {
           return
         }
-        proxy.scrollTo(targetID, anchor: .center)
+        withAnimation(reducesMotion ? nil : .easeOut(duration: 0.14)) {
+          proxy.scrollTo(targetID, anchor: .center)
+        }
 
         Task { @MainActor in
           if scrollTargetID == targetID {
@@ -728,9 +738,13 @@ struct BigPictureView: View {
     guard rows.indices.contains(index) else {
       return
     }
-    selectedIndex = index
-    if scrollsIntoView {
-      scrollTargetID = rows[index].id
+    withAnimation(
+      reducesMotion ? nil : .snappy(duration: 0.16, extraBounce: 0)
+    ) {
+      selectedIndex = index
+      if scrollsIntoView {
+        scrollTargetID = rows[index].id
+      }
     }
   }
 

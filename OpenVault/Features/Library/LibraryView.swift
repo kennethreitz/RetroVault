@@ -1634,6 +1634,8 @@ private struct GameDeletionConfirmationSheet: View {
 }
 
 private struct VirtualCollectionGalleryView: View {
+  @Environment(\.accessibilityReduceMotion) private var reducesMotion
+
   let collections: [LibraryCollection]
   let previewGames: [LibraryCollection.ID: [GameSummary]]
   let session: ServerSession
@@ -1645,6 +1647,7 @@ private struct VirtualCollectionGalleryView: View {
   @State private var selectedIndex = 0
   @State private var scrollTargetID: LibraryCollection.ID?
   @State private var gridWidth: CGFloat = 0
+  @Namespace private var selectionHighlight
 
   private let columns = [
     GridItem(.adaptive(minimum: 230, maximum: 340), spacing: 22, alignment: .top)
@@ -1680,6 +1683,10 @@ private struct VirtualCollectionGalleryView: View {
               {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                   .stroke(Color.accentColor, lineWidth: 3)
+                  .matchedGeometryEffect(
+                    id: "virtual-collection-selection",
+                    in: selectionHighlight
+                  )
                   .allowsHitTesting(false)
               }
             }
@@ -1755,11 +1762,15 @@ private struct VirtualCollectionGalleryView: View {
     guard !collections.isEmpty else {
       return
     }
-    selectedIndex = min(
-      max(selectedIndex + offset, 0),
-      collections.count - 1
-    )
-    updateScrollTarget()
+    withAnimation(
+      reducesMotion ? nil : .snappy(duration: 0.16, extraBounce: 0)
+    ) {
+      selectedIndex = min(
+        max(selectedIndex + offset, 0),
+        collections.count - 1
+      )
+      updateScrollTarget()
+    }
   }
 
   private func updateScrollTarget() {
@@ -2002,6 +2013,8 @@ private struct LibraryGameSelectionContextMenu<PrimaryActions: View>: View {
 }
 
 private struct LibraryTableView: View {
+  @Environment(\.accessibilityReduceMotion) private var reducesMotion
+
   let model: LibraryModel
   let automaticallyFocusesContent: Bool
   let setHidesGamesWithoutArtwork: (Bool) -> Void
@@ -2458,8 +2471,10 @@ private struct LibraryTableView: View {
     guard selectedTableGame == nil, let firstGame = sortedGames.first else {
       return
     }
-    selectedGameIDs = [firstGame.id]
-    controllerTableScrollTargetID = firstGame.id
+    withAnimation(reducesMotion ? nil : .easeOut(duration: 0.12)) {
+      selectedGameIDs = [firstGame.id]
+      controllerTableScrollTargetID = firstGame.id
+    }
   }
 
   private func moveTableSelection(by offset: Int) {
@@ -2476,8 +2491,10 @@ private struct LibraryTableView: View {
       sortedGames.count - 1
     )
     let gameID = sortedGames[destinationIndex].id
-    selectedGameIDs = [gameID]
-    controllerTableScrollTargetID = gameID
+    withAnimation(reducesMotion ? nil : .easeOut(duration: 0.12)) {
+      selectedGameIDs = [gameID]
+      controllerTableScrollTargetID = gameID
+    }
   }
 
   private var columnBrowser: some View {
@@ -3272,6 +3289,7 @@ private struct LibraryBrowserPane: View {
 
 private struct LibraryGridView: View {
   @Environment(\.openWindow) private var openWindow
+  @Environment(\.accessibilityReduceMotion) private var reducesMotion
 
   let model: LibraryModel
   let sort: ArtworkSort
@@ -3295,6 +3313,7 @@ private struct LibraryGridView: View {
   @State private var playbackAlert: LibraryAlert?
   @State private var controllerScrollTargetID: Int?
   @State private var gridWidth: CGFloat = 0
+  @Namespace private var selectionHighlight
   @FocusState private var hasGridFocus: Bool
 
   private let columns = [
@@ -3377,6 +3396,8 @@ private struct LibraryGridView: View {
                   && model.favoriteGameIDs.contains(game.id),
                 isPreparingToPlay: preparingGameID == game.id,
                 isPlaybackBusy: preparingGameID != nil,
+                selectionNamespace: selectionHighlight,
+                animatesMovingSelection: selectedGameIDs.count == 1,
                 openGame: {
                   handleGameClick(game)
                 },
@@ -3707,9 +3728,13 @@ private struct LibraryGridView: View {
       return
     }
     let gameID = sortedGames[index].id
-    selectedGameIDs = [gameID]
-    selectionAnchorID = gameID
-    controllerScrollTargetID = gameID
+    withAnimation(
+      reducesMotion ? nil : .snappy(duration: 0.16, extraBounce: 0)
+    ) {
+      selectedGameIDs = [gameID]
+      selectionAnchorID = gameID
+      controllerScrollTargetID = gameID
+    }
   }
 
   private func selectRange(from anchorID: Int, through gameID: Int) {
@@ -3920,6 +3945,8 @@ private struct ArtworkGameItem: View {
   let isFavorite: Bool
   let isPreparingToPlay: Bool
   let isPlaybackBusy: Bool
+  let selectionNamespace: Namespace.ID
+  let animatesMovingSelection: Bool
   let openGame: () -> Void
   let playGame: () -> Void
 
@@ -3990,8 +4017,17 @@ private struct ArtworkGameItem: View {
     }
     .background {
       if isSelected {
-        RoundedRectangle(cornerRadius: 13, style: .continuous)
-          .fill(.tint.opacity(0.14))
+        if animatesMovingSelection {
+          RoundedRectangle(cornerRadius: 13, style: .continuous)
+            .fill(.tint.opacity(0.14))
+            .matchedGeometryEffect(
+              id: "artwork-selection",
+              in: selectionNamespace
+            )
+        } else {
+          RoundedRectangle(cornerRadius: 13, style: .continuous)
+            .fill(.tint.opacity(0.14))
+        }
       }
     }
     .overlay {
@@ -3999,6 +4035,7 @@ private struct ArtworkGameItem: View {
         RoundedRectangle(cornerRadius: 13, style: .continuous)
           .stroke(.tint, lineWidth: 2)
           .allowsHitTesting(false)
+          .transition(.opacity)
       }
     }
     .overlay(alignment: .topTrailing) {
@@ -4010,6 +4047,7 @@ private struct ArtworkGameItem: View {
           .background(.black.opacity(0.25), in: Circle())
           .padding(12)
           .allowsHitTesting(false)
+          .transition(.scale(scale: 0.8).combined(with: .opacity))
       }
     }
     .onHover { isHovered in
