@@ -105,7 +105,15 @@ struct RomMAPIClientTests {
           """
       case "/api/collections":
         json = """
-          [{"id": 10, "name": "Favorites", "rom_count": 12, "rom_ids": [42]}]
+          [
+            {
+              "id": 10,
+              "name": "Favorites",
+              "rom_count": 12,
+              "is_favorite": true,
+              "rom_ids": [42]
+            }
+          ]
           """
       case "/api/collections/smart":
         json = """
@@ -384,6 +392,13 @@ struct RomMAPIClientTests {
 
     #expect(systems.map(\.name) == ["Empty System", "Game Boy", "Super Nintendo"])
     #expect(collections.count == 3)
+    #expect(
+      collections.contains {
+        $0.id == .regular(10)
+          && $0.isFavorite == true
+          && $0.memberGameIDs == [42]
+      }
+    )
     #expect(collections.contains { $0.id == .smart(11) })
     #expect(
       collections.contains {
@@ -427,6 +442,97 @@ struct RomMAPIClientTests {
       details.coverURL?.absoluteString
         == "https://romm.example.com/assets/romm/resources/chrono-big.webp?ts=2026-07-20%2013:08:02"
     )
+  }
+
+  @Test("Adds and removes games from a RomM collection")
+  func updatesCollectionMembership() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [StubURLProtocol.self]
+    let session = URLSession(configuration: configuration)
+    let token = try ClientToken(
+      rawValue: "rmm_" + String(repeating: "f", count: 64)
+    )
+    let client = URLSessionRomMClient(session: session)
+    let serverURL = try ServerURL("https://romm.example.com")
+    defer { StubURLProtocol.handler = nil }
+
+    StubURLProtocol.handler = { request in
+      #expect(request.url?.path == "/api/collections/10/roms")
+      #expect(request.httpMethod == "POST")
+      #expect(
+        request.value(forHTTPHeaderField: "Authorization")
+          == "Bearer \(token.rawValue)"
+      )
+      let body = try requestBodyData(request)
+      let payload = try #require(
+        JSONSerialization.jsonObject(with: body) as? [String: [Int]]
+      )
+      #expect(payload["rom_ids"] == [42, 43])
+
+      let response = HTTPURLResponse(
+        url: try #require(request.url),
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+      )!
+      let json = """
+        {
+          "id": 10,
+          "name": "Favorites",
+          "rom_count": 3,
+          "is_favorite": true,
+          "rom_ids": [1, 42, 43]
+        }
+        """
+      return (response, Data(json.utf8))
+    }
+
+    let added = try await client.updateCollectionMembership(
+      collectionID: 10,
+      gameIDs: [42, 43],
+      adding: true,
+      at: serverURL,
+      token: token
+    )
+    #expect(added.id == .regular(10))
+    #expect(added.isFavorite == true)
+    #expect(added.memberGameIDs == [1, 42, 43])
+
+    StubURLProtocol.handler = { request in
+      #expect(request.url?.path == "/api/collections/10/roms")
+      #expect(request.httpMethod == "DELETE")
+      let body = try requestBodyData(request)
+      let payload = try #require(
+        JSONSerialization.jsonObject(with: body) as? [String: [Int]]
+      )
+      #expect(payload["rom_ids"] == [42, 43])
+
+      let response = HTTPURLResponse(
+        url: try #require(request.url),
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+      )!
+      let json = """
+        {
+          "id": 10,
+          "name": "Favorites",
+          "rom_count": 1,
+          "is_favorite": true,
+          "rom_ids": [1]
+        }
+        """
+      return (response, Data(json.utf8))
+    }
+
+    let removed = try await client.updateCollectionMembership(
+      collectionID: 10,
+      gameIDs: [42, 43],
+      adding: false,
+      at: serverURL,
+      token: token
+    )
+    #expect(removed.memberGameIDs == [1])
   }
 
   @Test("Filters games with a RomM smart collection")

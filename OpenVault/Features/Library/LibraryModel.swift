@@ -60,6 +60,7 @@ final class LibraryModel {
   private(set) var isRemovingDownloads = false
   private(set) var isExportingGames = false
   private(set) var isDeletingGames = false
+  private(set) var isUpdatingFavorites = false
   private(set) var synchronizedGameCount = 0
   private(set) var synchronizationTotalGameCount = 0
   private(set) var cachedArtworkCount = 0
@@ -120,6 +121,12 @@ final class LibraryModel {
       return true
     }
     return false
+  }
+
+  var favoriteCollectionID: Int? {
+    RomMFavorites.regularCollectionID(
+      in: snapshot?.collections ?? collections
+    )
   }
 
   var downloadedGameCount: Int {
@@ -872,6 +879,33 @@ final class LibraryModel {
     return result
   }
 
+  func setFavorite(
+    _ isFavorite: Bool,
+    for selectedGames: [GameSummary]
+  ) async throws {
+    let gameIDs = Set(selectedGames.map(\.id))
+    guard !gameIDs.isEmpty else {
+      return
+    }
+    guard !isUpdatingFavorites else {
+      throw CancellationError()
+    }
+    guard let favoriteCollectionID else {
+      throw LibraryServiceError.favoriteCollectionUnavailable
+    }
+
+    isUpdatingFavorites = true
+    defer { isUpdatingFavorites = false }
+
+    let updatedSnapshot = try await service.updateCollectionMembership(
+      collectionID: favoriteCollectionID,
+      gameIDs: Array(gameIDs),
+      adding: isFavorite,
+      in: session
+    )
+    apply(updatedSnapshot)
+  }
+
   private func inspectSystemArtwork() async {
     guard !isCheckingSystemArtwork else {
       return
@@ -1046,6 +1080,7 @@ final class LibraryModel {
         id: $0.id,
         name: $0.name,
         gameCount: collectionCounts[$0.id, default: 0],
+        isFavorite: $0.isFavorite,
         virtualType: $0.virtualType
       )
     }

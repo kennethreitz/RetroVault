@@ -11,6 +11,7 @@ actor ServerConnectionService: ServerConnecting {
         "assets.read",
         "assets.write",
         "collections.read",
+        "collections.write",
         "firmware.read",
         "me.read",
         "platforms.read",

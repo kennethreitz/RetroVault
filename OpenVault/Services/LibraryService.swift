@@ -29,6 +29,12 @@ protocol LibraryServing: Sendable {
     for game: GameDetails,
     in session: ServerSession
   ) async throws -> GameDetails
+  func updateCollectionMembership(
+    collectionID: Int,
+    gameIDs: [Int],
+    adding: Bool,
+    in session: ServerSession
+  ) async throws -> LibrarySnapshot
   func downloadGame(_ game: GameDetails, in session: ServerSession) async throws -> URL
   func downloadGame(
     _ game: GameDetails,
@@ -78,6 +84,15 @@ protocol LibraryServing: Sendable {
 }
 
 extension LibraryServing {
+  func updateCollectionMembership(
+    collectionID: Int,
+    gameIDs: [Int],
+    adding: Bool,
+    in session: ServerSession
+  ) async throws -> LibrarySnapshot {
+    throw LibraryServiceError.favoriteUpdateUnavailable
+  }
+
   func downloadGame(
     _ game: GameDetails,
     in session: ServerSession,
@@ -397,6 +412,7 @@ actor RomMLibraryService: LibraryServing {
         id: $0.id,
         name: $0.name,
         gameCount: membershipCounts[$0.id, default: 0],
+        isFavorite: $0.isFavorite,
         virtualType: $0.virtualType
       )
     }
@@ -549,6 +565,65 @@ actor RomMLibraryService: LibraryServing {
       "Updated user metadata for game \(game.id, privacy: .public)"
     )
     return updatedGame
+  }
+
+  func updateCollectionMembership(
+    collectionID: Int,
+    gameIDs: [Int],
+    adding: Bool,
+    in session: ServerSession
+  ) async throws -> LibrarySnapshot {
+    let uniqueGameIDs = Array(Set(gameIDs)).sorted()
+    guard !uniqueGameIDs.isEmpty else {
+      throw LibraryServiceError.favoriteUpdateUnavailable
+    }
+
+    OpenVaultLog.library.debug(
+      "\(adding ? "Adding" : "Removing") \(uniqueGameIDs.count, privacy: .public) Favorites collection members"
+    )
+
+    let updatedCollection: LibraryCollection
+    do {
+      updatedCollection = try await api.updateCollectionMembership(
+        collectionID: collectionID,
+        gameIDs: uniqueGameIDs,
+        adding: adding,
+        at: session.serverURL,
+        token: authenticationToken()
+      )
+    } catch RomMAPIError.forbidden {
+      OpenVaultLog.library.error(
+        "Token lacks Favorites collection write permission"
+      )
+      throw LibraryServiceError.favoriteWritePermissionRequired
+    } catch RomMAPIError.notFound {
+      OpenVaultLog.library.error(
+        "RomM no longer exposes Favorites collection \(collectionID, privacy: .public)"
+      )
+      throw LibraryServiceError.favoriteCollectionUnavailable
+    } catch {
+      OpenVaultLog.library.error(
+        "Could not update Favorites collection: \(error.localizedDescription)"
+      )
+      throw error
+    }
+
+    guard let memberGameIDs = updatedCollection.memberGameIDs else {
+      throw LibraryServiceError.favoriteUpdateUnavailable
+    }
+    guard let snapshot = try await cache.snapshot(for: session.serverURL) else {
+      throw LibraryServiceError.favoriteUpdateUnavailable
+    }
+
+    let updatedSnapshot = snapshot.replacingCollectionMembership(
+      with: updatedCollection,
+      gameIDs: memberGameIDs
+    )
+    try await cache.replaceSnapshot(updatedSnapshot, for: session.serverURL)
+    OpenVaultLog.library.notice(
+      "Updated Favorites collection to \(memberGameIDs.count, privacy: .public) games"
+    )
+    return updatedSnapshot
   }
 
   func downloadGame(_ game: GameDetails, in session: ServerSession) async throws -> URL {
@@ -1954,6 +2029,9 @@ enum LibraryServiceError: LocalizedError {
   case incompleteSynchronization
   case couldNotExportGame(reason: String)
   case userMetadataWritePermissionRequired
+  case favoriteCollectionUnavailable
+  case favoriteWritePermissionRequired
+  case favoriteUpdateUnavailable
   case playbackCacheUnavailable
   case firmwareCacheUnavailable
   case firmwareReadPermissionRequired
@@ -1981,6 +2059,12 @@ enum LibraryServiceError: LocalizedError {
       "OpenVault could not export the ROM to Downloads: \(reason)"
     case .userMetadataWritePermissionRequired:
       "This client token cannot edit game progress. Reconnect with a token that includes roms.user.write."
+    case .favoriteCollectionUnavailable:
+      "RomM did not expose an editable Favorites collection for this account."
+    case .favoriteWritePermissionRequired:
+      "This client token cannot edit Favorites. Reconnect with a token that includes collections.write."
+    case .favoriteUpdateUnavailable:
+      "This library service cannot edit RomM collection membership."
     case .playbackCacheUnavailable:
       "This library service cannot prepare games for playback."
     case .firmwareCacheUnavailable:

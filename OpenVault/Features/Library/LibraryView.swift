@@ -446,6 +446,7 @@ struct LibraryView: View {
                 model: model,
                 automaticallyFocusesContent: !hasSidebarFocus,
                 setHidesGamesWithoutArtwork: setHidesGamesWithoutArtwork,
+                requestFavoriteChange: requestFavoriteChange,
                 requestGameDownload: requestGameDownload,
                 requestGameDownloadRemoval: requestGameDownloadRemoval,
                 requestGameExport: requestGameExport,
@@ -457,6 +458,7 @@ struct LibraryView: View {
                 sort: artworkSort,
                 automaticallyFocusesContent: !hasSidebarFocus,
                 setHidesGamesWithoutArtwork: setHidesGamesWithoutArtwork,
+                requestFavoriteChange: requestFavoriteChange,
                 requestGameDownload: requestGameDownload,
                 requestGameDownloadRemoval: requestGameDownloadRemoval,
                 requestGameExport: requestGameExport,
@@ -1050,6 +1052,35 @@ struct LibraryView: View {
     gameDeletionRequest = GameDeletionRequest(games: uniqueGames)
   }
 
+  private func requestFavoriteChange(
+    _ games: [GameSummary],
+    isFavorite: Bool
+  ) {
+    var seenGameIDs: Set<Int> = []
+    let uniqueGames = games.filter {
+      seenGameIDs.insert($0.id).inserted
+    }
+    guard !uniqueGames.isEmpty, !model.isUpdatingFavorites else {
+      return
+    }
+
+    Task {
+      do {
+        try await model.setFavorite(isFavorite, for: uniqueGames)
+      } catch is CancellationError {
+        return
+      } catch {
+        libraryAlert = LibraryAlert(
+          title:
+            isFavorite
+            ? "Couldn’t Add to Favorites"
+            : "Couldn’t Remove from Favorites",
+          message: error.localizedDescription
+        )
+      }
+    }
+  }
+
   private func requestGameDownload(_ games: [GameSummary]) {
     var seenGameIDs: Set<Int> = []
     let uniqueGames = games.filter {
@@ -1502,6 +1533,7 @@ private struct LibraryTableView: View {
   let model: LibraryModel
   let automaticallyFocusesContent: Bool
   let setHidesGamesWithoutArtwork: (Bool) -> Void
+  let requestFavoriteChange: ([GameSummary], Bool) -> Void
   let requestGameDownload: ([GameSummary]) -> Void
   let requestGameDownloadRemoval: ([GameSummary]) -> Void
   let requestGameExport: ([GameSummary]) -> Void
@@ -1799,6 +1831,28 @@ private struct LibraryTableView: View {
       let gamesToDownload = selectedGames.filter {
         !model.downloadedGameIDs.contains($0.id)
       }
+      let favoriteChange = RomMFavorites.membershipChange(
+        for: Set(selectedGames.map(\.id)),
+        favoriteGameIDs: model.favoriteGameIDs
+      )
+      let removesFavorites = favoriteChange == .remove
+
+      Button {
+        requestFavoriteChange(selectedGames, !removesFavorites)
+      } label: {
+        Label(
+          removesFavorites ? "Remove from Favorites" : "Add to Favorites",
+          systemImage: removesFavorites ? "star.slash" : "star"
+        )
+      }
+      .disabled(
+        selectedGames.isEmpty
+          || model.favoriteCollectionID == nil
+          || model.isUpdatingFavorites
+          || model.isShowingStaleData
+      )
+
+      Divider()
 
       if !gamesToDownload.isEmpty {
         Button {
@@ -2661,6 +2715,7 @@ private struct LibraryGridView: View {
   let sort: ArtworkSort
   let automaticallyFocusesContent: Bool
   let setHidesGamesWithoutArtwork: (Bool) -> Void
+  let requestFavoriteChange: ([GameSummary], Bool) -> Void
   let requestGameDownload: ([GameSummary]) -> Void
   let requestGameDownloadRemoval: ([GameSummary]) -> Void
   let requestGameExport: ([GameSummary]) -> Void
@@ -2771,6 +2826,11 @@ private struct LibraryGridView: View {
                 let gamesToDownload = selectedGames.filter {
                   !model.downloadedGameIDs.contains($0.id)
                 }
+                let favoriteChange = RomMFavorites.membershipChange(
+                  for: Set(selectedGames.map(\.id)),
+                  favoriteGameIDs: model.favoriteGameIDs
+                )
+                let removesFavorites = favoriteChange == .remove
 
                 if selectedGames.count == 1, let selectedGame = selectedGames.first,
                   isPlayable(selectedGame)
@@ -2792,6 +2852,25 @@ private struct LibraryGridView: View {
 
                   Divider()
                 }
+
+                Button {
+                  requestFavoriteChange(selectedGames, !removesFavorites)
+                } label: {
+                  Label(
+                    removesFavorites
+                      ? "Remove from Favorites"
+                      : "Add to Favorites",
+                    systemImage: removesFavorites ? "star.slash" : "star"
+                  )
+                }
+                .disabled(
+                  selectedGames.isEmpty
+                    || model.favoriteCollectionID == nil
+                    || model.isUpdatingFavorites
+                    || model.isShowingStaleData
+                )
+
+                Divider()
 
                 if !gamesToDownload.isEmpty {
                   Button {

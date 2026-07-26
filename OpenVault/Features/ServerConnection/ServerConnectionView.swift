@@ -88,7 +88,7 @@ struct ServerConnectionView: View {
             }
             .frame(maxWidth: 520)
 
-            Text("OpenVault needs me.read, platforms.read, roms.read, roms.write, collections.read, roms.user.write, assets.read, assets.write, and firmware.read. Firmware access supplies system files to compatible bundled cores; asset access synchronizes cartridge saves. During development, the token is stored in OpenVault's sandboxed Application Support folder on this Mac.")
+            Text("OpenVault needs me.read, platforms.read, roms.read, roms.write, collections.read, collections.write, roms.user.write, assets.read, assets.write, and firmware.read. Collection access keeps Favorites in sync with RomM; firmware access supplies system files to compatible bundled cores; asset access synchronizes cartridge saves. During development, the token is stored in OpenVault's sandboxed Application Support folder on this Mac.")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)

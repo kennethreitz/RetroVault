@@ -35,6 +35,13 @@ protocol RomMClient: Sendable {
     at serverURL: ServerURL,
     token: ClientToken
   ) async throws -> GameUserMetadata
+  func updateCollectionMembership(
+    collectionID: Int,
+    gameIDs: [Int],
+    adding: Bool,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> LibraryCollection
   func downloadGame(
     for gameID: Int,
     fileName: String,
@@ -81,6 +88,16 @@ protocol RomMClient: Sendable {
 }
 
 extension RomMClient {
+  func updateCollectionMembership(
+    collectionID: Int,
+    gameIDs: [Int],
+    adding: Bool,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> LibraryCollection {
+    throw RomMAPIError.invalidResponse
+  }
+
   func downloadGame(
     for gameID: Int,
     fileName: String,

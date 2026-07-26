@@ -54,6 +54,7 @@ struct ServerConnectionServiceTests {
                     "assets.read",
                     "assets.write",
                     "collections.read",
+                    "collections.write",
                     "firmware.read",
                     "me.read",
                     "platforms.read",
@@ -142,6 +143,58 @@ struct ServerConnectionServiceTests {
 
 @Suite("Library")
 struct LibraryTests {
+    @Test("Persists RomM Favorites membership in the offline snapshot")
+    func persistsFavoriteMembership() async throws {
+        let token = try ClientToken(
+            rawValue: "rmm_" + String(repeating: "a", count: 64)
+        )
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let serverURL = try ServerURL("https://romm.example.com")
+        let session = ServerSession(serverURL: serverURL, username: "kenneth")
+        let cache = InMemoryLibraryCache()
+        await cache.replaceSnapshot(testLibrarySnapshot(), for: serverURL)
+        let updatedCollection = LibraryCollection(
+            id: .regular(10),
+            name: "Favorites",
+            gameCount: 2,
+            isFavorite: true,
+            memberGameIDs: [1, 2]
+        )
+        let api = MockRomMClient(
+            token: token,
+            user: RomMUser(
+                id: 1,
+                username: "kenneth",
+                scopes: ["collections.write"]
+            ),
+            updatedCollection: updatedCollection
+        )
+        let service = RomMLibraryService(
+            api: api,
+            credentialStore: credentials,
+            cache: cache
+        )
+
+        let result = try await service.updateCollectionMembership(
+            collectionID: 10,
+            gameIDs: [2],
+            adding: true,
+            in: session
+        )
+
+        #expect(
+            result.collectionMemberships.first {
+                $0.collectionID == .regular(10)
+            }?.gameIDs == [1, 2]
+        )
+        #expect(
+            await cache.snapshot(for: serverURL)?
+                .collections.first { $0.id == .regular(10) }?
+                .isFavorite == true
+        )
+    }
+
     @MainActor
     @Test("Loads sidebar data and exposes the complete synchronized library")
     func loadsCompleteLibrary() async throws {
@@ -1211,6 +1264,7 @@ private struct MockRomMClient: RomMClient {
     let user: RomMUser
     var downloadData = Data("downloaded".utf8)
     var firmwareFiles: [RomMFirmware: Data] = [:]
+    var updatedCollection: LibraryCollection? = nil
 
     func verifyServer(at serverURL: ServerURL) async throws {}
 
@@ -1256,6 +1310,19 @@ private struct MockRomMClient: RomMClient {
         token: ClientToken
     ) async throws -> GameUserMetadata {
         metadata
+    }
+
+    func updateCollectionMembership(
+        collectionID: Int,
+        gameIDs: [Int],
+        adding: Bool,
+        at serverURL: ServerURL,
+        token: ClientToken
+    ) throws -> LibraryCollection {
+        guard let updatedCollection else {
+            throw RomMAPIError.invalidResponse
+        }
+        return updatedCollection
     }
 
     func downloadGame(

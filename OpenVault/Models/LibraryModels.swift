@@ -18,6 +18,8 @@ struct LibraryCollection: Codable, Identifiable, Hashable, Sendable {
   let id: ID
   let name: String
   let gameCount: Int
+  /// Whether RomM marks this regular collection as the account's Favorites.
+  let isFavorite: Bool?
   /// RomM's virtual collection category, such as `collection` or `genre`.
   let virtualType: String?
   /// Membership supplied inline by RomM, used only while constructing a snapshot.
@@ -27,12 +29,14 @@ struct LibraryCollection: Codable, Identifiable, Hashable, Sendable {
     id: ID,
     name: String,
     gameCount: Int,
+    isFavorite: Bool? = nil,
     virtualType: String? = nil,
     memberGameIDs: [Int]? = nil
   ) {
     self.id = id
     self.name = name
     self.gameCount = gameCount
+    self.isFavorite = isFavorite
     self.virtualType = virtualType
     self.memberGameIDs = memberGameIDs
   }
@@ -44,14 +48,48 @@ struct LibraryCollection: Codable, Identifiable, Hashable, Sendable {
 /// from the synchronized collection membership so it also works from the offline
 /// library snapshot.
 enum RomMFavorites {
+  enum MembershipChange: Equatable, Sendable {
+    case add
+    case remove
+  }
+
+  static func collectionID(
+    in collections: [LibraryCollection]
+  ) -> LibraryCollection.ID? {
+    favoriteCollections(in: collections).first?.id
+  }
+
+  static func regularCollectionID(
+    in collections: [LibraryCollection]
+  ) -> Int? {
+    guard
+      let collectionID = collectionID(in: collections),
+      case .regular(let id) = collectionID
+    else {
+      return nil
+    }
+    return id
+  }
+
+  /// Removes only when every selected game is already a favorite.
+  ///
+  /// Adding an already-favorite game is harmless, which makes mixed selections
+  /// predictable and lets RomM's collection endpoint perform one atomic edit.
+  static func membershipChange(
+    for gameIDs: Set<Int>,
+    favoriteGameIDs: Set<Int>
+  ) -> MembershipChange {
+    guard !gameIDs.isEmpty, gameIDs.isSubset(of: favoriteGameIDs) else {
+      return .add
+    }
+    return .remove
+  }
+
   static func gameIDs(
     collections: [LibraryCollection],
     memberships: [LibrarySnapshot.CollectionMembership]
   ) -> Set<Int> {
-    let favoriteCollections = collections.filter {
-      $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        .localizedCaseInsensitiveCompare("Favorites") == .orderedSame
-    }
+    let favoriteCollections = favoriteCollections(in: collections)
     let favoriteCollectionIDs = Set(favoriteCollections.map(\.id))
     guard !favoriteCollectionIDs.isEmpty else {
       return []
@@ -90,6 +128,21 @@ enum RomMFavorites {
     }
     favorites.append(contentsOf: remainingGames)
     return favorites
+  }
+
+  private static func favoriteCollections(
+    in collections: [LibraryCollection]
+  ) -> [LibraryCollection] {
+    let explicitlyFavorite = collections.filter { $0.isFavorite == true }
+    guard explicitlyFavorite.isEmpty else {
+      return explicitlyFavorite
+    }
+
+    // Older cached snapshots predate RomM's explicit `is_favorite` metadata.
+    return collections.filter {
+      $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        .localizedCaseInsensitiveCompare("Favorites") == .orderedSame
+    }
   }
 }
 
@@ -400,11 +453,56 @@ struct LibrarySnapshot: Codable, Equatable, Sendable {
           id: $0.id,
           name: $0.name,
           gameCount: collectionCounts[$0.id, default: 0],
+          isFavorite: $0.isFavorite,
           virtualType: $0.virtualType
         )
       },
       games: remainingGames,
       collectionMemberships: memberships
+    )
+  }
+
+  func replacingCollectionMembership(
+    with updatedCollection: LibraryCollection,
+    gameIDs: [Int]
+  ) -> LibrarySnapshot {
+    let uniqueGameIDs = Array(Set(gameIDs)).sorted()
+    let collection = LibraryCollection(
+      id: updatedCollection.id,
+      name: updatedCollection.name,
+      gameCount: uniqueGameIDs.count,
+      isFavorite: updatedCollection.isFavorite,
+      virtualType: updatedCollection.virtualType
+    )
+
+    var updatedCollections = collections
+    if let index = updatedCollections.firstIndex(where: {
+      $0.id == collection.id
+    }) {
+      updatedCollections[index] = collection
+    } else {
+      updatedCollections.append(collection)
+    }
+
+    let membership = CollectionMembership(
+      collectionID: collection.id,
+      gameIDs: uniqueGameIDs
+    )
+    var updatedMemberships = collectionMemberships
+    if let index = updatedMemberships.firstIndex(where: {
+      $0.collectionID == collection.id
+    }) {
+      updatedMemberships[index] = membership
+    } else {
+      updatedMemberships.append(membership)
+    }
+
+    return LibrarySnapshot(
+      synchronizedAt: synchronizedAt,
+      systems: systems,
+      collections: updatedCollections,
+      games: games,
+      collectionMemberships: updatedMemberships
     )
   }
 }

@@ -253,6 +253,7 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
             id: .regular($0.id),
             name: $0.name,
             gameCount: $0.gameCount,
+            isFavorite: $0.isFavorite,
             memberGameIDs: $0.gameIDs
           )
         }
@@ -262,6 +263,7 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
             id: .smart($0.id),
             name: $0.name,
             gameCount: $0.gameCount,
+            isFavorite: $0.isFavorite,
             memberGameIDs: $0.gameIDs
           )
         }
@@ -445,6 +447,40 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
       let data = try await data(for: request)
       return try decoder.decode(GameUserMetadataDTO.self, from: data)
         .gameUserMetadata
+    } catch let error as RomMAPIError {
+      throw error
+    } catch {
+      throw RomMAPIError.decoding(error)
+    }
+  }
+
+  func updateCollectionMembership(
+    collectionID: Int,
+    gameIDs: [Int],
+    adding: Bool,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> LibraryCollection {
+    var request = URLRequest(
+      url: serverURL.endpoint("api/collections/\(collectionID)/roms")
+    )
+    request.httpMethod = adding ? "POST" : "DELETE"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    authorize(&request, with: token)
+    request.httpBody = try encoder.encode(
+      CollectionRomsRequestDTO(romIDs: gameIDs)
+    )
+
+    do {
+      let data = try await self.data(for: request)
+      let collection = try decoder.decode(CollectionDTO.self, from: data)
+      return LibraryCollection(
+        id: .regular(collection.id),
+        name: collection.name,
+        gameCount: collection.gameCount,
+        isFavorite: collection.isFavorite,
+        memberGameIDs: collection.gameIDs
+      )
     } catch let error as RomMAPIError {
       throw error
     } catch {
@@ -912,13 +948,23 @@ private struct CollectionDTO: Decodable {
   let id: Int
   let name: String
   let gameCount: Int
+  let isFavorite: Bool?
   let gameIDs: [Int]?
 
   enum CodingKeys: String, CodingKey {
     case id
     case name
     case gameCount = "rom_count"
+    case isFavorite = "is_favorite"
     case gameIDs = "rom_ids"
+  }
+}
+
+private struct CollectionRomsRequestDTO: Encodable {
+  let romIDs: [Int]
+
+  enum CodingKeys: String, CodingKey {
+    case romIDs = "rom_ids"
   }
 }
 

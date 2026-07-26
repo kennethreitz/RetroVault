@@ -107,6 +107,87 @@ struct ArtworkSortTests {
         == [2, 3, 1]
     )
   }
+
+  @Test("Adds a mixed Favorites selection and removes an all-favorite selection")
+  func choosesFavoriteMembershipChange() {
+    let favoriteGameIDs: Set<Int> = [1, 2]
+
+    #expect(
+      RomMFavorites.membershipChange(
+        for: [1, 3],
+        favoriteGameIDs: favoriteGameIDs
+      ) == .add
+    )
+    #expect(
+      RomMFavorites.membershipChange(
+        for: [1, 2],
+        favoriteGameIDs: favoriteGameIDs
+      ) == .remove
+    )
+  }
+
+  @Test("Replaces cached collection membership without changing library metadata")
+  func replacesCollectionMembership() {
+    let snapshot = LibrarySnapshot(
+      synchronizedAt: Date(timeIntervalSince1970: 1_000),
+      systems: [LibrarySystem(id: 1, name: "Test", gameCount: 3)],
+      collections: [
+        LibraryCollection(
+          id: .regular(10),
+          name: "Favorites",
+          gameCount: 1,
+          isFavorite: true
+        )
+      ],
+      games: [
+        GameSummary(
+          id: 1,
+          name: "One",
+          systemID: 1,
+          systemName: "Test",
+          coverURL: nil
+        ),
+        GameSummary(
+          id: 2,
+          name: "Two",
+          systemID: 1,
+          systemName: "Test",
+          coverURL: nil
+        ),
+        GameSummary(
+          id: 3,
+          name: "Three",
+          systemID: 1,
+          systemName: "Test",
+          coverURL: nil
+        ),
+      ],
+      collectionMemberships: [
+        LibrarySnapshot.CollectionMembership(
+          collectionID: .regular(10),
+          gameIDs: [1]
+        )
+      ]
+    )
+    let updatedCollection = LibraryCollection(
+      id: .regular(10),
+      name: "Favorites",
+      gameCount: 3,
+      isFavorite: true,
+      memberGameIDs: [1, 2, 2, 3]
+    )
+
+    let updated = snapshot.replacingCollectionMembership(
+      with: updatedCollection,
+      gameIDs: updatedCollection.memberGameIDs ?? []
+    )
+
+    #expect(updated.synchronizedAt == snapshot.synchronizedAt)
+    #expect(updated.games == snapshot.games)
+    #expect(updated.collections.first?.gameCount == 3)
+    #expect(updated.collections.first?.isFavorite == true)
+    #expect(updated.collectionMemberships.first?.gameIDs == [1, 2, 3])
+  }
 }
 
 @Suite("Sidebar system sorting")
