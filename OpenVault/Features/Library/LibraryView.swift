@@ -1825,12 +1825,11 @@ private struct LibraryTableView: View {
     }
     .contextMenu(forSelectionType: Int.self) { selectedIDs in
       let selectedGames = sortedGames.filter { selectedIDs.contains($0.id) }
-      let downloadedGames = selectedGames.filter {
-        model.downloadedGameIDs.contains($0.id)
-      }
       let gamesToDownload = selectedGames.filter {
         !model.downloadedGameIDs.contains($0.id)
       }
+      let removesDownloads =
+        !selectedGames.isEmpty && gamesToDownload.isEmpty
       let favoriteChange = RomMFavorites.membershipChange(
         for: Set(selectedGames.map(\.id)),
         favoriteGameIDs: model.favoriteGameIDs
@@ -1854,39 +1853,37 @@ private struct LibraryTableView: View {
 
       Divider()
 
-      if !gamesToDownload.isEmpty {
-        Button {
+      Button(role: removesDownloads ? .destructive : nil) {
+        if removesDownloads {
+          requestGameDownloadRemoval(selectedGames)
+        } else {
           requestGameDownload(gamesToDownload)
-        } label: {
-          Label(
-            gamesToDownload.count == 1
-              ? "Download"
-              : "Download \(gamesToDownload.count.formatted()) Games",
-            systemImage: "arrow.down.circle"
-          )
         }
-        .disabled(
-          model.isDownloadingGames
-            || model.isRemovingDownloads
-            || gamesToDownload.allSatisfy {
-              $0.isMissingFromFileSystem == true
-            }
+      } label: {
+        Label(
+          removesDownloads
+            ? (
+              selectedGames.count == 1
+                ? "Remove Download"
+                : "Remove \(selectedGames.count.formatted()) Downloads"
+            )
+            : (
+              gamesToDownload.count == 1
+                ? "Download"
+                : "Download \(gamesToDownload.count.formatted()) Games"
+            ),
+          systemImage: removesDownloads ? "trash" : "arrow.down.circle"
         )
       }
-
-      if !downloadedGames.isEmpty {
-        Button(role: .destructive) {
-          requestGameDownloadRemoval(downloadedGames)
-        } label: {
-          Label(
-            downloadedGames.count == 1
-              ? "Remove Download"
-              : "Remove \(downloadedGames.count.formatted()) Downloads",
-            systemImage: "trash"
-          )
-        }
-        .disabled(model.isRemovingDownloads || model.isDownloadingGames)
-      }
+      .disabled(
+        selectedGames.isEmpty
+          || model.isDownloadingGames
+          || model.isRemovingDownloads
+          || (!removesDownloads
+            && gamesToDownload.allSatisfy {
+              $0.isMissingFromFileSystem == true
+            })
+      )
 
       Button {
         requestGameExport(selectedGames)
@@ -2820,12 +2817,11 @@ private struct LibraryGridView: View {
               )
               .contextMenu {
                 let selectedGames = contextGames(for: game)
-                let downloadedGames = selectedGames.filter {
-                  model.downloadedGameIDs.contains($0.id)
-                }
                 let gamesToDownload = selectedGames.filter {
                   !model.downloadedGameIDs.contains($0.id)
                 }
+                let removesDownloads =
+                  !selectedGames.isEmpty && gamesToDownload.isEmpty
                 let favoriteChange = RomMFavorites.membershipChange(
                   for: Set(selectedGames.map(\.id)),
                   favoriteGameIDs: model.favoriteGameIDs
@@ -2872,39 +2868,38 @@ private struct LibraryGridView: View {
 
                 Divider()
 
-                if !gamesToDownload.isEmpty {
-                  Button {
+                Button(role: removesDownloads ? .destructive : nil) {
+                  if removesDownloads {
+                    requestGameDownloadRemoval(selectedGames)
+                  } else {
                     requestGameDownload(gamesToDownload)
-                  } label: {
-                    Label(
-                      gamesToDownload.count == 1
-                        ? "Download"
-                        : "Download \(gamesToDownload.count.formatted()) Games",
-                      systemImage: "arrow.down.circle"
-                    )
                   }
-                  .disabled(
-                    model.isDownloadingGames
-                      || model.isRemovingDownloads
-                      || gamesToDownload.allSatisfy {
-                        $0.isMissingFromFileSystem == true
-                      }
+                } label: {
+                  Label(
+                    removesDownloads
+                      ? (
+                        selectedGames.count == 1
+                          ? "Remove Download"
+                          : "Remove \(selectedGames.count.formatted()) Downloads"
+                      )
+                      : (
+                        gamesToDownload.count == 1
+                          ? "Download"
+                          : "Download \(gamesToDownload.count.formatted()) Games"
+                      ),
+                    systemImage:
+                      removesDownloads ? "trash" : "arrow.down.circle"
                   )
                 }
-
-                if !downloadedGames.isEmpty {
-                  Button(role: .destructive) {
-                    requestGameDownloadRemoval(downloadedGames)
-                  } label: {
-                    Label(
-                      downloadedGames.count == 1
-                        ? "Remove Download"
-                        : "Remove \(downloadedGames.count.formatted()) Downloads",
-                      systemImage: "trash"
-                    )
-                  }
-                  .disabled(model.isRemovingDownloads || model.isDownloadingGames)
-                }
+                .disabled(
+                  selectedGames.isEmpty
+                    || model.isDownloadingGames
+                    || model.isRemovingDownloads
+                    || (!removesDownloads
+                      && gamesToDownload.allSatisfy {
+                        $0.isMissingFromFileSystem == true
+                      })
+                )
 
                 Button {
                   requestGameExport(selectedGames)
