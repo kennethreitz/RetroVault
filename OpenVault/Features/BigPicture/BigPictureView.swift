@@ -699,7 +699,7 @@ struct BigPictureView: View {
         }
       case .back:
         playbackErrorMessage = nil
-      case .up, .down, .pageUp, .pageDown, .exit:
+      case .up, .down, .pageUp, .pageDown, .launchGame, .exit:
         break
       }
       return
@@ -729,6 +729,8 @@ struct BigPictureView: View {
         return
       }
       activate(rows[selectedIndex])
+    case .launchGame:
+      launchSelectedGame()
     case .back:
       navigateBack()
     case .exit:
@@ -782,6 +784,15 @@ struct BigPictureView: View {
     case .play(let game):
       play(game)
     }
+  }
+
+  private func launchSelectedGame() {
+    guard rows.indices.contains(selectedIndex),
+      case let .play(game) = rows[selectedIndex].action
+    else {
+      return
+    }
+    play(game)
   }
 
   private func navigateBack() {
@@ -985,6 +996,7 @@ enum BigPictureCommand: Equatable, Sendable {
   case pageUp
   case pageDown
   case activate
+  case launchGame
   case back
   case exit
 }
@@ -1038,6 +1050,7 @@ struct BigPictureControllerState: Equatable, Sendable {
   var left = false
   var right = false
   var activate = false
+  var startsGame = false
   var back = false
   var exitsBigPicture = false
   var opensBigPicture = false
@@ -1089,6 +1102,11 @@ struct BigPictureControllerState: Equatable, Sendable {
             productCategory: controller.productCategory
           )
         )
+        let auxiliaryButtons = Self.extendedAuxiliaryButtonActions(
+          optionsPressed: gamepad.buttonOptions?.isPressed == true,
+          menuPressed: gamepad.buttonMenu.isPressed,
+          homePressed: gamepad.buttonHome?.isPressed == true
+        )
         state.up =
           state.up
           || gamepad.dpad.up.isPressed
@@ -1106,17 +1124,17 @@ struct BigPictureControllerState: Equatable, Sendable {
           || gamepad.dpad.right.isPressed
           || gamepad.leftThumbstick.xAxis.value > 0.72
         state.activate = state.activate || faceButtons.activate
+        state.startsGame =
+          state.startsGame || auxiliaryButtons.startsGame
         state.exitsBigPicture =
           state.exitsBigPicture
-          || gamepad.buttonOptions?.isPressed == true
+          || auxiliaryButtons.exitsBigPicture
         state.opensBigPicture =
           state.opensBigPicture
-          || gamepad.buttonMenu.isPressed
-          || gamepad.buttonHome?.isPressed == true
+          || auxiliaryButtons.opensBigPicture
         state.back =
           state.back
           || faceButtons.back
-          || gamepad.buttonMenu.isPressed
         state.pageUp =
           state.pageUp || gamepad.leftShoulder.isPressed
         state.pageDown =
@@ -1150,6 +1168,22 @@ struct BigPictureControllerState: Equatable, Sendable {
         back: buttonBPressed
       )
     }
+  }
+
+  static func extendedAuxiliaryButtonActions(
+    optionsPressed: Bool,
+    menuPressed: Bool,
+    homePressed: Bool
+  ) -> (
+    opensBigPicture: Bool,
+    exitsBigPicture: Bool,
+    startsGame: Bool
+  ) {
+    (
+      opensBigPicture: optionsPressed || homePressed,
+      exitsBigPicture: optionsPressed,
+      startsGame: menuPressed
+    )
   }
 
   static func controllerLayout(
@@ -1231,6 +1265,9 @@ struct BigPictureControllerNavigation: Sendable {
     }
     if state.back, !previousState.back {
       return .back
+    }
+    if state.startsGame, !previousState.startsGame {
+      return .launchGame
     }
     if state.activate, !previousState.activate {
       return .activate

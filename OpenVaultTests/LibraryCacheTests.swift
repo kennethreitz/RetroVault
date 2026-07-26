@@ -416,17 +416,16 @@ struct BigPictureCatalogTests {
     )
   }
 
-  @Test("Maps the controller Menu button to Big Picture")
-  func mapsControllerMenuToBigPicture() {
+  @Test("Maps the controller Select button to Big Picture")
+  func mapsControllerSelectToBigPicture() {
     var navigation = LibraryControllerNavigation()
-    let menu = BigPictureControllerState(
+    let select = BigPictureControllerState(
       isConnected: true,
-      back: true,
       opensBigPicture: true
     )
 
-    #expect(navigation.command(for: menu, at: 30) == .openBigPicture)
-    #expect(navigation.command(for: menu, at: 30.1) == nil)
+    #expect(navigation.command(for: select, at: 30) == .openBigPicture)
+    #expect(navigation.command(for: select, at: 30.1) == nil)
   }
 
   @Test("Maps controller actions and shoulders without repeating a hold")
@@ -441,8 +440,8 @@ struct BigPictureCatalogTests {
       for: BigPictureControllerState(isConnected: true, activate: true),
       at: 20.1
     )
-    _ = navigation.command(
-      for: BigPictureControllerState(isConnected: true),
+    let start = navigation.command(
+      for: BigPictureControllerState(isConnected: true, startsGame: true),
       at: 20.2
     )
     let back = navigation.command(
@@ -468,6 +467,7 @@ struct BigPictureCatalogTests {
 
     #expect(activate == .activate)
     #expect(heldActivate == nil)
+    #expect(start == .launchGame)
     #expect(back == .back)
     #expect(pageUp == .pageUp)
     #expect(pageDown == .pageDown)
@@ -485,6 +485,35 @@ struct BigPictureCatalogTests {
 
     #expect(navigation.command(for: select, at: 21) == .exit)
     #expect(navigation.command(for: select, at: 21.1) == nil)
+  }
+
+  @Test("Maps Select to Big Picture and Start to game launch")
+  func mapsAuxiliaryButtons() {
+    let select = BigPictureControllerState.extendedAuxiliaryButtonActions(
+      optionsPressed: true,
+      menuPressed: false,
+      homePressed: false
+    )
+    let start = BigPictureControllerState.extendedAuxiliaryButtonActions(
+      optionsPressed: false,
+      menuPressed: true,
+      homePressed: false
+    )
+    let home = BigPictureControllerState.extendedAuxiliaryButtonActions(
+      optionsPressed: false,
+      menuPressed: false,
+      homePressed: true
+    )
+
+    #expect(select.opensBigPicture)
+    #expect(select.exitsBigPicture)
+    #expect(!select.startsGame)
+    #expect(!start.opensBigPicture)
+    #expect(!start.exitsBigPicture)
+    #expect(start.startsGame)
+    #expect(home.opensBigPicture)
+    #expect(!home.exitsBigPicture)
+    #expect(!home.startsGame)
   }
 
   @Test("Maps the right face button to select and bottom face button to back")

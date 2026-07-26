@@ -723,7 +723,7 @@ struct LibraryView: View {
             } label: {
               Label("Big Picture", systemImage: "tv")
             }
-            .help("Enter Big Picture mode (or press Home/Menu on a controller)")
+            .help("Enter Big Picture mode (or press Select/Home on a controller)")
             .accessibilityLabel("Enter Big Picture Mode")
           }
         }
