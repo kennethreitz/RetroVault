@@ -188,9 +188,9 @@ enum ServerConfiguration: Sendable {
 ## Big Picture
 
 - The library toolbar exposes a TV button that opens a dedicated, single
-  Big Picture window and enters native macOS full screen. The window remains
-  resizable and fullscreen-capable, with an explicit control and the standard
-  Control-Command-F shortcut for moving between windowed and fullscreen modes.
+  Big Picture window and enters native macOS full screen. Big Picture has no
+  windowed presentation or fullscreen toggle: leaving its fullscreen Space
+  closes Big Picture and returns to the main application.
 - Big Picture follows MinUI's visual grammar: a black canvas, large rounded
   typography, an inverted white selection, shallow navigation, and persistent
   controller action hints. It does not reuse the desktop sidebar, toolbar,

@@ -25,7 +25,6 @@ struct BigPictureView: View {
   @State private var controllerNavigation = BigPictureControllerNavigation()
   @State private var inputPriority = BigPictureInputPriority()
   @State private var bigPictureWindow: NSWindow?
-  @State private var isBigPictureFullScreen = false
   @State private var playbackModel: GameDetailsModel?
   @State private var playbackTask: Task<Void, Never>?
   @State private var isLoadingGameDetails = false
@@ -51,8 +50,6 @@ struct BigPictureView: View {
     .background {
       BigPictureWindowProbe { window in
         bigPictureWindow = window
-        isBigPictureFullScreen =
-          window?.styleMask.contains(.fullScreen) == true
       }
     }
     .task {
@@ -66,23 +63,13 @@ struct BigPictureView: View {
     }
     .onReceive(
       NotificationCenter.default.publisher(
-        for: NSWindow.didEnterFullScreenNotification
-      )
-    ) { notification in
-      guard notification.object as? NSWindow === bigPictureWindow else {
-        return
-      }
-      isBigPictureFullScreen = true
-    }
-    .onReceive(
-      NotificationCenter.default.publisher(
         for: NSWindow.didExitFullScreenNotification
       )
     ) { notification in
       guard notification.object as? NSWindow === bigPictureWindow else {
         return
       }
-      isBigPictureFullScreen = false
+      dismissWindow(id: BigPictureScene.id)
     }
     .onDisappear {
       playbackTask?.cancel()
@@ -147,16 +134,6 @@ struct BigPictureView: View {
       handleEscape()
       return .handled
     }
-    .onKeyPress("f", phases: .down) { keyPress in
-      guard
-        keyPress.modifiers.contains(.command),
-        keyPress.modifiers.contains(.control)
-      else {
-        return .ignored
-      }
-      toggleBigPictureFullScreen()
-      return .handled
-    }
   }
 
   private var header: some View {
@@ -180,30 +157,6 @@ struct BigPictureView: View {
         }
 
         statusPill
-
-        Button {
-          toggleBigPictureFullScreen()
-        } label: {
-          Image(
-            systemName: isBigPictureFullScreen
-              ? "arrow.down.right.and.arrow.up.left"
-              : "arrow.up.left.and.arrow.down.right"
-          )
-          .font(.system(size: 15, weight: .black))
-          .frame(width: 36, height: 36)
-          .background(.white.opacity(0.12), in: Circle())
-        }
-        .buttonStyle(.plain)
-        .help(
-          isBigPictureFullScreen
-            ? "Exit Full Screen"
-            : "Enter Full Screen"
-        )
-        .accessibilityLabel(
-          isBigPictureFullScreen
-            ? "Exit Big Picture Full Screen"
-            : "Enter Big Picture Full Screen"
-        )
 
         TimelineView(.periodic(from: .now, by: 30)) { context in
           Text(
@@ -789,14 +742,6 @@ struct BigPictureView: View {
     )
   }
 
-  private func toggleBigPictureFullScreen() {
-    guard let bigPictureWindow else {
-      return
-    }
-    bigPictureWindow.collectionBehavior.insert(.fullScreenPrimary)
-    bigPictureWindow.toggleFullScreen(nil)
-  }
-
   private func play(_ game: GameSummary) {
     guard playbackTask == nil else {
       return
@@ -1192,8 +1137,7 @@ private final class BigPictureProbeView: NSView {
     }
 
     window.backgroundColor = .black
-    window.collectionBehavior.insert(.fullScreenPrimary)
-    window.styleMask.insert(.resizable)
+    configureFullScreen(for: window)
     window.titleVisibility = .hidden
     window.titlebarAppearsTransparent = true
     window.toolbar?.isVisible = false
@@ -1211,7 +1155,15 @@ private final class BigPictureProbeView: NSView {
       else {
         return
       }
+      configureFullScreen(for: window)
       window.toggleFullScreen(nil)
     }
   }
+}
+
+@MainActor
+private func configureFullScreen(for window: NSWindow) {
+  window.collectionBehavior.remove(.fullScreenNone)
+  window.collectionBehavior.insert(.fullScreenPrimary)
+  window.styleMask.insert([.titled, .resizable])
 }
