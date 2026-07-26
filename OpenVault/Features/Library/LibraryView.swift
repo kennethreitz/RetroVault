@@ -383,6 +383,7 @@ struct LibraryView: View {
             session: model.session,
             service: model.service
           )
+          .id(game.id)
         }
         .toolbar {
           if model.selection != .virtualCollections {
@@ -2666,6 +2667,7 @@ private struct LibraryGridView: View {
         session: model.session,
         service: model.service
       )
+      .id(game.id)
     }
     .task(id: artworkRowsKey) {
       await rebuildSortedGames()

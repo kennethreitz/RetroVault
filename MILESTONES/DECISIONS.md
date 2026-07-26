@@ -214,6 +214,9 @@ enum ServerConfiguration: Sendable {
 - Game-detail foreground content consumes only the portion of a window safe
   area that its `NavigationSplitView` container has not already accounted for.
   This prevents sidebar and titlebar insets from being applied twice.
+- Each game-detail destination and scroll container has game-specific identity,
+  so opening another game begins at the top instead of inheriting the previous
+  game's vertical scroll position.
 - The native details screen follows RomM 5.0's information hierarchy: a fixed
   cover column, title and activity header, and Overview, Files, Media, and
   Metadata tabs. On wide windows only the active tab panel scrolls; narrow

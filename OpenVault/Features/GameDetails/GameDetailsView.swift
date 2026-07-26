@@ -313,6 +313,7 @@ struct GameDetailsView: View {
         }
         .frame(height: viewportHeight)
         .scrollIndicators(.visible)
+        .id(details.id)
     }
 
     private func compactLayout(_ details: GameDetails) -> some View {
@@ -338,6 +339,7 @@ struct GameDetailsView: View {
             .frame(maxWidth: 760)
             .frame(maxWidth: .infinity)
         }
+        .id(details.id)
     }
 
     private func coverColumn(_ details: GameDetails) -> some View {
