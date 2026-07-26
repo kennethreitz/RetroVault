@@ -433,6 +433,31 @@ struct BigPictureCatalogTests {
     #expect(!xboxB.back)
   }
 
+  @Test("Maps Nintendo A to select and Nintendo B to back")
+  func mapsNintendoFaceButtons() {
+    let switchA = BigPictureControllerState.extendedFaceButtonActions(
+      buttonAPressed: true,
+      buttonBPressed: false,
+      layout: .nintendo
+    )
+    let switchB = BigPictureControllerState.extendedFaceButtonActions(
+      buttonAPressed: false,
+      buttonBPressed: true,
+      layout: .nintendo
+    )
+
+    #expect(switchA.activate)
+    #expect(!switchA.back)
+    #expect(switchB.back)
+    #expect(!switchB.activate)
+    #expect(
+      BigPictureControllerState.controllerLayout(
+        vendorName: "Nintendo Co., Ltd.",
+        productCategory: "Switch"
+      ) == .nintendo
+    )
+  }
+
   @Test("Uses the connected controller's physical face-button labels")
   func usesPhysicalControllerButtonLabels() {
     let switchActivate = BigPictureControllerState.buttonPrompt(

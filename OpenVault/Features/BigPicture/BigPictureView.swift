@@ -1015,15 +1015,23 @@ struct BigPictureControllerState: Equatable, Sendable {
     if let controller = GCController.current ?? controllers.first,
        let gamepad = controller.extendedGamepad
     {
+      let layout = controllerLayout(
+        vendorName: controller.vendorName,
+        productCategory: controller.productCategory
+      )
+      let activateButton =
+        layout == .nintendo ? gamepad.buttonA : gamepad.buttonB
+      let backButton =
+        layout == .nintendo ? gamepad.buttonB : gamepad.buttonA
       state.activateButtonPrompt = buttonPrompt(
-        localizedName: gamepad.buttonB.localizedName,
-        systemImage: gamepad.buttonB.sfSymbolsName,
-        fallbackLabel: "B"
+        localizedName: activateButton.localizedName,
+        systemImage: activateButton.sfSymbolsName,
+        fallbackLabel: layout == .nintendo ? "A" : "B"
       )
       state.backButtonPrompt = buttonPrompt(
-        localizedName: gamepad.buttonA.localizedName,
-        systemImage: gamepad.buttonA.sfSymbolsName,
-        fallbackLabel: "A"
+        localizedName: backButton.localizedName,
+        systemImage: backButton.sfSymbolsName,
+        fallbackLabel: layout == .nintendo ? "B" : "A"
       )
     }
 
@@ -1031,7 +1039,11 @@ struct BigPictureControllerState: Equatable, Sendable {
       if let gamepad = controller.extendedGamepad {
         let faceButtons = Self.extendedFaceButtonActions(
           buttonAPressed: gamepad.buttonA.isPressed,
-          buttonBPressed: gamepad.buttonB.isPressed
+          buttonBPressed: gamepad.buttonB.isPressed,
+          layout: controllerLayout(
+            vendorName: controller.vendorName,
+            productCategory: controller.productCategory
+          )
         )
         state.up =
           state.up
@@ -1072,12 +1084,35 @@ struct BigPictureControllerState: Equatable, Sendable {
 
   static func extendedFaceButtonActions(
     buttonAPressed: Bool,
-    buttonBPressed: Bool
+    buttonBPressed: Bool,
+    layout: BigPictureControllerLayout = .standard
   ) -> (activate: Bool, back: Bool) {
-    (
-      activate: buttonBPressed,
-      back: buttonAPressed
-    )
+    switch layout {
+    case .standard:
+      (
+        activate: buttonBPressed,
+        back: buttonAPressed
+      )
+    case .nintendo:
+      (
+        activate: buttonAPressed,
+        back: buttonBPressed
+      )
+    }
+  }
+
+  static func controllerLayout(
+    vendorName: String?,
+    productCategory: String
+  ) -> BigPictureControllerLayout {
+    let identity = [vendorName, productCategory]
+      .compactMap { $0 }
+      .joined(separator: " ")
+      .lowercased()
+
+    return identity.contains("nintendo") || identity.contains("switch")
+      ? .nintendo
+      : .standard
   }
 
   static func buttonPrompt(
@@ -1103,6 +1138,11 @@ struct BigPictureControllerState: Equatable, Sendable {
 struct BigPictureControllerPrompt: Equatable, Sendable {
   let label: String
   var systemImage: String?
+}
+
+enum BigPictureControllerLayout: Equatable, Sendable {
+  case standard
+  case nintendo
 }
 
 struct BigPictureControllerNavigation: Sendable {
