@@ -1309,6 +1309,9 @@ private struct VirtualCollectionCard: View {
 }
 
 private struct LibraryTableView: View {
+  private static let bundledLibretroManifest =
+    try? LibretroInstallation.bundled().manifest
+
   let model: LibraryModel
   let automaticallyFocusesContent: Bool
   let setHidesGamesWithoutArtwork: (Bool) -> Void
@@ -1435,6 +1438,19 @@ private struct LibraryTableView: View {
     }
   }
 
+  private func isPlayable(_ game: GameSummary) -> Bool {
+    guard
+      game.isMissingFromFileSystem != true
+        || model.downloadedGameIDs.contains(game.id)
+    else {
+      return false
+    }
+
+    return Self.bundledLibretroManifest?
+      .supportsSystem(named: game.systemName)
+      ?? false
+  }
+
   private var libraryTable: some View {
     Table(
       sortedGames,
@@ -1444,8 +1460,17 @@ private struct LibraryTableView: View {
     ) {
       TableColumn("Game", value: \.name) { game in
         NavigationLink(value: game) {
-          Text(game.name)
-            .lineLimit(1)
+          HStack(spacing: 7) {
+            Image(systemName: "play.fill")
+              .font(.system(size: 8, weight: .bold))
+              .foregroundStyle(.secondary)
+              .frame(width: 10)
+              .opacity(isPlayable(game) ? 1 : 0)
+              .accessibilityHidden(true)
+
+            Text(game.name)
+              .lineLimit(1)
+          }
         }
         .buttonStyle(.plain)
       }

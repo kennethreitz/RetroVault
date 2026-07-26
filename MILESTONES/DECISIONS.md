@@ -394,7 +394,9 @@ enum ServerConfiguration: Sendable {
   to the artwork gallery. Collections default to List.
 - Each scope remembers a manual List or Artwork override independently.
 - List always shows Game, System, Save, and State initially. The Game column
-  cannot be hidden.
+  cannot be hidden. Its leading edge reserves a compact play glyph for games
+  that can be opened by a bundled core; unsupported or unavailable games keep
+  the same text alignment without showing the glyph.
 - Native SwiftUI table column customization supplies the header context menu,
   column reordering, resizing, and persisted visibility. Optional columns
   include status, completion, rating, difficulty, region, file size, artwork,
