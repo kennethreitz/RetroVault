@@ -1,23 +1,129 @@
+import AppKit
 import SwiftUI
 
 private enum LibraryPreferenceKey {
+  static let hidesBIOSGames = "library.hides-bios-games.v1"
   static let hidesGamesWithoutArtwork = "library.hides-games-without-artwork"
   static let allGamesPresentation = "library.presentation.all-games"
   static let systemPresentation = "library.presentation.system"
   static let collectionPresentation = "library.presentation.collection"
+  static let artworkSort = "library.artwork-sort.v1"
   static let tableColumns = "library.table-columns.v2"
   static let showsGenreBrowser = "library.column-browser.genre.v1"
   static let showsYearBrowser = "library.column-browser.year.v1"
   static let showsRegionBrowser = "library.column-browser.region.v1"
   static let showsStatusBrowser = "library.column-browser.status.v1"
   static let showsSaveDataBrowser = "library.column-browser.save-data.v1"
+  static let showsDownloadedBrowser = "library.column-browser.downloaded.v1"
   static let showsArtworkBrowser = "library.column-browser.artwork.v1"
   static let browserOrder = "library.column-browser.order.v1"
+  static let expandsSmartCollections = "library.smart-collections.expanded.v1"
+  static let expandsVirtualCollections = "library.virtual-collections.expanded.v1"
 }
 
 private enum LibraryPresentation: String {
   case list
   case artwork
+}
+
+enum ArtworkSort: String, CaseIterable, Identifiable, Sendable {
+  case alphabetical
+  case dateAdded
+
+  var id: Self {
+    self
+  }
+
+  var title: String {
+    switch self {
+    case .alphabetical:
+      "Alphabetical"
+    case .dateAdded:
+      "Date Added"
+    }
+  }
+
+  var systemImage: String {
+    switch self {
+    case .alphabetical:
+      "textformat"
+    case .dateAdded:
+      "calendar.badge.plus"
+    }
+  }
+
+  nonisolated func sorted(_ games: [GameSummary]) -> [GameSummary] {
+    switch self {
+    case .alphabetical:
+      return games.sorted(by: Self.isAlphabeticallyOrdered)
+    case .dateAdded:
+      let standardFormatter = ISO8601DateFormatter()
+      let fractionalFormatter = ISO8601DateFormatter()
+      fractionalFormatter.formatOptions = [
+        .withInternetDateTime,
+        .withFractionalSeconds,
+      ]
+
+      let preparedGames = games.map { game in
+        (
+          game: game,
+          dateAdded:
+            game.createdAt.flatMap {
+              fractionalFormatter.date(from: $0)
+                ?? standardFormatter.date(from: $0)
+            }
+        )
+      }
+
+      return preparedGames.sorted { lhs, rhs in
+        switch (lhs.dateAdded, rhs.dateAdded) {
+        case let (left?, right?) where left != right:
+          return left > right
+        case (_?, nil):
+          return true
+        case (nil, _?):
+          return false
+        default:
+          return Self.isAlphabeticallyOrdered(lhs.game, rhs.game)
+        }
+      }
+      .map(\.game)
+    }
+  }
+
+  private nonisolated static func isAlphabeticallyOrdered(
+    _ lhs: GameSummary,
+    _ rhs: GameSummary
+  ) -> Bool {
+    let comparison = lhs.name.localizedStandardCompare(rhs.name)
+    if comparison == .orderedSame {
+      return lhs.id < rhs.id
+    }
+    return comparison == .orderedAscending
+  }
+}
+
+private struct ArtworkFilterApplicationKey: Hashable {
+  let presentation: LibraryPresentation
+  let hidesGamesWithoutArtwork: Bool
+  let synchronizedAt: Date?
+}
+
+private struct LibrarySearchApplicationKey: Hashable {
+  let selection: LibrarySelection
+  let searchText: String
+}
+
+private struct GameDeletionRequest: Identifiable {
+  let id = UUID()
+  let games: [GameSummary]
+}
+
+private struct LibraryAlert: Identifiable {
+  let id = UUID()
+  let title: String
+  let message: String
+  var fileURLs: [URL] = []
 }
 
 private enum LibraryBrowserColumn: String, CaseIterable, Identifiable {
@@ -27,6 +133,7 @@ private enum LibraryBrowserColumn: String, CaseIterable, Identifiable {
   case region
   case status
   case saveData
+  case downloaded
   case artwork
 
   var id: Self {
@@ -47,6 +154,8 @@ private enum LibraryBrowserColumn: String, CaseIterable, Identifiable {
       "Status"
     case .saveData:
       "Save Data"
+    case .downloaded:
+      "Downloaded"
     case .artwork:
       "Artwork"
     }
@@ -66,6 +175,8 @@ private enum LibraryBrowserColumn: String, CaseIterable, Identifiable {
       "All Statuses"
     case .saveData:
       "All Save Data"
+    case .downloaded:
+      "All Download Statuses"
     case .artwork:
       "All Artwork"
     }
@@ -73,9 +184,21 @@ private enum LibraryBrowserColumn: String, CaseIterable, Identifiable {
 }
 
 struct LibraryView: View {
+  private static let bundledLibretroManifest =
+    try? LibretroInstallation.bundled().manifest
+
   @Bindable var model: LibraryModel
   @State private var searchText = ""
   @State private var showsEmptySystems = false
+  @State private var showsUnsupportedSystems = false
+  @State private var gameDeletionRequest: GameDeletionRequest?
+  @State private var libraryAlert: LibraryAlert?
+  @AppStorage(LibraryPreferenceKey.expandsSmartCollections)
+  private var showsSmartCollections = true
+  @AppStorage(LibraryPreferenceKey.expandsVirtualCollections)
+  private var showsVirtualCollections = false
+  @AppStorage(LibraryPreferenceKey.hidesBIOSGames)
+  private var persistedHidesBIOSGames = true
   @AppStorage(LibraryPreferenceKey.hidesGamesWithoutArtwork)
   private var persistedHidesGamesWithoutArtwork = false
   @AppStorage(LibraryPreferenceKey.allGamesPresentation)
@@ -84,6 +207,8 @@ struct LibraryView: View {
   private var systemPresentation = LibraryPresentation.artwork
   @AppStorage(LibraryPreferenceKey.collectionPresentation)
   private var collectionPresentation = LibraryPresentation.list
+  @AppStorage(LibraryPreferenceKey.artworkSort)
+  private var artworkSort = ArtworkSort.alphabetical
 
   var body: some View {
     NavigationSplitView {
@@ -93,8 +218,47 @@ struct LibraryView: View {
             .badge(model.allGameCount)
             .tag(LibrarySelection.allGames)
 
+          Section("Collections") {
+            Label("Downloaded", systemImage: "arrow.down.circle")
+              .badge(model.downloadedGameCount)
+              .tag(LibrarySelection.downloaded)
+
+            ForEach(regularCollections) { collection in
+              Label(collection.name, systemImage: collection.systemImage)
+                .badge(collection.gameCount)
+                .tag(LibrarySelection.collection(collection.id))
+            }
+
+            if !smartCollections.isEmpty {
+              DisclosureGroup(isExpanded: $showsSmartCollections) {
+                ForEach(smartCollections) { collection in
+                  Label(collection.name, systemImage: collection.systemImage)
+                    .badge(collection.gameCount)
+                    .tag(LibrarySelection.collection(collection.id))
+                }
+              } label: {
+                Label("Smart Collections", systemImage: "sparkles")
+                  .badge(smartCollections.count)
+              }
+            }
+
+            if !virtualCollections.isEmpty {
+              DisclosureGroup(isExpanded: $showsVirtualCollections) {
+                ForEach(virtualCollections) { collection in
+                  Label(collection.name, systemImage: collection.systemImage)
+                    .badge(collection.gameCount)
+                    .tag(LibrarySelection.collection(collection.id))
+                }
+              } label: {
+                Label("Virtual Collections", systemImage: "wand.and.stars")
+                  .badge(virtualCollections.count)
+              }
+              .tag(LibrarySelection.virtualCollections)
+            }
+          }
+
           Section("Systems") {
-            ForEach(populatedSystems) { system in
+            ForEach(supportedPopulatedSystems) { system in
               Text(system.name)
                 .badge(system.gameCount)
                 .tag(LibrarySelection.system(system.id))
@@ -106,6 +270,22 @@ struct LibraryView: View {
                   .controlSize(.small)
                 Text("Checking artwork…")
                   .foregroundStyle(.secondary)
+              }
+            }
+
+            if !unsupportedPopulatedSystems.isEmpty {
+              DisclosureGroup(isExpanded: $showsUnsupportedSystems) {
+                ForEach(unsupportedPopulatedSystems) { system in
+                  Text(system.name)
+                    .badge(system.gameCount)
+                    .tag(LibrarySelection.system(system.id))
+                }
+              } label: {
+                Label(
+                  "Unsupported Systems",
+                  systemImage: "questionmark.circle"
+                )
+                .badge(unsupportedPopulatedSystems.count)
               }
             }
 
@@ -125,19 +305,6 @@ struct LibraryView: View {
               }
             }
           }
-
-          Section("Collections") {
-            if model.collections.isEmpty, !model.isLoading {
-              Text("No Collections")
-                .foregroundStyle(.secondary)
-            } else {
-              ForEach(model.collections) { collection in
-                Label(collection.name, systemImage: collection.systemImage)
-                  .badge(collection.gameCount)
-                  .tag(LibrarySelection.collection(collection.id))
-              }
-            }
-          }
         }
 
         Divider()
@@ -148,24 +315,47 @@ struct LibraryView: View {
     } detail: {
       NavigationStack {
         Group {
-          switch currentPresentation {
-          case .list:
-            LibraryTableView(
-              model: model,
-              setHidesGamesWithoutArtwork: setHidesGamesWithoutArtwork
-            )
-          case .artwork:
-            LibraryGridView(
-              model: model,
-              setHidesGamesWithoutArtwork: setHidesGamesWithoutArtwork
-            )
+          if model.selection == .virtualCollections {
+            VirtualCollectionGalleryView(
+              collections: filteredVirtualCollections,
+              previewGames: model.collectionPreviewGames,
+              session: model.session,
+              service: model.service
+            ) { collection in
+              selectionBinding.wrappedValue = .collection(collection.id)
+            }
+          } else {
+            switch currentPresentation {
+            case .list:
+              LibraryTableView(
+                model: model,
+                setHidesGamesWithoutArtwork: setHidesGamesWithoutArtwork,
+                requestGameDownload: requestGameDownload,
+                requestGameDownloadRemoval: requestGameDownloadRemoval,
+                requestGameExport: requestGameExport,
+                requestGameDeletion: requestGameDeletion
+              )
+            case .artwork:
+              LibraryGridView(
+                model: model,
+                sort: artworkSort,
+                setHidesGamesWithoutArtwork: setHidesGamesWithoutArtwork,
+                requestGameDownload: requestGameDownload,
+                requestGameDownloadRemoval: requestGameDownloadRemoval,
+                requestGameExport: requestGameExport,
+                requestGameDeletion: requestGameDeletion
+              )
+            }
           }
         }
         .navigationTitle(model.title)
         .searchable(
           text: $searchText,
           placement: .toolbar,
-          prompt: "Search Games"
+          prompt:
+            model.selection == .virtualCollections
+            ? "Search Collections"
+            : "Search Games"
         )
         .navigationDestination(for: GameSummary.self) { game in
           GameDetailsView(
@@ -175,16 +365,44 @@ struct LibraryView: View {
           )
         }
         .toolbar {
-          ToolbarItem {
-            Picker("Library View", selection: presentationBinding) {
-              Label("List", systemImage: "list.bullet")
-                .tag(LibraryPresentation.list)
-              Label("Artwork", systemImage: "square.grid.2x2")
-                .tag(LibraryPresentation.artwork)
+          if model.selection != .virtualCollections {
+            ToolbarItem {
+              Picker("Library View", selection: presentationBinding) {
+                Label("List", systemImage: "list.bullet")
+                  .tag(LibraryPresentation.list)
+                Label("Artwork", systemImage: "square.grid.2x2")
+                  .tag(LibraryPresentation.artwork)
+              }
+              .pickerStyle(.segmented)
+              .labelsHidden()
+              .help("Choose List or Artwork view")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .help("Choose List or Artwork view")
+          }
+
+          if model.selection != .virtualCollections,
+            currentPresentation == .artwork
+          {
+            ToolbarItem {
+              Menu {
+                ForEach(ArtworkSort.allCases) { option in
+                  Button {
+                    artworkSort = option
+                  } label: {
+                    Label(
+                      option.title,
+                      systemImage: artworkSort == option
+                        ? "checkmark"
+                        : option.systemImage
+                    )
+                  }
+                }
+              } label: {
+                Label("Sort Artwork", systemImage: "arrow.up.arrow.down")
+              }
+              .help("Sort artwork by \(artworkSort.title.lowercased())")
+              .accessibilityLabel("Sort Artwork")
+              .accessibilityValue(artworkSort.title)
+            }
           }
 
           ToolbarItem {
@@ -198,19 +416,29 @@ struct LibraryView: View {
             .disabled(model.isLoading || model.isSynchronizing)
           }
 
-          ToolbarItem {
-            Menu {
-              Toggle(
-                "Hide Games Without Artwork",
-                isOn: hidesGamesWithoutArtworkBinding
-              )
-            } label: {
-              Label(
-                "Library Filters",
-                systemImage: model.hidesGamesWithoutArtwork
-                  ? "line.3.horizontal.decrease.circle.fill"
-                  : "line.3.horizontal.decrease.circle"
-              )
+          if model.selection != .virtualCollections {
+            ToolbarItem {
+              Menu {
+                Toggle(
+                  "Hide [BIOS] Games",
+                  isOn: hidesBIOSGamesBinding
+                )
+
+                if currentPresentation == .artwork {
+                  Divider()
+                  Toggle(
+                    "Hide Games Without Artwork",
+                    isOn: hidesGamesWithoutArtworkBinding
+                  )
+                }
+              } label: {
+                Label(
+                  "Library Filters",
+                  systemImage: isLibraryFilterActive
+                    ? "line.3.horizontal.decrease.circle.fill"
+                    : "line.3.horizontal.decrease.circle"
+                )
+              }
             }
           }
 
@@ -227,12 +455,27 @@ struct LibraryView: View {
       }
     }
     .task {
-      await model.setHidesGamesWithoutArtwork(
-        persistedHidesGamesWithoutArtwork
-      )
       await model.load()
     }
-    .task(id: searchText) {
+    .task(id: persistedHidesBIOSGames) {
+      await model.setHidesBIOSGames(persistedHidesBIOSGames)
+    }
+    .task(id: artworkFilterKey) {
+      await model.setHidesGamesWithoutArtwork(
+        currentPresentation == .artwork
+          && persistedHidesGamesWithoutArtwork
+      )
+    }
+    .task(
+      id: LibrarySearchApplicationKey(
+        selection: model.selection,
+        searchText: searchText
+      )
+    ) {
+      guard model.selection != .virtualCollections else {
+        return
+      }
+
       do {
         try await Task.sleep(for: .milliseconds(300))
         guard !Task.isCancelled else {
@@ -245,6 +488,44 @@ struct LibraryView: View {
         return
       }
     }
+    .onReceive(
+      NotificationCenter.default.publisher(
+        for: .openVaultDownloadedGamesDidChange
+      )
+    ) { _ in
+      Task {
+        await model.reloadDownloadedGames()
+      }
+    }
+    .sheet(item: $gameDeletionRequest) { request in
+      GameDeletionConfirmationSheet(
+        games: request.games,
+        isDeleting: model.isDeletingGames
+      ) { deletingFilesFromServer in
+        await deleteGames(
+          request.games,
+          deletingFilesFromServer: deletingFilesFromServer
+        )
+      }
+    }
+    .alert(item: $libraryAlert) { alert in
+      if alert.fileURLs.isEmpty {
+        Alert(
+          title: Text(alert.title),
+          message: Text(alert.message),
+          dismissButton: .default(Text("OK"))
+        )
+      } else {
+        Alert(
+          title: Text(alert.title),
+          message: Text(alert.message),
+          primaryButton: .default(Text("Show in Finder")) {
+            NSWorkspace.shared.activateFileViewerSelecting(alert.fileURLs)
+          },
+          secondaryButton: .cancel(Text("OK"))
+        )
+      }
+    }
   }
 
   private var populatedSystems: [LibrarySystem] {
@@ -255,18 +536,89 @@ struct LibraryView: View {
     }
   }
 
+  private var supportedPopulatedSystems: [LibrarySystem] {
+    populatedSystems.filter(isSystemSupported)
+  }
+
+  private var unsupportedPopulatedSystems: [LibrarySystem] {
+    populatedSystems.filter { !isSystemSupported($0) }
+  }
+
+  private func isSystemSupported(_ system: LibrarySystem) -> Bool {
+    Self.bundledLibretroManifest?
+      .supportsSystem(named: system.name)
+      ?? true
+  }
+
+  private var regularCollections: [LibraryCollection] {
+    model.collections.filter {
+      if case .regular = $0.id {
+        true
+      } else {
+        false
+      }
+    }
+  }
+
+  private var smartCollections: [LibraryCollection] {
+    model.collections.filter {
+      if case .smart = $0.id {
+        true
+      } else {
+        false
+      }
+    }
+  }
+
+  private var virtualCollections: [LibraryCollection] {
+    model.collections.filter {
+      if case .virtual = $0.id {
+        true
+      } else {
+        false
+      }
+    }
+  }
+
+  private var filteredVirtualCollections: [LibraryCollection] {
+    let normalizedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    let collections =
+      normalizedSearch.isEmpty
+      ? virtualCollections
+      : virtualCollections.filter {
+        $0.name.localizedCaseInsensitiveContains(normalizedSearch)
+          || ($0.virtualType?.localizedCaseInsensitiveContains(normalizedSearch) == true)
+      }
+    return collections.sorted {
+      $0.name.localizedStandardCompare($1.name) == .orderedAscending
+    }
+  }
+
   private var emptySystems: [LibrarySystem] {
     model.systems.filter { $0.gameCount == 0 }
   }
 
   private var shouldOfferAllSystemsSearch: Bool {
-    !model.searchTerm.isEmpty && model.selection != .allGames
+    guard !model.searchTerm.isEmpty else {
+      return false
+    }
+
+    return switch model.selection {
+    case .system, .collection:
+      true
+    case .allGames, .downloaded, .virtualCollections:
+      false
+    }
   }
 
   private var currentPresentation: LibraryPresentation {
     switch model.selection {
     case .allGames:
       allGamesPresentation
+    case .downloaded:
+      collectionPresentation
+    case .virtualCollections:
+      .artwork
     case .system:
       systemPresentation
     case .collection:
@@ -281,12 +633,24 @@ struct LibraryView: View {
         switch model.selection {
         case .allGames:
           allGamesPresentation = newValue
+        case .downloaded:
+          collectionPresentation = newValue
+        case .virtualCollections:
+          break
         case .system:
           systemPresentation = newValue
         case .collection:
           collectionPresentation = newValue
         }
       }
+    )
+  }
+
+  private var artworkFilterKey: ArtworkFilterApplicationKey {
+    ArtworkFilterApplicationKey(
+      presentation: currentPresentation,
+      hidesGamesWithoutArtwork: persistedHidesGamesWithoutArtwork,
+      synchronizedAt: model.lastSuccessfulSync
     )
   }
 
@@ -303,9 +667,20 @@ struct LibraryView: View {
         )
         .lineLimit(1)
         Spacer(minLength: 0)
+        sidebarSyncButton
       }
-      .accessibilityElement(children: .combine)
       .sidebarStatusStyle()
+    } else if model.isCachingArtwork {
+      HStack(spacing: 7) {
+        ProgressView()
+          .controlSize(.small)
+        Text(artworkCachingLabel)
+          .lineLimit(1)
+        Spacer(minLength: 0)
+        sidebarSyncButton
+      }
+      .sidebarStatusStyle()
+      .help("Caching artwork locally for offline browsing.")
     } else if let refreshErrorMessage = model.refreshErrorMessage {
       HStack(spacing: 7) {
         Image(
@@ -320,6 +695,7 @@ struct LibraryView: View {
         )
         .lineLimit(1)
         Spacer(minLength: 0)
+        sidebarSyncButton
       }
       .sidebarStatusStyle()
       .help("\(cachedLibraryHelp) \(refreshErrorMessage)")
@@ -329,6 +705,7 @@ struct LibraryView: View {
         Text("Cached · \(model.allGameCount.formatted()) games")
           .lineLimit(1)
         Spacer(minLength: 0)
+        sidebarSyncButton
       }
       .sidebarStatusStyle()
       .help(cachedLibraryHelp)
@@ -338,10 +715,26 @@ struct LibraryView: View {
         Text(idleStatusLabel)
           .lineLimit(1)
         Spacer(minLength: 0)
+        sidebarSyncButton
       }
       .sidebarStatusStyle()
       .help(cachedLibraryHelp)
     }
+  }
+
+  private var sidebarSyncButton: some View {
+    Button {
+      Task {
+        await model.refresh()
+      }
+    } label: {
+      Image(systemName: "arrow.clockwise")
+    }
+    .buttonStyle(.borderless)
+    .controlSize(.small)
+    .disabled(model.isLoading || model.isSynchronizing)
+    .help("Sync Library with RomM")
+    .accessibilityLabel("Sync Library")
   }
 
   private var synchronizationLabel: String {
@@ -355,6 +748,14 @@ struct LibraryView: View {
 
     return "Syncing \(model.synchronizedGameCount.formatted()) of "
       + model.synchronizationTotalGameCount.formatted()
+  }
+
+  private var artworkCachingLabel: String {
+    guard model.artworkCacheTotalCount > 0 else {
+      return "Caching Artwork"
+    }
+    return "Artwork \(model.cachedArtworkCount.formatted()) of "
+      + model.artworkCacheTotalCount.formatted()
   }
 
   private var cachedLibraryHelp: String {
@@ -379,16 +780,29 @@ struct LibraryView: View {
 
   private var hidesGamesWithoutArtworkBinding: Binding<Bool> {
     Binding(
-      get: { model.hidesGamesWithoutArtwork },
+      get: { persistedHidesGamesWithoutArtwork },
       set: setHidesGamesWithoutArtwork
     )
   }
 
+  private var hidesBIOSGamesBinding: Binding<Bool> {
+    Binding(
+      get: { persistedHidesBIOSGames },
+      set: { persistedHidesBIOSGames = $0 }
+    )
+  }
+
+  private var isLibraryFilterActive: Bool {
+    model.hidesBIOSGames
+      || (currentPresentation == .artwork
+        && model.hidesGamesWithoutArtwork)
+  }
+
   private func setHidesGamesWithoutArtwork(_ enabled: Bool) {
-    persistedHidesGamesWithoutArtwork = enabled
-    Task {
-      await model.setHidesGamesWithoutArtwork(enabled)
+    guard currentPresentation == .artwork else {
+      return
     }
+    persistedHidesGamesWithoutArtwork = enabled
   }
 
   private var searchesAllSystemsBinding: Binding<Bool> {
@@ -410,6 +824,11 @@ struct LibraryView: View {
           return
         }
 
+        if model.selection == .virtualCollections
+          || selection == .virtualCollections
+        {
+          searchText = ""
+        }
         model.selection = selection
         Task {
           await model.reloadGames()
@@ -417,15 +836,483 @@ struct LibraryView: View {
       }
     )
   }
+
+  private func requestGameDeletion(_ games: [GameSummary]) {
+    var seenGameIDs: Set<Int> = []
+    let uniqueGames = games.filter {
+      seenGameIDs.insert($0.id).inserted
+    }
+    guard !uniqueGames.isEmpty else {
+      return
+    }
+    gameDeletionRequest = GameDeletionRequest(games: uniqueGames)
+  }
+
+  private func requestGameDownload(_ games: [GameSummary]) {
+    var seenGameIDs: Set<Int> = []
+    let uniqueGames = games.filter {
+      seenGameIDs.insert($0.id).inserted
+    }
+    guard !uniqueGames.isEmpty, !model.isDownloadingGames else {
+      return
+    }
+
+    Task {
+      let result = await model.downloadGames(uniqueGames)
+      guard
+        result.successfulItemCount > 0
+          || result.failedItemCount > 0
+      else {
+        return
+      }
+
+      let errorDetails = result.errors.prefix(3).joined(separator: "\n")
+      let omittedErrorCount = max(0, result.errors.count - 3)
+      let omittedSuffix =
+        omittedErrorCount > 0
+        ? "\n…and \(omittedErrorCount.formatted()) more."
+        : ""
+
+      if result.completedWithoutErrors {
+        libraryAlert = LibraryAlert(
+          title:
+            result.successfulItemCount == 1
+            ? "Game Downloaded"
+            : "\(result.successfulItemCount.formatted()) Games Downloaded",
+          message:
+            result.successfulItemCount == 1
+            ? "Added the game to OpenVault’s local library."
+            : "Added the selected games to OpenVault’s local library."
+        )
+      } else {
+        libraryAlert = LibraryAlert(
+          title:
+            result.successfulItemCount > 0
+            ? "Some Games Couldn’t Be Downloaded"
+            : "Couldn’t Download Games",
+          message:
+            "Downloaded \(result.successfulItemCount.formatted()) and failed to download "
+            + "\(result.failedItemCount.formatted())."
+            + (errorDetails.isEmpty ? "" : "\n\n\(errorDetails)\(omittedSuffix)")
+        )
+      }
+    }
+  }
+
+  private func requestGameDownloadRemoval(_ games: [GameSummary]) {
+    var seenGameIDs: Set<Int> = []
+    let uniqueGames = games.filter {
+      seenGameIDs.insert($0.id).inserted
+        && model.downloadedGameIDs.contains($0.id)
+    }
+    guard !uniqueGames.isEmpty, !model.isRemovingDownloads else {
+      return
+    }
+
+    Task {
+      let result = await model.removeDownloads(uniqueGames)
+      guard
+        result.successfulItemCount > 0
+          || result.failedItemCount > 0
+      else {
+        return
+      }
+
+      let errorDetails = result.errors.prefix(3).joined(separator: "\n")
+      let omittedErrorCount = max(0, result.errors.count - 3)
+      let omittedSuffix =
+        omittedErrorCount > 0
+        ? "\n…and \(omittedErrorCount.formatted()) more."
+        : ""
+
+      if result.completedWithoutErrors {
+        libraryAlert = LibraryAlert(
+          title:
+            result.successfulItemCount == 1
+            ? "Download Removed"
+            : "Downloads Removed",
+          message:
+            result.successfulItemCount == 1
+            ? "Removed the game’s local ROM from OpenVault."
+            : "Removed the selected local ROMs from OpenVault."
+        )
+      } else {
+        libraryAlert = LibraryAlert(
+          title:
+            result.successfulItemCount > 0
+            ? "Some Downloads Couldn’t Be Removed"
+            : "Couldn’t Remove Downloads",
+          message:
+            "Removed \(result.successfulItemCount.formatted()) and failed to remove "
+            + "\(result.failedItemCount.formatted())."
+            + (errorDetails.isEmpty ? "" : "\n\n\(errorDetails)\(omittedSuffix)")
+        )
+      }
+    }
+  }
+
+  private func requestGameExport(_ games: [GameSummary]) {
+    var seenGameIDs: Set<Int> = []
+    let uniqueGames = games.filter {
+      seenGameIDs.insert($0.id).inserted
+    }
+    guard !uniqueGames.isEmpty, !model.isExportingGames else {
+      return
+    }
+
+    Task {
+      let result = await model.exportGames(uniqueGames)
+      guard
+        result.successfulItemCount > 0
+          || result.failedItemCount > 0
+      else {
+        return
+      }
+
+      let errorDetails = result.errors.prefix(3).joined(separator: "\n")
+      let omittedErrorCount = max(0, result.errors.count - 3)
+      let omittedSuffix =
+        omittedErrorCount > 0
+        ? "\n…and \(omittedErrorCount.formatted()) more."
+        : ""
+
+      if result.completedWithoutErrors {
+        libraryAlert = LibraryAlert(
+          title:
+            result.successfulItemCount == 1
+            ? "Game Exported"
+            : "\(result.successfulItemCount.formatted()) Games Exported",
+          message:
+            result.successfulItemCount == 1
+            ? "Saved \(result.exportedFileURLs[0].lastPathComponent) to Downloads."
+            : "Saved the selected games to Downloads.",
+          fileURLs: result.exportedFileURLs
+        )
+      } else {
+        libraryAlert = LibraryAlert(
+          title:
+            result.successfulItemCount > 0
+            ? "Some Games Couldn’t Be Exported"
+            : "Couldn’t Export Games",
+          message:
+            "Exported \(result.successfulItemCount.formatted()) and failed to export "
+            + "\(result.failedItemCount.formatted())."
+            + (errorDetails.isEmpty ? "" : "\n\n\(errorDetails)\(omittedSuffix)"),
+          fileURLs: result.exportedFileURLs
+        )
+      }
+    }
+  }
+
+  private func deleteGames(
+    _ games: [GameSummary],
+    deletingFilesFromServer: Bool
+  ) async {
+    do {
+      let result = try await model.deleteGames(
+        games,
+        deletingFilesFromServer: deletingFilesFromServer
+      )
+      gameDeletionRequest = nil
+
+      guard !result.completedWithoutErrors else {
+        return
+      }
+
+      let errorDetails = result.errors.prefix(3).joined(separator: "\n")
+      let omittedErrorCount = max(0, result.errors.count - 3)
+      let omittedSuffix =
+        omittedErrorCount > 0
+        ? "\n…and \(omittedErrorCount.formatted()) more."
+        : ""
+      libraryAlert = LibraryAlert(
+        title: "Some Games Couldn’t Be Deleted",
+        message:
+          "RomM deleted \(result.successfulItemCount.formatted()) and failed to delete "
+          + "\(result.failedItemCount.formatted())."
+          + (errorDetails.isEmpty ? "" : "\n\n\(errorDetails)\(omittedSuffix)")
+      )
+    } catch is CancellationError {
+      gameDeletionRequest = nil
+    } catch {
+      gameDeletionRequest = nil
+      libraryAlert = LibraryAlert(
+        title: "Couldn’t Delete Games",
+        message: error.localizedDescription
+      )
+    }
+  }
+}
+
+private struct GameDeletionConfirmationSheet: View {
+  @Environment(\.dismiss) private var dismiss
+
+  let games: [GameSummary]
+  let isDeleting: Bool
+  let onConfirm: (Bool) async -> Void
+
+  @State private var deletesFilesFromServer = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      HStack(spacing: 12) {
+        Image(systemName: "trash")
+          .font(.title2)
+          .foregroundStyle(.red)
+
+        VStack(alignment: .leading, spacing: 3) {
+          Text(title)
+            .font(.headline)
+          Text("This changes the connected RomM library.")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+        }
+      }
+
+      List(games) { game in
+        HStack {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(game.name)
+              .lineLimit(1)
+            Text(game.systemName)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          Spacer()
+        }
+      }
+      .frame(height: min(220, max(72, CGFloat(games.count) * 42)))
+
+      Toggle(
+        "Also permanently delete ROM files from the server",
+        isOn: $deletesFilesFromServer
+      )
+
+      Text(deletionExplanation)
+        .font(.callout)
+        .foregroundStyle(deletesFilesFromServer ? .red : .secondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      HStack {
+        Spacer()
+
+        Button("Cancel") {
+          dismiss()
+        }
+        .keyboardShortcut(.cancelAction)
+        .disabled(isDeleting)
+
+        Button(role: .destructive) {
+          Task {
+            await onConfirm(deletesFilesFromServer)
+          }
+        } label: {
+          if isDeleting {
+            HStack(spacing: 7) {
+              ProgressView()
+                .controlSize(.small)
+              Text("Deleting…")
+            }
+          } else {
+            Text("Delete")
+          }
+        }
+        .disabled(isDeleting)
+      }
+    }
+    .padding(24)
+    .frame(width: 520)
+    .interactiveDismissDisabled(isDeleting)
+  }
+
+  private var title: String {
+    games.count == 1
+      ? "Delete “\(games[0].name)” from RomM?"
+      : "Delete \(games.count.formatted()) Games from RomM?"
+  }
+
+  private var deletionExplanation: String {
+    if deletesFilesFromServer {
+      return
+        "The selected database records and ROM files will be deleted from the RomM server. This cannot be undone by OpenVault."
+    }
+    return
+      "Only the RomM database records will be removed. The ROM files remain on the server and may be discovered again by a later scan."
+  }
+}
+
+private struct VirtualCollectionGalleryView: View {
+  let collections: [LibraryCollection]
+  let previewGames: [LibraryCollection.ID: [GameSummary]]
+  let session: ServerSession
+  let service: any LibraryServing
+  let openCollection: (LibraryCollection) -> Void
+
+  private let columns = [
+    GridItem(.adaptive(minimum: 230, maximum: 340), spacing: 22, alignment: .top)
+  ]
+
+  var body: some View {
+    if collections.isEmpty {
+      ContentUnavailableView {
+        Label("No Matching Collections", systemImage: "wand.and.stars")
+      } description: {
+        Text("Try a different collection search.")
+      }
+    } else {
+      ScrollView {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
+          ForEach(collections) { collection in
+            Button {
+              openCollection(collection)
+            } label: {
+              VirtualCollectionCard(
+                collection: collection,
+                games: previewGames[collection.id] ?? [],
+                session: session,
+                service: service
+              )
+            }
+            .buttonStyle(.plain)
+            .help("Open \(collection.name)")
+          }
+        }
+      }
+      .contentMargins(28, for: .scrollContent)
+      .overlay(alignment: .topTrailing) {
+        Text(
+          collections.count == 1
+            ? "1 collection"
+            : "\(collections.count.formatted()) collections"
+        )
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .padding(.top, 12)
+        .padding(.trailing, 18)
+        .allowsHitTesting(false)
+      }
+    }
+  }
+}
+
+private struct VirtualCollectionCard: View {
+  let collection: LibraryCollection
+  let games: [GameSummary]
+  let session: ServerSession
+  let service: any LibraryServing
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      collectionArtwork
+        .frame(height: 160)
+
+      VStack(alignment: .leading, spacing: 8) {
+        Text(collection.name)
+          .font(.headline)
+          .lineLimit(2)
+
+        HStack(spacing: 8) {
+          Label(collectionTypeLabel, systemImage: collection.systemImage)
+            .lineLimit(1)
+
+          Spacer(minLength: 8)
+
+          Text(
+            collection.gameCount == 1
+              ? "1 game"
+              : "\(collection.gameCount.formatted()) games"
+          )
+          .monospacedDigit()
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+      .padding(14)
+    }
+    .background(.quaternary.opacity(0.7))
+    .clipShape(.rect(cornerRadius: 14))
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(.separator.opacity(0.45), lineWidth: 0.5)
+    }
+    .contentShape(.rect(cornerRadius: 14))
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(
+      "\(collection.name), \(collection.gameCount.formatted()) games"
+    )
+  }
+
+  @ViewBuilder
+  private var collectionArtwork: some View {
+    let artworkGames = games.filter { $0.coverURL != nil }
+
+    ZStack {
+      Rectangle()
+        .fill(.quaternary)
+
+      if artworkGames.isEmpty {
+        Image(systemName: collection.systemImage)
+          .font(.system(size: 42, weight: .light))
+          .foregroundStyle(.tertiary)
+      } else {
+        GeometryReader { geometry in
+          let coverCount = CGFloat(artworkGames.count)
+          let coverWidth = min(
+            geometry.size.width / coverCount,
+            geometry.size.height * 0.75
+          )
+
+          HStack(spacing: 4) {
+            ForEach(artworkGames) { game in
+              RomMImageView(
+                url: game.coverURL,
+                session: session,
+                service: service,
+                targetSize: CGSize(width: 240, height: 320),
+                contentMode: .fit,
+                placeholderSystemImage: "gamecontroller",
+                cornerRadius: 6,
+                imagePadding: 2
+              )
+              .frame(width: coverWidth)
+            }
+          }
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .padding(10)
+        }
+      }
+    }
+    .clipped()
+  }
+
+  private var collectionTypeLabel: String {
+    guard let virtualType = collection.virtualType, !virtualType.isEmpty else {
+      return "Automatic"
+    }
+    return
+      virtualType
+      .replacingOccurrences(of: "_", with: " ")
+      .capitalized
+  }
 }
 
 private struct LibraryTableView: View {
   let model: LibraryModel
   let setHidesGamesWithoutArtwork: (Bool) -> Void
+  let requestGameDownload: ([GameSummary]) -> Void
+  let requestGameDownloadRemoval: ([GameSummary]) -> Void
+  let requestGameExport: ([GameSummary]) -> Void
+  let requestGameDeletion: ([GameSummary]) -> Void
 
   @State private var sortOrder = [
     KeyPathComparator(\GameSummary.name)
   ]
+  @State private var sortedGames: [GameSummary] = []
+  @State private var isSorting = true
+  @State private var sortingRequestID = UUID()
+  @State private var tableIdentity = UUID()
+  @State private var selectedGameIDs: Set<Int> = []
+  @FocusState private var hasTableFocus: Bool
   @AppStorage(LibraryPreferenceKey.tableColumns)
   private var columnCustomization = TableColumnCustomization<GameSummary>()
   @AppStorage(LibraryPreferenceKey.showsGenreBrowser)
@@ -438,6 +1325,8 @@ private struct LibraryTableView: View {
   private var showsStatusBrowser = false
   @AppStorage(LibraryPreferenceKey.showsSaveDataBrowser)
   private var showsSaveDataBrowser = false
+  @AppStorage(LibraryPreferenceKey.showsDownloadedBrowser)
+  private var showsDownloadedBrowser = false
   @AppStorage(LibraryPreferenceKey.showsArtworkBrowser)
   private var showsArtworkBrowser = false
   @AppStorage(LibraryPreferenceKey.browserOrder)
@@ -451,6 +1340,7 @@ private struct LibraryTableView: View {
   @State private var selectedRegion: String?
   @State private var selectedStatus: String?
   @State private var selectedSaveData: String?
+  @State private var selectedDownloaded: String?
   @State private var selectedArtwork: String?
 
   var body: some View {
@@ -470,7 +1360,7 @@ private struct LibraryTableView: View {
               await model.retry()
             }
           }
-          .buttonStyle(.borderedProminent)
+          .buttonStyle(.glassProminent)
         }
       } else if model.games.isEmpty {
         if model.searchTerm.isEmpty {
@@ -496,15 +1386,29 @@ private struct LibraryTableView: View {
         } else {
           ContentUnavailableView.search(text: model.searchTerm)
         }
+      } else if isSorting, sortedGames.isEmpty {
+        ProgressView("Preparing \(model.title)…")
+          .controlSize(.large)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         gameTable
       }
     }
-    .task(id: loadKey) {
-      await model.loadAllGamesForTable()
+    .task(id: tableRowsKey) {
+      await rebuildSortedGames()
     }
     .onChange(of: model.selection) { _, _ in
       clearBrowserFilters()
+      selectedGameIDs.removeAll()
+      hasTableFocus = true
+    }
+    .onChange(of: model.searchTerm) { _, _ in
+      selectedGameIDs.removeAll()
+    }
+    .onChange(of: sortOrder) {
+      Task {
+        await rebuildSortedGames()
+      }
     }
   }
 
@@ -521,6 +1425,7 @@ private struct LibraryTableView: View {
   private var libraryTable: some View {
     Table(
       sortedGames,
+      selection: $selectedGameIDs,
       sortOrder: $sortOrder,
       columnCustomization: $columnCustomization
     ) {
@@ -647,6 +1552,91 @@ private struct LibraryTableView: View {
           .defaultVisibility(.hidden)
       }
     }
+    .contextMenu(forSelectionType: Int.self) { selectedIDs in
+      let selectedGames = sortedGames.filter { selectedIDs.contains($0.id) }
+      let downloadedGames = selectedGames.filter {
+        model.downloadedGameIDs.contains($0.id)
+      }
+      let gamesToDownload = selectedGames.filter {
+        !model.downloadedGameIDs.contains($0.id)
+      }
+
+      if !gamesToDownload.isEmpty {
+        Button {
+          requestGameDownload(gamesToDownload)
+        } label: {
+          Label(
+            gamesToDownload.count == 1
+              ? "Download"
+              : "Download \(gamesToDownload.count.formatted()) Games",
+            systemImage: "arrow.down.circle"
+          )
+        }
+        .disabled(
+          model.isDownloadingGames
+            || model.isRemovingDownloads
+            || gamesToDownload.allSatisfy {
+              $0.isMissingFromFileSystem == true
+            }
+        )
+      }
+
+      if !downloadedGames.isEmpty {
+        Button(role: .destructive) {
+          requestGameDownloadRemoval(downloadedGames)
+        } label: {
+          Label(
+            downloadedGames.count == 1
+              ? "Remove Download"
+              : "Remove \(downloadedGames.count.formatted()) Downloads",
+            systemImage: "trash"
+          )
+        }
+        .disabled(model.isRemovingDownloads || model.isDownloadingGames)
+      }
+
+      Button {
+        requestGameExport(selectedGames)
+      } label: {
+        Label(
+          selectedIDs.count == 1
+            ? "Export"
+            : "Export \(selectedIDs.count.formatted()) Games",
+          systemImage: "square.and.arrow.up"
+        )
+      }
+      .disabled(
+        selectedGames.isEmpty
+          || model.isExportingGames
+          || selectedGames.allSatisfy {
+            $0.isMissingFromFileSystem == true
+              && !model.downloadedGameIDs.contains($0.id)
+          }
+      )
+
+      Divider()
+
+      Button(role: .destructive) {
+        requestGameDeletion(selectedGames)
+      } label: {
+        Label(
+          selectedIDs.count == 1
+            ? "Delete from RomM…"
+            : "Delete \(selectedIDs.count.formatted()) Games from RomM…",
+          systemImage: "trash"
+        )
+      }
+      .disabled(selectedGames.isEmpty || model.isDeletingGames)
+    }
+    .focused($hasTableFocus)
+    .onKeyPress("a", phases: .down) { keyPress in
+      guard keyPress.modifiers.contains(.command) else {
+        return .ignored
+      }
+
+      selectedGameIDs = Set(sortedGames.lazy.map(\.id))
+      return .handled
+    }
     .overlay {
       if filteredGames.isEmpty {
         ContentUnavailableView {
@@ -661,14 +1651,15 @@ private struct LibraryTableView: View {
       }
     }
     .overlay(alignment: .bottom) {
-      if model.isLoadingMore {
+      if model.isLoadingMore || isSorting {
         ProgressView()
           .controlSize(.small)
           .padding(8)
-          .background(.regularMaterial, in: .capsule)
+          .openVaultGlass(in: Capsule())
           .padding()
       }
     }
+    .id(tableIdentity)
   }
 
   private var columnBrowser: some View {
@@ -776,6 +1767,8 @@ private struct LibraryTableView: View {
         showsStatusBrowser
       case .saveData:
         showsSaveDataBrowser
+      case .downloaded:
+        showsDownloadedBrowser
       case .artwork:
         showsArtworkBrowser
       }
@@ -816,6 +1809,7 @@ private struct LibraryTableView: View {
       showsRegionBrowser ? selectedRegion : nil,
       showsStatusBrowser ? selectedStatus : nil,
       showsSaveDataBrowser ? selectedSaveData : nil,
+      showsDownloadedBrowser ? selectedDownloaded : nil,
       showsArtworkBrowser ? selectedArtwork : nil,
     ]
     .compactMap { $0 }
@@ -877,6 +1871,14 @@ private struct LibraryTableView: View {
         return false
       }
 
+      if excludedColumn != .downloaded,
+        showsDownloadedBrowser,
+        let selectedDownloaded,
+        !matchesDownloaded(game, value: selectedDownloaded)
+      {
+        return false
+      }
+
       if excludedColumn != .artwork,
         showsArtworkBrowser,
         let selectedArtwork,
@@ -927,6 +1929,18 @@ private struct LibraryTableView: View {
         LibraryBrowserOption(
           value: "Unknown",
           count: games.count { $0.hasSave == nil || $0.hasState == nil }
+        ),
+      ]
+      .filter { $0.count > 0 }
+    case .downloaded:
+      return [
+        LibraryBrowserOption(
+          value: "Downloaded",
+          count: games.count { model.downloadedGameIDs.contains($0.id) }
+        ),
+        LibraryBrowserOption(
+          value: "Not Downloaded",
+          count: games.count { !model.downloadedGameIDs.contains($0.id) }
         ),
       ]
       .filter { $0.count > 0 }
@@ -1035,6 +2049,20 @@ private struct LibraryTableView: View {
     }
   }
 
+  private func matchesDownloaded(
+    _ game: GameSummary,
+    value: String
+  ) -> Bool {
+    switch value {
+    case "Downloaded":
+      model.downloadedGameIDs.contains(game.id)
+    case "Not Downloaded":
+      !model.downloadedGameIDs.contains(game.id)
+    default:
+      true
+    }
+  }
+
   private func selectionBinding(
     for column: LibraryBrowserColumn
   ) -> Binding<String?> {
@@ -1051,6 +2079,8 @@ private struct LibraryTableView: View {
       $selectedStatus
     case .saveData:
       $selectedSaveData
+    case .downloaded:
+      $selectedDownloaded
     case .artwork:
       $selectedArtwork
     }
@@ -1074,6 +2104,8 @@ private struct LibraryTableView: View {
           showsStatusBrowser
         case .saveData:
           showsSaveDataBrowser
+        case .downloaded:
+          showsDownloadedBrowser
         case .artwork:
           showsArtworkBrowser
         }
@@ -1092,6 +2124,8 @@ private struct LibraryTableView: View {
           showsStatusBrowser = isVisible
         case .saveData:
           showsSaveDataBrowser = isVisible
+        case .downloaded:
+          showsDownloadedBrowser = isVisible
         case .artwork:
           showsArtworkBrowser = isVisible
         }
@@ -1110,6 +2144,7 @@ private struct LibraryTableView: View {
     selectedRegion = nil
     selectedStatus = nil
     selectedSaveData = nil
+    selectedDownloaded = nil
     selectedArtwork = nil
   }
 
@@ -1148,8 +2183,35 @@ private struct LibraryTableView: View {
       .joined(separator: ",")
   }
 
-  private var sortedGames: [GameSummary] {
-    filteredGames.sorted(using: sortOrder)
+  private func rebuildSortedGames() async {
+    let requestID = UUID()
+    sortingRequestID = requestID
+
+    let games = filteredGames
+    let requestedSortOrder = sortOrder
+    guard !games.isEmpty else {
+      sortedGames = []
+      isSorting = false
+      return
+    }
+
+    isSorting = true
+    let sorted = await Task.detached(priority: .userInitiated) {
+      games.sorted(using: requestedSortOrder)
+    }.value
+
+    guard sortingRequestID == requestID, !Task.isCancelled else {
+      if sortingRequestID == requestID {
+        isSorting = false
+      }
+      return
+    }
+
+    sortedGames = sorted
+    selectedGameIDs.formIntersection(sorted.lazy.map(\.id))
+    tableIdentity = UUID()
+    hasTableFocus = true
+    isSorting = false
   }
 
   private var loadKey: LibraryTableLoadKey {
@@ -1157,6 +2219,23 @@ private struct LibraryTableView: View {
       selection: model.selection,
       searchTerm: model.searchTerm,
       synchronizedAt: model.lastSuccessfulSync
+    )
+  }
+
+  private var tableRowsKey: LibraryTableRowsKey {
+    LibraryTableRowsKey(
+      loadKey: loadKey,
+      loadedGameCount: model.games.count,
+      hidesGamesWithoutArtwork: model.hidesGamesWithoutArtwork,
+      selectedSystem: selectedSystem,
+      selectedGenre: showsGenreBrowser ? selectedGenre : nil,
+      selectedYear: showsYearBrowser ? selectedYear : nil,
+      selectedRegion: showsRegionBrowser ? selectedRegion : nil,
+      selectedStatus: showsStatusBrowser ? selectedStatus : nil,
+      selectedSaveData: showsSaveDataBrowser ? selectedSaveData : nil,
+      selectedDownloaded: showsDownloadedBrowser ? selectedDownloaded : nil,
+      downloadedGameIDs: model.downloadedGameIDs,
+      selectedArtwork: showsArtworkBrowser ? selectedArtwork : nil
     )
   }
 }
@@ -1289,7 +2368,20 @@ private struct LibraryBrowserPane: View {
 
 private struct LibraryGridView: View {
   let model: LibraryModel
+  let sort: ArtworkSort
   let setHidesGamesWithoutArtwork: (Bool) -> Void
+  let requestGameDownload: ([GameSummary]) -> Void
+  let requestGameDownloadRemoval: ([GameSummary]) -> Void
+  let requestGameExport: ([GameSummary]) -> Void
+  let requestGameDeletion: ([GameSummary]) -> Void
+
+  @State private var selectedGameIDs: Set<Int> = []
+  @State private var selectionAnchorID: Int?
+  @State private var gameToOpen: GameSummary?
+  @State private var sortedGames: [GameSummary] = []
+  @State private var isSorting = true
+  @State private var sortingRequestID = UUID()
+  @FocusState private var hasGridFocus: Bool
 
   private let columns = [
     GridItem(.adaptive(minimum: 150, maximum: 210), spacing: 22, alignment: .top)
@@ -1312,7 +2404,7 @@ private struct LibraryGridView: View {
               await model.retry()
             }
           }
-          .buttonStyle(.borderedProminent)
+          .buttonStyle(.glassProminent)
         }
       } else if model.games.isEmpty {
         if model.searchTerm.isEmpty {
@@ -1352,18 +2444,124 @@ private struct LibraryGridView: View {
         } else {
           ContentUnavailableView.search(text: model.searchTerm)
         }
+      } else if isSorting, sortedGames.isEmpty {
+        ProgressView("Preparing \(model.title)…")
+          .controlSize(.large)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         ScrollView {
           LazyVGrid(columns: columns, alignment: .leading, spacing: 26) {
-            ForEach(model.displayedGames) { game in
-              NavigationLink(value: game) {
+            ForEach(sortedGames) { game in
+              Button {
+                handleGameClick(game)
+              } label: {
                 GameCard(
                   game: game,
                   session: model.session,
                   service: model.service
                 )
+                .padding(5)
+                .background {
+                  if selectedGameIDs.contains(game.id) {
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                      .fill(.tint.opacity(0.14))
+                  }
+                }
+                .overlay {
+                  if selectedGameIDs.contains(game.id) {
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                      .stroke(.tint, lineWidth: 2)
+                  }
+                }
+                .overlay(alignment: .topTrailing) {
+                  if selectedGameIDs.contains(game.id) {
+                    Image(systemName: "checkmark.circle.fill")
+                      .font(.title2)
+                      .symbolRenderingMode(.palette)
+                      .foregroundStyle(.white, .tint)
+                      .background(.black.opacity(0.25), in: Circle())
+                      .padding(12)
+                  }
+                }
               }
               .buttonStyle(.plain)
+              .help("Click to open; Command-click or Shift-click to select")
+              .contextMenu {
+                let selectedGames = contextGames(for: game)
+                let downloadedGames = selectedGames.filter {
+                  model.downloadedGameIDs.contains($0.id)
+                }
+                let gamesToDownload = selectedGames.filter {
+                  !model.downloadedGameIDs.contains($0.id)
+                }
+
+                if !gamesToDownload.isEmpty {
+                  Button {
+                    requestGameDownload(gamesToDownload)
+                  } label: {
+                    Label(
+                      gamesToDownload.count == 1
+                        ? "Download"
+                        : "Download \(gamesToDownload.count.formatted()) Games",
+                      systemImage: "arrow.down.circle"
+                    )
+                  }
+                  .disabled(
+                    model.isDownloadingGames
+                      || model.isRemovingDownloads
+                      || gamesToDownload.allSatisfy {
+                        $0.isMissingFromFileSystem == true
+                      }
+                  )
+                }
+
+                if !downloadedGames.isEmpty {
+                  Button(role: .destructive) {
+                    requestGameDownloadRemoval(downloadedGames)
+                  } label: {
+                    Label(
+                      downloadedGames.count == 1
+                        ? "Remove Download"
+                        : "Remove \(downloadedGames.count.formatted()) Downloads",
+                      systemImage: "trash"
+                    )
+                  }
+                  .disabled(model.isRemovingDownloads || model.isDownloadingGames)
+                }
+
+                Button {
+                  requestGameExport(selectedGames)
+                } label: {
+                  Label(
+                    selectedGames.count == 1
+                      ? "Export"
+                      : "Export \(selectedGames.count.formatted()) Games",
+                    systemImage: "square.and.arrow.up"
+                  )
+                }
+                .disabled(
+                  selectedGames.isEmpty
+                    || model.isExportingGames
+                    || selectedGames.allSatisfy {
+                      $0.isMissingFromFileSystem == true
+                        && !model.downloadedGameIDs.contains($0.id)
+                    }
+                )
+
+                Divider()
+
+                Button(role: .destructive) {
+                  requestGameDeletion(selectedGames)
+                } label: {
+                  Label(
+                    selectedGames.count == 1
+                      ? "Delete from RomM…"
+                      : "Delete \(selectedGames.count.formatted()) Games from RomM…",
+                    systemImage: "trash"
+                  )
+                }
+                .disabled(selectedGames.isEmpty || model.isDeletingGames)
+              }
               .task {
                 await model.loadMoreIfNeeded(near: game)
               }
@@ -1374,18 +2572,181 @@ private struct LibraryGridView: View {
             .padding(.top, 20)
         }
         .contentMargins(28, for: .scrollContent)
+        .focusable()
+        .focused($hasGridFocus)
+        .focusEffectDisabled()
+        .onKeyPress("a", phases: .down) { keyPress in
+          guard keyPress.modifiers.contains(.command) else {
+            return .ignored
+          }
+
+          selectAllDisplayedGames()
+          return .handled
+        }
+        .onKeyPress(.escape) {
+          guard !selectedGameIDs.isEmpty else {
+            return .ignored
+          }
+
+          clearSelection()
+          return .handled
+        }
+        .onAppear {
+          hasGridFocus = true
+        }
       }
+    }
+    .navigationDestination(item: $gameToOpen) { game in
+      GameDetailsView(
+        game: game,
+        session: model.session,
+        service: model.service
+      )
+    }
+    .task(id: artworkRowsKey) {
+      await rebuildSortedGames()
+    }
+    .onChange(of: model.selection) { _, _ in
+      clearSelection()
+    }
+    .onChange(of: model.searchTerm) { _, _ in
+      clearSelection()
+    }
+    .onChange(of: model.hidesGamesWithoutArtwork) { _, _ in
+      selectedGameIDs.formIntersection(model.displayedGames.lazy.map(\.id))
     }
     .overlay(alignment: .topTrailing) {
       if !model.displayedGames.isEmpty {
-        Text(resultCountLabel)
+        if selectedGameIDs.isEmpty {
+          Text(resultCountLabel)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(.top, 12)
+            .padding(.trailing, 18)
+            .allowsHitTesting(false)
+        } else {
+          HStack(spacing: 8) {
+            Text("\(selectedGameIDs.count.formatted()) selected")
+              .monospacedDigit()
+
+            Button {
+              clearSelection()
+            } label: {
+              Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.plain)
+            .help("Clear Selection")
+          }
           .font(.callout)
           .foregroundStyle(.secondary)
-          .padding(.top, 12)
-          .padding(.trailing, 18)
-          .allowsHitTesting(false)
+          .padding(.horizontal, 10)
+          .padding(.vertical, 6)
+          .openVaultGlass(in: Capsule())
+          .padding(.top, 8)
+          .padding(.trailing, 14)
+        }
       }
     }
+  }
+
+  private func handleGameClick(_ game: GameSummary) {
+    let modifiers =
+      NSApp.currentEvent?.modifierFlags
+      .intersection(.deviceIndependentFlagsMask) ?? []
+
+    if modifiers.contains(.command) {
+      if selectedGameIDs.contains(game.id) {
+        selectedGameIDs.remove(game.id)
+      } else {
+        selectedGameIDs.insert(game.id)
+      }
+      selectionAnchorID = game.id
+      hasGridFocus = true
+      return
+    }
+
+    if modifiers.contains(.shift), let selectionAnchorID {
+      selectRange(from: selectionAnchorID, through: game.id)
+      hasGridFocus = true
+      return
+    }
+
+    gameToOpen = game
+  }
+
+  private func selectRange(from anchorID: Int, through gameID: Int) {
+    let games = sortedGames
+    guard
+      let anchorIndex = games.firstIndex(where: { $0.id == anchorID }),
+      let gameIndex = games.firstIndex(where: { $0.id == gameID })
+    else {
+      selectedGameIDs.insert(gameID)
+      selectionAnchorID = gameID
+      return
+    }
+
+    let bounds = min(anchorIndex, gameIndex)...max(anchorIndex, gameIndex)
+    selectedGameIDs.formUnion(games[bounds].map(\.id))
+  }
+
+  private func selectAllDisplayedGames() {
+    selectedGameIDs = Set(sortedGames.lazy.map(\.id))
+    selectionAnchorID = sortedGames.first?.id
+  }
+
+  private func clearSelection() {
+    selectedGameIDs.removeAll()
+    selectionAnchorID = nil
+  }
+
+  private func contextGames(for game: GameSummary) -> [GameSummary] {
+    let gameIDs =
+      selectedGameIDs.contains(game.id)
+      ? selectedGameIDs
+      : Set([game.id])
+    return sortedGames.filter { gameIDs.contains($0.id) }
+  }
+
+  private func rebuildSortedGames() async {
+    let requestID = UUID()
+    sortingRequestID = requestID
+
+    let games = model.displayedGames
+    let requestedSort = sort
+    guard !games.isEmpty else {
+      sortedGames = []
+      isSorting = false
+      return
+    }
+
+    isSorting = true
+    let sorted = await Task.detached(priority: .userInitiated) {
+      requestedSort.sorted(games)
+    }.value
+
+    guard sortingRequestID == requestID, !Task.isCancelled else {
+      if sortingRequestID == requestID {
+        isSorting = false
+      }
+      return
+    }
+
+    sortedGames = sorted
+    selectedGameIDs.formIntersection(sorted.lazy.map(\.id))
+    isSorting = false
+  }
+
+  private var artworkRowsKey: LibraryArtworkRowsKey {
+    LibraryArtworkRowsKey(
+      selection: model.selection,
+      searchTerm: model.searchTerm,
+      synchronizedAt: model.lastSuccessfulSync,
+      loadedGameCount: model.games.count,
+      hidesBIOSGames: model.hidesBIOSGames,
+      hidesGamesWithoutArtwork: model.hidesGamesWithoutArtwork,
+      downloadedGameIDs: model.downloadedGameIDs,
+      sort: sort
+    )
   }
 
   private var resultCountLabel: String {
@@ -1473,6 +2834,32 @@ private struct LibraryTableLoadKey: Hashable {
   let synchronizedAt: Date?
 }
 
+private struct LibraryTableRowsKey: Hashable {
+  let loadKey: LibraryTableLoadKey
+  let loadedGameCount: Int
+  let hidesGamesWithoutArtwork: Bool
+  let selectedSystem: String?
+  let selectedGenre: String?
+  let selectedYear: String?
+  let selectedRegion: String?
+  let selectedStatus: String?
+  let selectedSaveData: String?
+  let selectedDownloaded: String?
+  let downloadedGameIDs: Set<Int>
+  let selectedArtwork: String?
+}
+
+private struct LibraryArtworkRowsKey: Hashable {
+  let selection: LibrarySelection
+  let searchTerm: String
+  let synchronizedAt: Date?
+  let loadedGameCount: Int
+  let hidesBIOSGames: Bool
+  let hidesGamesWithoutArtwork: Bool
+  let downloadedGameIDs: Set<Int>
+  let sort: ArtworkSort
+}
+
 private struct GameCard: View {
   let game: GameSummary
   let session: ServerSession
@@ -1507,6 +2894,8 @@ extension View {
       .foregroundStyle(.secondary)
       .padding(.horizontal, 12)
       .frame(height: 34)
+      .openVaultGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .padding(8)
   }
 }
 
@@ -1597,6 +2986,8 @@ extension LibraryCollection {
       "square.stack"
     case .smart:
       "line.3.horizontal.decrease.circle"
+    case .virtual:
+      "wand.and.stars"
     }
   }
 }
