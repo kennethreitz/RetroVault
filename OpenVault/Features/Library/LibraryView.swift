@@ -1641,19 +1641,21 @@ private struct LibraryGameSelectionContextMenu<PrimaryActions: View>: View {
         }
     )
 
-    Divider()
+    if NSEvent.modifierFlags.contains(.option) {
+      Divider()
 
-    Button(role: .destructive) {
-      requestGameDeletion(selectedGames)
-    } label: {
-      Label(
-        selectedGames.count == 1
-          ? "Delete from RomM…"
-          : "Delete \(selectedGames.count.formatted()) Games from RomM…",
-        systemImage: "trash"
-      )
+      Button(role: .destructive) {
+        requestGameDeletion(selectedGames)
+      } label: {
+        Label(
+          selectedGames.count == 1
+            ? "Delete from RomM…"
+            : "Delete \(selectedGames.count.formatted()) Games from RomM…",
+          systemImage: "trash"
+        )
+      }
+      .disabled(selectedGames.isEmpty || model.isDeletingGames)
     }
-    .disabled(selectedGames.isEmpty || model.isDeletingGames)
   }
 }
 
