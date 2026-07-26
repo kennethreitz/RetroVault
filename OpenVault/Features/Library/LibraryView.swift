@@ -708,7 +708,33 @@ struct LibraryView: View {
 
   @ViewBuilder
   private var sidebarStatus: some View {
-    if model.isSynchronizing {
+    if model.isDownloadingGames, let progress = model.downloadProgress {
+      VStack(alignment: .leading, spacing: 5) {
+        HStack(spacing: 6) {
+          Image(systemName: "arrow.down.circle.fill")
+          Text(downloadStatusLabel(progress))
+            .lineLimit(1)
+          Spacer(minLength: 4)
+          Text(
+            Int(progress.fractionCompleted * 100)
+              .formatted()
+              + "%"
+          )
+          .monospacedDigit()
+        }
+
+        ProgressView(value: progress.fractionCompleted)
+          .progressViewStyle(.linear)
+          .tint(Color.accentColor)
+      }
+      .sidebarDownloadStatusStyle()
+      .help(downloadStatusHelp(progress))
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel(downloadStatusLabel(progress))
+      .accessibilityValue(
+        "\(Int(progress.fractionCompleted * 100)) percent"
+      )
+    } else if model.isSynchronizing {
       HStack(spacing: 7) {
         ProgressView()
           .controlSize(.small)
@@ -787,6 +813,43 @@ struct LibraryView: View {
     .disabled(model.isLoading || model.isSynchronizing)
     .help("Sync Library with RomM")
     .accessibilityLabel("Sync Library")
+  }
+
+  private func downloadStatusLabel(
+    _ progress: LibraryDownloadProgress
+  ) -> String {
+    "Downloading \(progress.currentGameNumber.formatted()) of "
+      + progress.totalGameCount.formatted()
+  }
+
+  private func downloadStatusHelp(
+    _ progress: LibraryDownloadProgress
+  ) -> String {
+    var components: [String] = []
+    if let currentGameName = progress.currentGameName {
+      components.append("Downloading \(currentGameName).")
+    }
+    components.append(
+      "\(progress.processedGameCount.formatted()) completed"
+        + (
+          progress.failedGameCount > 0
+          ? ", \(progress.failedGameCount.formatted()) failed."
+          : "."
+        )
+    )
+    if let transferProgress = progress.currentTransferProgress {
+      let received = transferProgress.bytesReceived.formatted(
+        .byteCount(style: .file)
+      )
+      if let total = transferProgress.totalBytesExpected {
+        components.append(
+          "\(received) of \(total.formatted(.byteCount(style: .file)))."
+        )
+      } else {
+        components.append("\(received) received.")
+      }
+    }
+    return components.joined(separator: " ")
   }
 
   private var artworkCachingLabel: String {
@@ -3150,6 +3213,15 @@ private struct GameCard: View {
 }
 
 extension View {
+  fileprivate func sidebarDownloadStatusStyle() -> some View {
+    font(.caption)
+      .foregroundStyle(.secondary)
+      .padding(.horizontal, 12)
+      .frame(height: 48)
+      .openVaultGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .padding(8)
+  }
+
   fileprivate func sidebarStatusStyle() -> some View {
     font(.caption)
       .foregroundStyle(.secondary)

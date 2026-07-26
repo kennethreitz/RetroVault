@@ -42,6 +42,24 @@ struct ArtworkSortTests {
         == [newerGame.id, olderGame.id, unknownDateGame.id]
     )
   }
+
+  @Test("Combines completed games with the active ROM byte progress")
+  func calculatesBatchDownloadProgress() {
+    let progress = LibraryDownloadProgress(
+      processedGameCount: 1,
+      totalGameCount: 4,
+      currentGameID: 2,
+      currentGameName: "Tetris",
+      currentTransferProgress: RomMDownloadProgress(
+        bytesReceived: 25,
+        totalBytesExpected: 100
+      ),
+      failedGameCount: 0
+    )
+
+    #expect(progress.currentGameNumber == 2)
+    #expect(progress.fractionCompleted == 0.3125)
+  }
 }
 
 @Suite("Big Picture catalog")

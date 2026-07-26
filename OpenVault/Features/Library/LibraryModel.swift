@@ -55,6 +55,7 @@ final class LibraryModel {
   private(set) var isPurgingLocalCache = false
   private(set) var isCachingArtwork = false
   private(set) var isDownloadingGames = false
+  private(set) var downloadProgress: LibraryDownloadProgress?
   private(set) var isRemovingDownloads = false
   private(set) var isExportingGames = false
   private(set) var isDeletingGames = false
@@ -73,6 +74,7 @@ final class LibraryModel {
   private var synchronizationID = UUID()
   private var artworkInspectionID = UUID()
   private var artworkCachingTask: Task<Void, Never>?
+  private var downloadOperationID = UUID()
   private var snapshot: LibrarySnapshot?
   private let artworkCache: any ArtworkCaching
 
@@ -599,18 +601,47 @@ final class LibraryModel {
     }
 
     isDownloadingGames = true
-    defer { isDownloadingGames = false }
+    let currentDownloadOperationID = UUID()
+    downloadOperationID = currentDownloadOperationID
+    downloadProgress = LibraryDownloadProgress(
+      processedGameCount: 0,
+      totalGameCount: uniqueGames.count,
+      currentGameID: nil,
+      currentGameName: nil,
+      currentTransferProgress: nil,
+      failedGameCount: 0
+    )
+    defer {
+      if downloadOperationID == currentDownloadOperationID {
+        isDownloadingGames = false
+        downloadProgress = nil
+      }
+    }
 
     var downloadedGameIDs: [Int] = []
     var errors: [String] = []
 
-    for game in uniqueGames {
+    for (index, game) in uniqueGames.enumerated() {
       guard !Task.isCancelled else {
         break
       }
 
+      downloadProgress = LibraryDownloadProgress(
+        processedGameCount: index,
+        totalGameCount: uniqueGames.count,
+        currentGameID: game.id,
+        currentGameName: game.name,
+        currentTransferProgress: nil,
+        failedGameCount: errors.count
+      )
+
       if game.isMissingFromFileSystem == true {
         errors.append("\(game.name): RomM reports that its ROM file is missing.")
+        completeDownloadItem(
+          processedGameCount: index + 1,
+          failedGameCount: errors.count,
+          operationID: currentDownloadOperationID
+        )
         continue
       }
 
@@ -618,7 +649,16 @@ final class LibraryModel {
         let details = try await transferableDetails(for: game)
         _ = try await service.downloadGame(
           details,
-          in: session
+          in: session,
+          onProgress: { [weak self] progress in
+            Task { @MainActor [weak self] in
+              self?.apply(
+                progress,
+                forGameID: game.id,
+                operationID: currentDownloadOperationID
+              )
+            }
+          }
         )
         downloadedGameIDs.append(game.id)
       } catch is CancellationError {
@@ -626,6 +666,12 @@ final class LibraryModel {
       } catch {
         errors.append("\(game.name): \(error.localizedDescription)")
       }
+
+      completeDownloadItem(
+        processedGameCount: index + 1,
+        failedGameCount: errors.count,
+        operationID: currentDownloadOperationID
+      )
     }
 
     await reloadDownloadedGames()
@@ -634,6 +680,43 @@ final class LibraryModel {
       failedItemCount: errors.count,
       errors: errors
     )
+  }
+
+  private func apply(
+    _ transferProgress: RomMDownloadProgress,
+    forGameID gameID: Int,
+    operationID: UUID
+  ) {
+    guard downloadOperationID == operationID,
+      var progress = downloadProgress,
+      progress.currentGameID == gameID,
+      transferProgress.bytesReceived
+        >= (progress.currentTransferProgress?.bytesReceived ?? 0)
+    else {
+      return
+    }
+
+    progress.currentTransferProgress = transferProgress
+    downloadProgress = progress
+  }
+
+  private func completeDownloadItem(
+    processedGameCount: Int,
+    failedGameCount: Int,
+    operationID: UUID
+  ) {
+    guard downloadOperationID == operationID,
+      var progress = downloadProgress
+    else {
+      return
+    }
+
+    progress.processedGameCount = processedGameCount
+    progress.currentGameID = nil
+    progress.currentGameName = nil
+    progress.currentTransferProgress = nil
+    progress.failedGameCount = failedGameCount
+    downloadProgress = progress
   }
 
   func removeDownloads(

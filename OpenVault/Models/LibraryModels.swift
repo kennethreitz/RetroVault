@@ -172,6 +172,41 @@ struct GameDownloadResult: Equatable, Sendable {
   }
 }
 
+/// Aggregate progress for an explicit multi-game download operation.
+struct LibraryDownloadProgress: Equatable, Sendable {
+  var processedGameCount: Int
+  let totalGameCount: Int
+  var currentGameID: Int?
+  var currentGameName: String?
+  var currentTransferProgress: RomMDownloadProgress?
+  var failedGameCount: Int
+
+  var currentGameNumber: Int {
+    guard currentGameID != nil else {
+      return min(processedGameCount, totalGameCount)
+    }
+    return min(processedGameCount + 1, totalGameCount)
+  }
+
+  var fractionCompleted: Double {
+    guard totalGameCount > 0 else {
+      return 0
+    }
+    let currentFraction =
+      currentGameID == nil
+      ? 0
+      : currentTransferProgress?.fractionCompleted ?? 0
+    return min(
+      max(
+        (Double(processedGameCount) + currentFraction)
+          / Double(totalGameCount),
+        0
+      ),
+      1
+    )
+  }
+}
+
 /// Outcome of removing one or more locally cached games from OpenVault.
 struct GameDownloadRemovalResult: Equatable, Sendable {
   let removedGameIDs: [Int]

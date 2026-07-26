@@ -425,6 +425,10 @@ enum ServerConfiguration: Sendable {
 - Library synchronization, cached/offline state, failure state, total game
   count, and last refresh time appear in a compact footer at the lower-left of
   the sidebar rather than consuming toolbar space.
+- Explicit multi-game downloads replace that footer temporarily with an
+  iTunes-style aggregate progress bar. It shows the active item number, total
+  item count, overall percentage, and live per-ROM byte progress in its help
+  text while retaining conservative sequential transfers.
 
 ## Dependencies
 
