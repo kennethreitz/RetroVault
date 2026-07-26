@@ -53,7 +53,9 @@ through the same service boundary.
   library games or bundled with OpenVault.
 - Save RAM is isolated per server and game, restored before core startup, and
   synchronized back to RomM when it changes. Quick states and rewind history
-  remain local and core-specific.
+  remain local and core-specific. Play automatically resumes a local quick
+  state when one exists; a state rejected by the selected core falls back to a
+  clean boot without preventing launch.
 
 ## User journey
 

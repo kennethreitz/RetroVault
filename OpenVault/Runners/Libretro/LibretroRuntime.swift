@@ -1950,12 +1950,34 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             let avInfo = try loadedCore.avInfo()
             try audioOutput.configure(sampleRate: avInfo.sampleRate)
             restoreSaveMemory(into: loadedCore)
+            runtimeEnvironment.makeHardwareContextCurrent()
+            let quickStateRestore = restoreQuickStateIfAvailable(
+                into: loadedCore
+            )
             emit(
                 .running(
                     coreName: "\(manifestCore.displayName) · \(systemInfo.name) \(systemInfo.version)",
                     framesPerSecond: avInfo.framesPerSecond
                 )
             )
+            switch quickStateRestore {
+            case .notFound:
+                break
+            case .restored:
+                emit(.quickStateLoaded)
+                OpenVaultLog.libretro.notice(
+                    "Restored the local quick state before starting gameplay"
+                )
+            case let .failed(message):
+                emit(
+                    .notice(
+                        "OpenVault could not restore the previous session. Starting from the beginning."
+                    )
+                )
+                OpenVaultLog.libretro.error(
+                    "Could not restore the local quick state: \(message, privacy: .public)"
+                )
+            }
 
             let frameDuration = 1 / avInfo.framesPerSecond
             var nextFrame = ProcessInfo.processInfo.systemUptime
@@ -2138,6 +2160,29 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             return
         }
         data.copyBytes(to: destination.assumingMemoryBound(to: UInt8.self), count: size)
+    }
+
+    private enum QuickStateRestore {
+        case notFound
+        case restored
+        case failed(String)
+    }
+
+    private func restoreQuickStateIfAvailable(
+        into core: LibretroCore
+    ) -> QuickStateRestore {
+        guard FileManager.default.fileExists(atPath: quickStateURL.path) else {
+            return .notFound
+        }
+
+        do {
+            let data = try Data(contentsOf: quickStateURL)
+            try core.loadState(data)
+            audioOutput.flush()
+            return .restored
+        } catch {
+            return .failed(error.localizedDescription)
+        }
     }
 
     private func persistSaveMemory(from core: LibretroCore) -> Bool {

@@ -224,8 +224,10 @@ enum ServerConfiguration: Sendable {
   retain their separate-window and native fullscreen Escape behavior.
 - Implicit player exits, including Escape, Start + Select, and closing the
   player window, atomically replace the local quick state before stopping the
-  core. The explicit Stop button intentionally bypasses this automatic state
-  capture.
+  core. Play automatically restores that state after the core and game are
+  initialized but before gameplay begins. An incompatible state falls back to
+  a clean boot and is reported in the log. The explicit Stop button
+  intentionally bypasses automatic state capture.
 
 ## Game details
 
