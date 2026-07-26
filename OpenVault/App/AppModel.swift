@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 
 @MainActor
 @Observable
@@ -13,6 +14,7 @@ final class AppModel {
     private let environment: AppEnvironment
 
     private(set) var destination: Destination = .preparing
+    private(set) var libraryModel: LibraryModel?
     private(set) var isConnecting = false
     var connectionError: String?
 
@@ -20,24 +22,26 @@ final class AppModel {
         self.environment = environment
     }
 
-    var libraryService: any LibraryServing {
-        environment.library
-    }
-
     func restore() async {
         guard case .preparing = destination else {
             return
         }
 
+        OpenVaultLog.application.debug("Restoring the previous OpenVault session")
         do {
             if let session = try await environment.serverConnection.restoredSession() {
-                destination = .library(session)
+                showLibrary(session)
+                OpenVaultLog.connection.notice("Restored a paired RomM session")
             } else {
                 destination = .connection
+                OpenVaultLog.connection.info("No paired RomM session is stored")
             }
         } catch {
             connectionError = error.localizedDescription
             destination = .connection
+            OpenVaultLog.connection.error(
+                "Could not restore the paired session: \(error.localizedDescription)"
+            )
         }
     }
 
@@ -50,24 +54,43 @@ final class AppModel {
         connectionError = nil
         defer { isConnecting = false }
 
+        OpenVaultLog.connection.notice("Pairing with a RomM server")
         do {
             let session = try await environment.serverConnection.pair(
                 serverURL: serverURL,
                 pairingCode: pairingCode
             )
-            destination = .library(session)
+            showLibrary(session)
+            OpenVaultLog.connection.notice("Paired with RomM successfully")
         } catch {
             connectionError = error.localizedDescription
+            OpenVaultLog.connection.error(
+                "RomM pairing failed: \(error.localizedDescription)"
+            )
         }
     }
 
     func disconnect() async {
+        OpenVaultLog.connection.notice("Disconnecting the RomM server")
         do {
             try await environment.serverConnection.disconnect()
             connectionError = nil
+            libraryModel = nil
             destination = .connection
+            OpenVaultLog.connection.notice("Disconnected the RomM server")
         } catch {
             connectionError = error.localizedDescription
+            OpenVaultLog.connection.error(
+                "Could not disconnect RomM: \(error.localizedDescription)"
+            )
         }
+    }
+
+    private func showLibrary(_ session: ServerSession) {
+        libraryModel = LibraryModel(
+            session: session,
+            service: environment.library
+        )
+        destination = .library(session)
     }
 }

@@ -52,6 +52,11 @@ struct ServerURL: Codable, Equatable, Hashable, Sendable {
         return value.appending(path: component)
     }
 
+    /// The signed-in RomM page where a user creates and pairs client API tokens.
+    var clientTokenManagementURL: URL {
+        endpoint("client-api-tokens")
+    }
+
     func resourceURL(for path: String?) -> URL? {
         guard let path else {
             return nil

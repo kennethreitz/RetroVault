@@ -2,5 +2,7 @@
 .build/
 .swiftpm/
 DerivedData/
+Build/
+.libretro-work/
 xcuserdata/
 *.xcuserstate

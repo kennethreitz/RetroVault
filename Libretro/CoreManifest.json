@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "minimumMacOS": "26.0",
+  "architecture": "arm64",
+  "cores": [
+    {
+      "id": "libretro-2048",
+      "displayName": "2048 Pipeline Test",
+      "status": "pipelineTest",
+      "binaryName": "2048_libretro.dylib",
+      "systems": [],
+      "fileExtensions": [],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/libretro/libretro-2048.git",
+        "revision": "c90437d3c3913999624deca3fb55ecfa632b72c4",
+        "licenseFile": "COPYING"
+      },
+      "license": {
+        "spdx": "Unlicense",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/libretro-2048/blob/c90437d3c3913999624deca3fb55ecfa632b72c4/COPYING"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "-f",
+          "Makefile.libretro",
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "2048_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-gambatte",
+      "displayName": "Gambatte",
+      "status": "bundled",
+      "binaryName": "gambatte_libretro.dylib",
+      "systems": [
+        "gb",
+        "gbc"
+      ],
+      "fileExtensions": [
+        "dmg",
+        "gb",
+        "gbc"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/libretro/gambatte-libretro.git",
+        "revision": "9b3b5e3cc18ec92f460d37dd551eaf90c55bfcea",
+        "licenseFile": "COPYING"
+      },
+      "license": {
+        "spdx": "GPL-2.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/gambatte-libretro/blob/9b3b5e3cc18ec92f460d37dd551eaf90c55bfcea/COPYING"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "-f",
+          "Makefile.libretro",
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "gambatte_libretro.dylib"
+      }
+    }
+  ]
+}

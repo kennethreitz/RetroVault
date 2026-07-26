@@ -1,0 +1,62 @@
+name: Libretro cores
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/libretro-cores.yml"
+      - "Libretro/**"
+      - "Package.swift"
+      - "Scripts/*libretro*"
+      - "Tools/OpenVaultCoreTool/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/libretro-cores.yml"
+      - "Libretro/**"
+      - "Package.swift"
+      - "Scripts/*libretro*"
+      - "Tools/OpenVaultCoreTool/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate manifest and tooling
+    runs-on: macos-26
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out OpenVault
+        uses: actions/checkout@v4
+
+      - name: Test the manifest tool
+        run: Scripts/test-libretro-core-tool.sh
+
+  build:
+    name: Build ARM64 cores
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out OpenVault
+        uses: actions/checkout@v4
+
+      - name: Build and ad-hoc sign bundled cores
+        run: Scripts/build-libretro-cores.sh
+
+      - name: Verify packaged signatures
+        run: |
+          find Build/LibretroCores/Cores -name '*_libretro.dylib' -print0 \
+            | xargs -0 -n1 codesign --verify --strict --verbose=2
+
+      - name: Upload core artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenVault-Libretro-Cores-arm64
+          path: Build/LibretroCores
+          if-no-files-found: error

@@ -22,6 +22,10 @@ struct ServerURLTests {
             serverURL.endpoint("api/heartbeat").absoluteString
                 == "https://example.com/games/api/heartbeat"
         )
+        #expect(
+            serverURL.clientTokenManagementURL.absoluteString
+                == "https://example.com/games/client-api-tokens"
+        )
     }
 
     @Test("Accepts HTTP for a local server", arguments: [

@@ -1,4 +1,5 @@
 import Foundation
+import Nuke
 
 /// Dependencies assembled at the application boundary.
 struct AppEnvironment: Sendable {
@@ -7,18 +8,30 @@ struct AppEnvironment: Sendable {
 
     static func live() -> AppEnvironment {
         let api = URLSessionRomMClient()
-        let credentials = KeychainCredentialStore()
+        let credentials = ApplicationSupportCredentialStore()
         let configuration = UserDefaultsServerConfigurationStore()
+        let libraryCache = SwiftDataLibraryCache()
+        ImagePipeline.shared = ImagePipeline(
+            configuration: .withDataCache(
+                name: "org.kennethreitz.OpenVault.Artwork",
+                sizeLimit: 512 * 1_024 * 1_024
+            )
+        )
 
         return AppEnvironment(
             serverConnection: ServerConnectionService(
                 api: api,
                 credentialStore: credentials,
-                configurationStore: configuration
+                configurationStore: configuration,
+                libraryCache: libraryCache
             ),
             library: RomMLibraryService(
                 api: api,
-                credentialStore: credentials
+                credentialStore: credentials,
+                cache: libraryCache,
+                purgeArtworkCache: {
+                    ImagePipeline.shared.cache.removeAll()
+                }
             )
         )
     }

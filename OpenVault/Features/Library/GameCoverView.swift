@@ -7,34 +7,69 @@ struct GameCoverView: View {
     let session: ServerSession
     let service: any LibraryServing
 
+    var body: some View {
+        RomMImageView(
+            url: game.coverURL,
+            session: session,
+            service: service,
+            targetSize: CGSize(width: 360, height: 480),
+            contentMode: .fit,
+            placeholderSystemImage: "gamecontroller",
+            cornerRadius: 10,
+            imagePadding: 5
+        )
+        .aspectRatio(3 / 4, contentMode: .fit)
+    }
+}
+
+struct RomMImageView: View {
+    let url: URL?
+    let session: ServerSession
+    let service: any LibraryServing
+    let targetSize: CGSize
+    let contentMode: ContentMode
+    let placeholderSystemImage: String
+    let cornerRadius: CGFloat
+    let imagePadding: CGFloat
+
     @State private var image: NSImage?
     @State private var didFail = false
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(.quaternary)
 
             if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .padding(5)
+                renderedImage(image)
+                    .padding(imagePadding)
                     .transition(.opacity)
             } else {
-                Image(systemName: didFail ? "photo.badge.exclamationmark" : "gamecontroller")
+                Image(systemName: didFail ? "photo.badge.exclamationmark" : placeholderSystemImage)
                     .font(.system(size: 34, weight: .light))
                     .foregroundStyle(.tertiary)
             }
         }
-        .aspectRatio(3 / 4, contentMode: .fit)
-        .clipShape(.rect(cornerRadius: 10))
+        .clipShape(.rect(cornerRadius: cornerRadius))
         .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(.separator.opacity(0.35), lineWidth: 0.5)
         }
-        .task(id: game.coverURL) {
+        .task(id: url) {
             await loadImage()
+        }
+    }
+
+    @ViewBuilder
+    private func renderedImage(_ image: NSImage) -> some View {
+        if contentMode == .fit {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFit()
+        } else {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFill()
         }
     }
 
@@ -43,7 +78,7 @@ struct GameCoverView: View {
         didFail = false
 
         do {
-            guard let urlRequest = try await service.artworkRequest(for: game, in: session) else {
+            guard let urlRequest = try await service.resourceRequest(for: url, in: session) else {
                 return
             }
 
@@ -51,9 +86,9 @@ struct GameCoverView: View {
                 urlRequest: urlRequest,
                 processors: [
                     ImageProcessors.Resize(
-                        size: CGSize(width: 360, height: 480),
+                        size: targetSize,
                         unit: .pixels,
-                        contentMode: .aspectFit
+                        contentMode: contentMode == .fit ? .aspectFit : .aspectFill
                     ),
                 ]
             )

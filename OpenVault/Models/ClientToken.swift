@@ -2,7 +2,7 @@ import Foundation
 
 /// A secret RomM client token.
 ///
-/// The raw value must be persisted only in Keychain and must never be logged.
+/// The raw value must remain in the credential store and must never be logged.
 struct ClientToken: Equatable, Sendable {
     let rawValue: String
 

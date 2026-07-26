@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct ServerConnectionView: View {
+    private static let clientTokenDocumentationURL = URL(
+        string: "https://docs.romm.app/latest/developers/client-api-tokens/"
+    )!
+
     let model: AppModel
 
     @State private var serverURL = ""
@@ -10,6 +14,11 @@ struct ServerConnectionView: View {
         !serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && (try? PairingCode(pairingCode)) != nil
             && !model.isConnecting
+    }
+
+    private var clientTokenURL: URL {
+        (try? ServerURL(serverURL))?.clientTokenManagementURL
+            ?? Self.clientTokenDocumentationURL
     }
 
     var body: some View {
@@ -55,8 +64,9 @@ struct ServerConnectionView: View {
             HStack {
                 Link(
                     "Create a client token in RomM",
-                    destination: URL(string: "https://docs.romm.app/latest/developers/client-api-tokens/")!
+                    destination: clientTokenURL
                 )
+                .help("Opens Client API Tokens on the server entered above.")
 
                 Spacer()
 
@@ -78,7 +88,7 @@ struct ServerConnectionView: View {
             }
             .frame(maxWidth: 520)
 
-            Text("OpenVault needs me.read, platforms.read, roms.read, and collections.read. The token is stored only in your Mac's Keychain.")
+            Text("OpenVault needs me.read, platforms.read, roms.read, collections.read, and roms.user.write. During development, the token is stored in OpenVault's sandboxed Application Support folder on this Mac.")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)

@@ -113,7 +113,8 @@ Whether that means launching an external emulator, using a libretro core, or dow
 * Per-system defaults
 * Per-game overrides
 * Native emulator launching
-* libretro support (planned)
+* Native bundled Libretro runtime
+* Game Boy and Game Boy Color through Gambatte
 
 ### macOS
 
@@ -153,7 +154,7 @@ OpenVault intentionally separates responsibilities.
              │ RPCS3               │
              │ RetroArch           │
              │ OpenEmu             │
-             │ libretro (planned)  │
+             │ libretro            │
              └─────────────────────┘
 ```
 
@@ -217,7 +218,7 @@ Official signed and notarized builds help fund development.
 
 ### Future
 
-* Embedded libretro support
+* Additional reviewed Libretro cores
 * Cloud save providers
 * Companion iPhone and iPad apps
 * Apple TV support
@@ -261,8 +262,24 @@ Open `OpenVault.xcodeproj` to build and run the native application. The same
 source tree is also described by `Package.swift` for command-line builds and
 tests.
 
-The project currently has one application dependency: Nuke's core image
-pipeline. All dependencies are managed with Swift Package Manager.
+The project currently has two application dependencies: Nuke's core image
+pipeline and ZIPFoundation for safe, single-member extraction of archived
+game content. The Libretro frontend uses Apple frameworks and a small
+Swift-owned C ABI bridge rather than a frontend package. All dependencies are
+managed with Swift Package Manager.
+
+The bundled Libretro pipeline is intentionally separate from ordinary
+development builds. Its manifest, validation command, and build instructions
+live in [`Libretro/`](Libretro/README.md). Run
+`Scripts/build-libretro-cores.sh` to produce reviewed ARM64 core artifacts
+before making a Release build.
+
+The first user-facing core is Gambatte for Game Boy and Game Boy Color. A
+content-free 2048 core remains available from Settings as a frontend smoke
+test. Compatible RomM games expose Play in their details header; OpenVault
+keeps downloaded ROMs in a disposable 20 GB runtime cache rather than
+importing them into another library. ZIP-wrapped games are supported when the
+archive contains a file type declared by the selected core.
 
 ---
 

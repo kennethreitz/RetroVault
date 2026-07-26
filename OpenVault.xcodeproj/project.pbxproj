@@ -7,6 +7,21 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A50000000000000000000002 /* LogViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000002 /* LogViewerView.swift */; };
+		A50000000000000000000001 /* OpenVaultDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000001 /* OpenVaultDiagnostics.swift */; };
+		A30000000000000000000001 /* LibretroCoreManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000001 /* LibretroCoreManifest.swift */; };
+		A30000000000000000000002 /* LibretroGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000002 /* LibretroGameView.swift */; };
+		A30000000000000000000003 /* LibretroRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000003 /* LibretroRuntime.swift */; };
+		A30000000000000000000004 /* LibretroCoreManifestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000004 /* LibretroCoreManifestTests.swift */; };
+		A40000000000000000000001 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 1A7600000000000000000001 /* ZIPFoundation */; };
+		A40000000000000000000002 /* GameArchiveExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000001 /* GameArchiveExtractor.swift */; };
+		A40000000000000000000003 /* GameArchiveExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000002 /* GameArchiveExtractorTests.swift */; };
+		A20000000000000000000001 /* LibraryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* LibraryCache.swift */; };
+		A20000000000000000000002 /* SwiftDataLibraryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* SwiftDataLibraryCache.swift */; };
+		A20000000000000000000003 /* LibraryCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* LibraryCacheTests.swift */; };
+		A10000000000000000000001 /* GameDetailsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* GameDetailsModels.swift */; };
+		A10000000000000000000002 /* GameDetailsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* GameDetailsModel.swift */; };
+		A10000000000000000000003 /* GameDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* GameDetailsView.swift */; };
 		099606899B62ABB6D739ACF9 /* ServerConnectionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3C9E07B1356C2C0E592CE86 /* ServerConnectionServiceTests.swift */; };
 		09AB210B6FCFB9F8B78F2845 /* PairingCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A82F533028A891EA05B14D94 /* PairingCode.swift */; };
 		192333E4FC57A92E3F3830D2 /* RomMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE75336E7FEDEE7B75E050D9 /* RomMClient.swift */; };
@@ -26,7 +41,7 @@
 		7FB6894CA3D75799680F2756 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D242D61923E402058681712C /* AppEnvironment.swift */; };
 		8588B132149A7A024BB634FB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FF541CEF0471A881BE543B1D /* Assets.xcassets */; };
 		86D5B78DCE9F89C227A68937 /* ServerConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94E89CA3022CB5E34C0686ED /* ServerConnectionView.swift */; };
-		928D686C402AE61C5EAB2BC4 /* KeychainCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFA0F85C703FAF870B8CAD46 /* KeychainCredentialStore.swift */; };
+		928D686C402AE61C5EAB2BC4 /* ApplicationSupportCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFA0F85C703FAF870B8CAD46 /* ApplicationSupportCredentialStore.swift */; };
 		BB110F0FDC5BD76AE408B2A1 /* RemoteServerConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78703ACD9FFA7196CE7A4676 /* RemoteServerConfiguration.swift */; };
 		BC9F22ACEAAF2461065CC7E9 /* CredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97168628055F31F025E9EB79 /* CredentialStore.swift */; };
 		D1396C6E659FC592539594FF /* URLSessionRomMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 886FBF6DC73DA7C364473F68 /* URLSessionRomMClient.swift */; };
@@ -49,6 +64,20 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B50000000000000000000002 /* LogViewerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LogViewerView.swift; sourceTree = "<group>"; };
+		B50000000000000000000001 /* OpenVaultDiagnostics.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OpenVaultDiagnostics.swift; sourceTree = "<group>"; };
+		B30000000000000000000001 /* LibretroCoreManifest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroCoreManifest.swift; sourceTree = "<group>"; };
+		B30000000000000000000002 /* LibretroGameView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroGameView.swift; sourceTree = "<group>"; };
+		B30000000000000000000003 /* LibretroRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroRuntime.swift; sourceTree = "<group>"; };
+		B30000000000000000000004 /* LibretroCoreManifestTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroCoreManifestTests.swift; sourceTree = "<group>"; };
+		B40000000000000000000001 /* GameArchiveExtractor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameArchiveExtractor.swift; sourceTree = "<group>"; };
+		B40000000000000000000002 /* GameArchiveExtractorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameArchiveExtractorTests.swift; sourceTree = "<group>"; };
+		B20000000000000000000001 /* LibraryCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryCache.swift; sourceTree = "<group>"; };
+		B20000000000000000000002 /* SwiftDataLibraryCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SwiftDataLibraryCache.swift; sourceTree = "<group>"; };
+		B20000000000000000000003 /* LibraryCacheTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryCacheTests.swift; sourceTree = "<group>"; };
+		B10000000000000000000001 /* GameDetailsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameDetailsModels.swift; sourceTree = "<group>"; };
+		B10000000000000000000002 /* GameDetailsModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameDetailsModel.swift; sourceTree = "<group>"; };
+		B10000000000000000000003 /* GameDetailsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameDetailsView.swift; sourceTree = "<group>"; };
 		0BABBE07DF488BF436DC84BF /* OpenVault.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = OpenVault.entitlements; sourceTree = "<group>"; };
 		2CAD73996C51B8702DFEEB34 /* GameCoverView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameCoverView.swift; sourceTree = "<group>"; };
 		3040A5BD5E00216649E71C29 /* ClientToken.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClientToken.swift; sourceTree = "<group>"; };
@@ -79,7 +108,7 @@
 		ED1092F84448FD5CF0E03492 /* RootScene.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RootScene.swift; sourceTree = "<group>"; };
 		EEC227E0D83BB987A99EBE50 /* LibraryService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryService.swift; sourceTree = "<group>"; };
 		EE75336E7FEDEE7B75E050D9 /* RomMClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RomMClient.swift; sourceTree = "<group>"; };
-		EFA0F85C703FAF870B8CAD46 /* KeychainCredentialStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KeychainCredentialStore.swift; sourceTree = "<group>"; };
+		EFA0F85C703FAF870B8CAD46 /* ApplicationSupportCredentialStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationSupportCredentialStore.swift; sourceTree = "<group>"; };
 		FF541CEF0471A881BE543B1D /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -89,6 +118,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				3F7AD78063762DC70A9419EE /* Nuke in Frameworks */,
+				A40000000000000000000001 /* ZIPFoundation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -105,6 +135,7 @@
 		01D76A098647BA96FCF711A6 /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				C10000000000000000000001 /* GameDetails */,
 				97C513CCB7D073C2D1A0821C /* Library */,
 				659F600059656F03A76B3B90 /* ServerConnection */,
 				0BF48ADA59D54BDDEF8895A2 /* Settings */,
@@ -113,9 +144,20 @@
 			path = Features;
 			sourceTree = "<group>";
 		};
+		C10000000000000000000001 /* GameDetails */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000002 /* GameDetailsModel.swift */,
+				B10000000000000000000003 /* GameDetailsView.swift */,
+			);
+			name = GameDetails;
+			path = GameDetails;
+			sourceTree = "<group>";
+		};
 		0BF48ADA59D54BDDEF8895A2 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				B50000000000000000000002 /* LogViewerView.swift */,
 				E0788DB2C927FAD920200B5D /* SettingsView.swift */,
 			);
 			name = Settings;
@@ -137,7 +179,9 @@
 				9F090B2FB68E796FAFF2F505 /* Models */,
 				B826F86E6B3E4947E3FCC012 /* Networking */,
 				503D1F1565523B4C88BC8AF2 /* Persistence */,
+				C30000000000000000000001 /* Runners */,
 				730BDECA49A1E0255F15B7B9 /* Services */,
+				C50000000000000000000001 /* Shared */,
 				AB9B2A776FB657FB037D4FA6 /* Resources */,
 			);
 			name = OpenVault;
@@ -157,8 +201,10 @@
 			isa = PBXGroup;
 			children = (
 				97168628055F31F025E9EB79 /* CredentialStore.swift */,
-				EFA0F85C703FAF870B8CAD46 /* KeychainCredentialStore.swift */,
+				EFA0F85C703FAF870B8CAD46 /* ApplicationSupportCredentialStore.swift */,
+				B20000000000000000000001 /* LibraryCache.swift */,
 				52795ADC884D703C141A66FC /* ServerConfigurationStore.swift */,
+				B20000000000000000000002 /* SwiftDataLibraryCache.swift */,
 			);
 			name = Persistence;
 			path = Persistence;
@@ -187,11 +233,41 @@
 		730BDECA49A1E0255F15B7B9 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				B40000000000000000000001 /* GameArchiveExtractor.swift */,
 				EEC227E0D83BB987A99EBE50 /* LibraryService.swift */,
 				9AB5A810AC557942EDBE4D24 /* ServerConnectionService.swift */,
 			);
 			name = Services;
 			path = Services;
+			sourceTree = "<group>";
+		};
+		C30000000000000000000001 /* Runners */ = {
+			isa = PBXGroup;
+			children = (
+				C30000000000000000000002 /* Libretro */,
+			);
+			name = Runners;
+			path = Runners;
+			sourceTree = "<group>";
+		};
+		C30000000000000000000002 /* Libretro */ = {
+			isa = PBXGroup;
+			children = (
+				B30000000000000000000001 /* LibretroCoreManifest.swift */,
+				B30000000000000000000002 /* LibretroGameView.swift */,
+				B30000000000000000000003 /* LibretroRuntime.swift */,
+			);
+			name = Libretro;
+			path = Libretro;
+			sourceTree = "<group>";
+		};
+		C50000000000000000000001 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				B50000000000000000000001 /* OpenVaultDiagnostics.swift */,
+			);
+			name = Shared;
+			path = Shared;
 			sourceTree = "<group>";
 		};
 		80D45A942B1E824181497BDD = {
@@ -233,6 +309,7 @@
 			isa = PBXGroup;
 			children = (
 				3040A5BD5E00216649E71C29 /* ClientToken.swift */,
+				B10000000000000000000001 /* GameDetailsModels.swift */,
 				D3F6FC33331B5533BFD83D93 /* LibraryModels.swift */,
 				A82F533028A891EA05B14D94 /* PairingCode.swift */,
 				78703ACD9FFA7196CE7A4676 /* RemoteServerConfiguration.swift */,
@@ -247,6 +324,9 @@
 		9F2800C71750F15FE193ABB3 /* OpenVaultTests */ = {
 			isa = PBXGroup;
 			children = (
+				B40000000000000000000002 /* GameArchiveExtractorTests.swift */,
+				B20000000000000000000003 /* LibraryCacheTests.swift */,
+				B30000000000000000000004 /* LibretroCoreManifestTests.swift */,
 				7CE0812D0EFD1CE66AA1BF4E /* PairingValueTests.swift */,
 				A3C9E07B1356C2C0E592CE86 /* ServerConnectionServiceTests.swift */,
 				A21459D026178CE9B0974A8E /* ServerURLTests.swift */,
@@ -301,6 +381,7 @@
 				6636297A7F863ECAEB190CFB /* Sources */,
 				782B37780E00AF14F838410D /* Frameworks */,
 				D92E97EBA0145E0C941E4407 /* Resources */,
+				C0A100000000000000000001 /* Embed Libretro Cores */,
 			);
 			buildRules = (
 			);
@@ -309,6 +390,7 @@
 			name = OpenVault;
 			packageProductDependencies = (
 				1A66F42D1BC35FE076EEC5CD /* Nuke */,
+				1A7600000000000000000001 /* ZIPFoundation */,
 			);
 			productName = OpenVault;
 			productReference = 5E13CC613071E2A7F6BBF02D /* OpenVault.app */;
@@ -344,6 +426,7 @@
 			minimizedProjectReferenceProxies = 0;
 			packageReferences = (
 				7D80FC3AB0ED6AC9486B395E /* XCRemoteSwiftPackageReference "Nuke" */,
+				7D9000000000000000000001 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 			);
 			preferredProjectObjectVersion = 100;
 			productRefGroup = 31500403F17402E85A804015 /* Products */;
@@ -374,6 +457,31 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		C0A100000000000000000001 /* Embed Libretro Cores */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Scripts/embed-libretro-cores.sh",
+			);
+			name = "Embed Libretro Cores";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/Libretro",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Libretro",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/Scripts/embed-libretro-cores.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		6636297A7F863ECAEB190CFB /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -383,12 +491,16 @@
 				FDD0BB6FEFC2631F2868A349 /* AppModel.swift in Sources */,
 				7E431AEE25FC06574419D9BD /* OpenVaultApp.swift in Sources */,
 				F017A574EAC69F62D11F4ED1 /* RootScene.swift in Sources */,
+				A10000000000000000000002 /* GameDetailsModel.swift in Sources */,
+				A10000000000000000000003 /* GameDetailsView.swift in Sources */,
 				C770809077DE038B49E7B58C /* GameCoverView.swift in Sources */,
 				F8FA8B9D176F0682F3359356 /* LibraryModel.swift in Sources */,
 				6ECFA994641940B43D4510C9 /* LibraryView.swift in Sources */,
 				86D5B78DCE9F89C227A68937 /* ServerConnectionView.swift in Sources */,
+				A50000000000000000000002 /* LogViewerView.swift in Sources */,
 				51FBF3CA058AFE735403D05E /* SettingsView.swift in Sources */,
 				259E8DB9776D33F818A7B4D8 /* ClientToken.swift in Sources */,
+				A10000000000000000000001 /* GameDetailsModels.swift in Sources */,
 				200C1AC3DF053D405EC0EE4B /* LibraryModels.swift in Sources */,
 				09AB210B6FCFB9F8B78F2845 /* PairingCode.swift in Sources */,
 				BB110F0FDC5BD76AE408B2A1 /* RemoteServerConfiguration.swift in Sources */,
@@ -399,10 +511,17 @@
 				192333E4FC57A92E3F3830D2 /* RomMClient.swift in Sources */,
 				D1396C6E659FC592539594FF /* URLSessionRomMClient.swift in Sources */,
 				BC9F22ACEAAF2461065CC7E9 /* CredentialStore.swift in Sources */,
-				928D686C402AE61C5EAB2BC4 /* KeychainCredentialStore.swift in Sources */,
+				928D686C402AE61C5EAB2BC4 /* ApplicationSupportCredentialStore.swift in Sources */,
+				A20000000000000000000001 /* LibraryCache.swift in Sources */,
 				DA07DFDC9B93D977787FBA54 /* ServerConfigurationStore.swift in Sources */,
+				A20000000000000000000002 /* SwiftDataLibraryCache.swift in Sources */,
+				A30000000000000000000001 /* LibretroCoreManifest.swift in Sources */,
+				A30000000000000000000002 /* LibretroGameView.swift in Sources */,
+				A30000000000000000000003 /* LibretroRuntime.swift in Sources */,
+				A40000000000000000000002 /* GameArchiveExtractor.swift in Sources */,
 				C482072FDFB5DCB0FF807D6C /* LibraryService.swift in Sources */,
 				DABBCD69D1B0CDEE8B5BB01F /* ServerConnectionService.swift in Sources */,
+				A50000000000000000000001 /* OpenVaultDiagnostics.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -410,6 +529,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A40000000000000000000003 /* GameArchiveExtractorTests.swift in Sources */,
+				A20000000000000000000003 /* LibraryCacheTests.swift in Sources */,
+				A30000000000000000000004 /* LibretroCoreManifestTests.swift in Sources */,
 				FE03EEAF3465F1282D358BA8 /* PairingValueTests.swift in Sources */,
 				099606899B62ABB6D739ACF9 /* ServerConnectionServiceTests.swift in Sources */,
 				FFAD3767D2311D56DA00F120 /* ServerURLTests.swift in Sources */,
@@ -670,6 +792,14 @@
 				version = 13.0.6;
 			};
 		};
+		7D9000000000000000000001 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/weichsel/ZIPFoundation.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.9.20;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -677,6 +807,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 7D80FC3AB0ED6AC9486B395E /* XCRemoteSwiftPackageReference "Nuke" */;
 			productName = Nuke;
+		};
+		1A7600000000000000000001 /* ZIPFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7D9000000000000000000001 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
+			productName = ZIPFoundation;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

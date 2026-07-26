@@ -12,20 +12,24 @@ actor ServerConnectionService: ServerConnecting {
         "me.read",
         "platforms.read",
         "roms.read",
+        "roms.user.write",
     ]
 
     private let api: any RomMClient
     private let credentialStore: any CredentialStoring
     private let configurationStore: any ServerConfigurationStoring
+    private let libraryCache: (any LibraryCaching)?
 
     init(
         api: any RomMClient,
         credentialStore: any CredentialStoring,
-        configurationStore: any ServerConfigurationStoring
+        configurationStore: any ServerConfigurationStoring,
+        libraryCache: (any LibraryCaching)? = nil
     ) {
         self.api = api
         self.credentialStore = credentialStore
         self.configurationStore = configurationStore
+        self.libraryCache = libraryCache
     }
 
     func restoredSession() async throws -> ServerSession? {
@@ -72,6 +76,7 @@ actor ServerConnectionService: ServerConnecting {
         async let removeConfiguration: Void = configurationStore.remove()
         async let removeToken: Void = credentialStore.removeToken()
         _ = try await (removeConfiguration, removeToken)
+        try await libraryCache?.removeAll()
     }
 }
 

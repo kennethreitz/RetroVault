@@ -13,11 +13,13 @@ struct RootScene: View {
             case .connection:
                 ServerConnectionView(model: model)
 
-            case let .library(session):
-                LibraryView(
-                    session: session,
-                    service: model.libraryService
-                )
+            case .library:
+                if let libraryModel = model.libraryModel {
+                    LibraryView(model: libraryModel)
+                } else {
+                    ProgressView("Opening Library…")
+                        .frame(minWidth: 520, minHeight: 380)
+                }
             }
         }
         .task {
