@@ -1,8 +1,85 @@
 import AppKit
+@preconcurrency import GameController
 import SwiftUI
 
 enum LibraryCoordinateSpace {
   static let name = "OpenVault.Library"
+}
+
+enum LibraryControllerCommand: Equatable, Sendable {
+  case up
+  case down
+  case left
+  case right
+  case activate
+  case back
+  case focusContent
+}
+
+struct LibraryControllerEvent: Equatable, Sendable {
+  let sequence: UInt64
+  let command: LibraryControllerCommand
+}
+
+struct LibraryControllerNavigation: Sendable {
+  private static let initialRepeatDelay = 0.34
+  private static let repeatInterval = 0.09
+
+  private var previousState = BigPictureControllerState()
+  private var repeatingCommand: LibraryControllerCommand?
+  private var nextRepeatTime = 0.0
+
+  mutating func synchronize(with state: BigPictureControllerState) {
+    previousState = state
+    repeatingCommand = nil
+    nextRepeatTime = 0
+  }
+
+  mutating func command(
+    for state: BigPictureControllerState,
+    at uptime: TimeInterval
+  ) -> LibraryControllerCommand? {
+    defer {
+      previousState = state
+    }
+
+    if state.back, !previousState.back {
+      return .back
+    }
+    if state.activate, !previousState.activate {
+      return .activate
+    }
+
+    let directionalCommand: LibraryControllerCommand? =
+      if state.up {
+        .up
+      } else if state.down {
+        .down
+      } else if state.left {
+        .left
+      } else if state.right {
+        .right
+      } else {
+        nil
+      }
+
+    guard let directionalCommand else {
+      repeatingCommand = nil
+      return nil
+    }
+
+    guard repeatingCommand == directionalCommand else {
+      repeatingCommand = directionalCommand
+      nextRepeatTime = uptime + Self.initialRepeatDelay
+      return directionalCommand
+    }
+
+    guard uptime >= nextRepeatTime else {
+      return nil
+    }
+    nextRepeatTime = uptime + Self.repeatInterval
+    return directionalCommand
+  }
 }
 
 private enum LibraryPreferenceKey {
@@ -289,6 +366,10 @@ struct LibraryView: View {
   @AppStorage(LibraryPreferenceKey.sidebarSystemSort)
   private var sidebarSystemSort = SidebarSystemSort.alphabetical
   @FocusState private var hasSidebarFocus: Bool
+  @State private var libraryWindow: NSWindow?
+  @State private var controllerNavigation = LibraryControllerNavigation()
+  @State private var controllerEvent: LibraryControllerEvent?
+  @State private var controllerEventSequence: UInt64 = 0
 
   var body: some View {
     NavigationSplitView {
@@ -435,7 +516,9 @@ struct LibraryView: View {
               collections: filteredVirtualCollections,
               previewGames: model.collectionPreviewGames,
               session: model.session,
-              service: model.service
+              service: model.service,
+              controllerEvent: controllerEvent,
+              focusSidebar: focusSidebar
             ) { collection in
               selectionBinding.wrappedValue = .collection(collection.id)
             }
@@ -450,7 +533,9 @@ struct LibraryView: View {
                 requestGameDownload: requestGameDownload,
                 requestGameDownloadRemoval: requestGameDownloadRemoval,
                 requestGameExport: requestGameExport,
-                requestGameDeletion: requestGameDeletion
+                requestGameDeletion: requestGameDeletion,
+                controllerEvent: controllerEvent,
+                focusSidebar: focusSidebar
               )
             case .artwork:
               LibraryGridView(
@@ -462,7 +547,9 @@ struct LibraryView: View {
                 requestGameDownload: requestGameDownload,
                 requestGameDownloadRemoval: requestGameDownloadRemoval,
                 requestGameExport: requestGameExport,
-                requestGameDeletion: requestGameDeletion
+                requestGameDeletion: requestGameDeletion,
+                controllerEvent: controllerEvent,
+                focusSidebar: focusSidebar
               )
             }
           }
@@ -591,8 +678,16 @@ struct LibraryView: View {
       }
     }
     .coordinateSpace(name: LibraryCoordinateSpace.name)
+    .background {
+      LibraryWindowProbe { window in
+        libraryWindow = window
+      }
+    }
     .task {
       await model.load()
+    }
+    .task {
+      await pollControllers()
     }
     .task(id: persistedHidesBIOSGames) {
       await model.setHidesBIOSGames(persistedHidesBIOSGames)
@@ -1275,6 +1370,161 @@ struct LibraryView: View {
       )
     }
   }
+
+  private var controllerSidebarSelections: [LibrarySelection] {
+    var selections: [LibrarySelection] = [
+      .allGames,
+      .downloaded,
+    ]
+    selections.append(
+      contentsOf: regularCollections.map {
+        .collection($0.id)
+      }
+    )
+    if showsSmartCollections {
+      selections.append(
+        contentsOf: smartCollections.map {
+          .collection($0.id)
+        }
+      )
+    }
+    if !virtualCollections.isEmpty {
+      selections.append(.virtualCollections)
+      if showsVirtualCollections {
+        selections.append(
+          contentsOf: virtualCollections.map {
+            .collection($0.id)
+          }
+        )
+      }
+    }
+    selections.append(
+      contentsOf: supportedPopulatedSystems.map {
+        .system($0.id)
+      }
+    )
+    if showsUnsupportedSystems {
+      selections.append(
+        contentsOf: unsupportedPopulatedSystems.map {
+          .system($0.id)
+        }
+      )
+    }
+    if showsEmptySystems {
+      selections.append(
+        contentsOf: emptySystems.map {
+          .system($0.id)
+        }
+      )
+    }
+    return selections
+  }
+
+  private func focusSidebar() {
+    hasSidebarFocus = true
+  }
+
+  private func emitControllerEvent(_ command: LibraryControllerCommand) {
+    controllerEventSequence &+= 1
+    controllerEvent = LibraryControllerEvent(
+      sequence: controllerEventSequence,
+      command: command
+    )
+  }
+
+  private func handleControllerCommand(_ command: LibraryControllerCommand) {
+    guard hasSidebarFocus else {
+      emitControllerEvent(command)
+      return
+    }
+
+    switch command {
+    case .up:
+      moveSidebarSelection(by: -1)
+    case .down:
+      moveSidebarSelection(by: 1)
+    case .right, .activate:
+      hasSidebarFocus = false
+      emitControllerEvent(.focusContent)
+    case .left, .back, .focusContent:
+      break
+    }
+  }
+
+  private func moveSidebarSelection(by offset: Int) {
+    let selections = controllerSidebarSelections
+    guard !selections.isEmpty else {
+      return
+    }
+
+    let currentIndex =
+      selections.firstIndex(of: model.selection)
+      ?? (offset > 0 ? -1 : selections.count)
+    let destinationIndex = min(
+      max(currentIndex + offset, 0),
+      selections.count - 1
+    )
+    let destination = selections[destinationIndex]
+    guard destination != model.selection else {
+      return
+    }
+    selectionBinding.wrappedValue = destination
+  }
+
+  private func pollControllers() async {
+    GCController.startWirelessControllerDiscovery(completionHandler: nil)
+    defer {
+      GCController.stopWirelessControllerDiscovery()
+    }
+
+    while !Task.isCancelled {
+      let state = BigPictureControllerState.current
+      guard
+        let libraryWindow,
+        NSApplication.shared.keyWindow === libraryWindow
+      else {
+        controllerNavigation.synchronize(with: state)
+        try? await Task.sleep(for: .milliseconds(30))
+        continue
+      }
+
+      if let command = controllerNavigation.command(
+        for: state,
+        at: ProcessInfo.processInfo.systemUptime
+      ) {
+        handleControllerCommand(command)
+      }
+      try? await Task.sleep(for: .milliseconds(30))
+    }
+  }
+}
+
+private struct LibraryWindowProbe: NSViewRepresentable {
+  let didMoveToWindow: @MainActor (NSWindow?) -> Void
+
+  func makeNSView(context: Context) -> LibraryProbeView {
+    let view = LibraryProbeView()
+    view.didMoveToWindow = didMoveToWindow
+    return view
+  }
+
+  func updateNSView(_ nsView: LibraryProbeView, context: Context) {
+    nsView.didMoveToWindow = didMoveToWindow
+    Task { @MainActor in
+      didMoveToWindow(nsView.window)
+    }
+  }
+}
+
+private final class LibraryProbeView: NSView {
+  var didMoveToWindow: (@MainActor (NSWindow?) -> Void)?
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    Task { @MainActor in
+      didMoveToWindow?(window)
+    }
+  }
 }
 
 private struct GameDeletionConfirmationSheet: View {
@@ -1379,7 +1629,13 @@ private struct VirtualCollectionGalleryView: View {
   let previewGames: [LibraryCollection.ID: [GameSummary]]
   let session: ServerSession
   let service: any LibraryServing
+  let controllerEvent: LibraryControllerEvent?
+  let focusSidebar: () -> Void
   let openCollection: (LibraryCollection) -> Void
+
+  @State private var selectedIndex = 0
+  @State private var scrollTargetID: LibraryCollection.ID?
+  @State private var gridWidth: CGFloat = 0
 
   private let columns = [
     GridItem(.adaptive(minimum: 230, maximum: 340), spacing: 22, alignment: .top)
@@ -1408,10 +1664,26 @@ private struct VirtualCollectionGalleryView: View {
             }
             .buttonStyle(.plain)
             .help("Open \(collection.name)")
+            .id(collection.id)
+            .overlay {
+              if collections.indices.contains(selectedIndex),
+                collections[selectedIndex].id == collection.id
+              {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                  .stroke(Color.accentColor, lineWidth: 3)
+                  .allowsHitTesting(false)
+              }
+            }
           }
         }
       }
       .contentMargins(28, for: .scrollContent)
+      .scrollPosition(id: $scrollTargetID, anchor: .center)
+      .onGeometryChange(for: CGFloat.self) { geometry in
+        geometry.size.width
+      } action: { width in
+        gridWidth = width
+      }
       .overlay(alignment: .topTrailing) {
         Text(
           collections.count == 1
@@ -1424,7 +1696,69 @@ private struct VirtualCollectionGalleryView: View {
         .padding(.trailing, 18)
         .allowsHitTesting(false)
       }
+      .onChange(of: controllerEvent) { _, event in
+        guard let event else {
+          return
+        }
+        handleControllerCommand(event.command)
+      }
+      .onChange(of: collections.map(\.id)) { _, _ in
+        selectedIndex = min(
+          selectedIndex,
+          max(collections.count - 1, 0)
+        )
+      }
     }
+  }
+
+  private var columnCount: Int {
+    max(1, Int((gridWidth + 22) / (230 + 22)))
+  }
+
+  private func handleControllerCommand(
+    _ command: LibraryControllerCommand
+  ) {
+    switch command {
+    case .focusContent:
+      updateScrollTarget()
+    case .up:
+      moveSelection(by: -columnCount)
+    case .down:
+      moveSelection(by: columnCount)
+    case .left:
+      guard selectedIndex % columnCount != 0 else {
+        focusSidebar()
+        return
+      }
+      moveSelection(by: -1)
+    case .right:
+      moveSelection(by: 1)
+    case .activate:
+      guard collections.indices.contains(selectedIndex) else {
+        return
+      }
+      openCollection(collections[selectedIndex])
+    case .back:
+      focusSidebar()
+    }
+  }
+
+  private func moveSelection(by offset: Int) {
+    guard !collections.isEmpty else {
+      return
+    }
+    selectedIndex = min(
+      max(selectedIndex + offset, 0),
+      collections.count - 1
+    )
+    updateScrollTarget()
+  }
+
+  private func updateScrollTarget() {
+    guard collections.indices.contains(selectedIndex) else {
+      return
+    }
+    scrollTargetID = collections[selectedIndex].id
   }
 }
 
@@ -1668,6 +2002,8 @@ private struct LibraryTableView: View {
   let requestGameDownloadRemoval: ([GameSummary]) -> Void
   let requestGameExport: ([GameSummary]) -> Void
   let requestGameDeletion: ([GameSummary]) -> Void
+  let controllerEvent: LibraryControllerEvent?
+  let focusSidebar: () -> Void
 
   @State private var sortOrder = [
     KeyPathComparator(\GameSummary.name)
@@ -1679,6 +2015,8 @@ private struct LibraryTableView: View {
   @State private var selectedGameIDs: Set<Int> = []
   @State private var gameToOpen: GameSummary?
   @State private var hasPreparedRows = false
+  @State private var controllerTableScrollTargetID: Int?
+  @State private var controllerBrowserColumnIndex: Int?
   @FocusState private var hasTableFocus: Bool
   @AppStorage(LibraryPreferenceKey.tableColumns)
   private var columnCustomization = TableColumnCustomization<GameSummary>()
@@ -1783,6 +2121,18 @@ private struct LibraryTableView: View {
       Task {
         await rebuildSortedGames()
       }
+    }
+    .onChange(of: controllerEvent) { _, event in
+      guard let event else {
+        return
+      }
+      if gameToOpen != nil {
+        if event.command == .back {
+          gameToOpen = nil
+        }
+        return
+      }
+      handleControllerCommand(event.command)
     }
   }
 
@@ -1953,6 +2303,7 @@ private struct LibraryTableView: View {
           .defaultVisibility(.hidden)
       }
     }
+    .scrollPosition(id: $controllerTableScrollTargetID, anchor: .center)
     .contextMenu(forSelectionType: Int.self) { selectedIDs in
       let selectedGames = sortedGames.filter { selectedIDs.contains($0.id) }
       LibraryGameSelectionContextMenu(
@@ -2007,6 +2358,119 @@ private struct LibraryTableView: View {
       await Task.yield()
       gameToOpen = game
     }
+  }
+
+  private func handleControllerCommand(
+    _ command: LibraryControllerCommand
+  ) {
+    switch command {
+    case .focusContent:
+      controllerBrowserColumnIndex = nil
+      hasTableFocus = true
+      selectTableGameIfNeeded()
+    case .up:
+      if let controllerBrowserColumnIndex {
+        moveBrowserSelection(
+          in: controllerBrowserColumnIndex,
+          by: -1
+        )
+        return
+      }
+      if selectedTableIndex == 0 {
+        self.controllerBrowserColumnIndex = 0
+        hasTableFocus = false
+        return
+      }
+      hasTableFocus = true
+      moveTableSelection(by: -1)
+    case .down:
+      if let controllerBrowserColumnIndex {
+        moveBrowserSelection(
+          in: controllerBrowserColumnIndex,
+          by: 1
+        )
+        return
+      }
+      hasTableFocus = true
+      moveTableSelection(by: 1)
+    case .activate:
+      if controllerBrowserColumnIndex != nil {
+        controllerBrowserColumnIndex = nil
+        hasTableFocus = true
+        selectTableGameIfNeeded()
+        return
+      }
+      guard let game = selectedTableGame else {
+        selectTableGameIfNeeded()
+        return
+      }
+      openGame(game)
+    case .left:
+      if let controllerBrowserColumnIndex,
+        controllerBrowserColumnIndex > 0
+      {
+        self.controllerBrowserColumnIndex =
+          controllerBrowserColumnIndex - 1
+        return
+      }
+      controllerBrowserColumnIndex = nil
+      hasTableFocus = false
+      focusSidebar()
+    case .right:
+      guard let controllerBrowserColumnIndex else {
+        return
+      }
+      self.controllerBrowserColumnIndex = min(
+        controllerBrowserColumnIndex + 1,
+        max(visibleBrowserColumns.count - 1, 0)
+      )
+    case .back:
+      if controllerBrowserColumnIndex != nil {
+        controllerBrowserColumnIndex = nil
+        hasTableFocus = true
+      } else {
+        hasTableFocus = false
+        focusSidebar()
+      }
+    }
+  }
+
+  private var selectedTableGame: GameSummary? {
+    sortedGames.first {
+      selectedGameIDs.contains($0.id)
+    }
+  }
+
+  private var selectedTableIndex: Int? {
+    selectedTableGame.flatMap { selectedGame in
+      sortedGames.firstIndex { $0.id == selectedGame.id }
+    }
+  }
+
+  private func selectTableGameIfNeeded() {
+    guard selectedTableGame == nil, let firstGame = sortedGames.first else {
+      return
+    }
+    selectedGameIDs = [firstGame.id]
+    controllerTableScrollTargetID = firstGame.id
+  }
+
+  private func moveTableSelection(by offset: Int) {
+    guard !sortedGames.isEmpty else {
+      return
+    }
+    let currentIndex =
+      selectedTableGame.flatMap { selectedGame in
+        sortedGames.firstIndex { $0.id == selectedGame.id }
+      }
+      ?? (offset > 0 ? -1 : sortedGames.count)
+    let destinationIndex = min(
+      max(currentIndex + offset, 0),
+      sortedGames.count - 1
+    )
+    let gameID = sortedGames[destinationIndex].id
+    selectedGameIDs = [gameID]
+    controllerTableScrollTargetID = gameID
   }
 
   private var columnBrowser: some View {
@@ -2074,8 +2538,36 @@ private struct LibraryTableView: View {
       allCount: gamesMatching(excluding: column).count,
       options: browserOptions(for: column),
       selection: selectionBinding(for: column),
+      isControllerFocused:
+        visibleBrowserColumns.firstIndex(of: column)
+        == controllerBrowserColumnIndex,
       moveColumn: moveBrowserColumn
     )
+  }
+
+  private func moveBrowserSelection(
+    in columnIndex: Int,
+    by offset: Int
+  ) {
+    let columns = visibleBrowserColumns
+    guard columns.indices.contains(columnIndex) else {
+      return
+    }
+    let column = columns[columnIndex]
+    let binding = selectionBinding(for: column)
+    let values = browserOptions(for: column).map(\.value)
+    let currentIndex =
+      binding.wrappedValue.flatMap(values.firstIndex)
+      .map { $0 + 1 }
+      ?? 0
+    let destinationIndex = min(
+      max(currentIndex + offset, 0),
+      values.count
+    )
+    binding.wrappedValue =
+      destinationIndex == 0
+      ? nil
+      : values[destinationIndex - 1]
   }
 
   @ViewBuilder
@@ -2627,9 +3119,13 @@ private struct LibraryBrowserPane: View {
   let allCount: Int
   let options: [LibraryBrowserOption]
   @Binding var selection: String?
+  let isControllerFocused: Bool
   let moveColumn: (LibraryBrowserColumn, LibraryBrowserColumn) -> Void
 
   @State private var isDropTarget = false
+  @State private var scrollTargetID: String?
+
+  private static let allRowID = "__all__"
 
   var body: some View {
     VStack(spacing: 0) {
@@ -2672,6 +3168,7 @@ private struct LibraryBrowserPane: View {
           ) {
             selection = nil
           }
+          .id(Self.allRowID)
 
           ForEach(options) { option in
             browserRow(
@@ -2682,9 +3179,12 @@ private struct LibraryBrowserPane: View {
             ) {
               selection = option.value
             }
+            .id(option.value)
           }
         }
+        .scrollTargetLayout()
       }
+      .scrollPosition(id: $scrollTargetID, anchor: .center)
     }
     .background {
       if isDropTarget {
@@ -2692,7 +3192,7 @@ private struct LibraryBrowserPane: View {
       }
     }
     .overlay {
-      if isDropTarget {
+      if isDropTarget || isControllerFocused {
         Rectangle()
           .stroke(Color.accentColor, lineWidth: 2)
           .allowsHitTesting(false)
@@ -2710,6 +3210,15 @@ private struct LibraryBrowserPane: View {
       return true
     } isTargeted: { isTargeted in
       isDropTarget = isTargeted
+    }
+    .onChange(of: selection, initial: true) { _, selection in
+      scrollTargetID = selection ?? Self.allRowID
+    }
+    .onChange(of: isControllerFocused) { _, isFocused in
+      guard isFocused else {
+        return
+      }
+      scrollTargetID = selection ?? Self.allRowID
     }
   }
 
@@ -2766,6 +3275,8 @@ private struct LibraryGridView: View {
   let requestGameDownloadRemoval: ([GameSummary]) -> Void
   let requestGameExport: ([GameSummary]) -> Void
   let requestGameDeletion: ([GameSummary]) -> Void
+  let controllerEvent: LibraryControllerEvent?
+  let focusSidebar: () -> Void
 
   @State private var selectedGameIDs: Set<Int> = []
   @State private var selectionAnchorID: Int?
@@ -2775,6 +3286,8 @@ private struct LibraryGridView: View {
   @State private var sortingRequestID = UUID()
   @State private var preparingGameID: Int?
   @State private var playbackAlert: LibraryAlert?
+  @State private var controllerScrollTargetID: Int?
+  @State private var gridWidth: CGFloat = 0
   @FocusState private var hasGridFocus: Bool
 
   private let columns = [
@@ -2864,6 +3377,7 @@ private struct LibraryGridView: View {
                   play(game)
                 }
               )
+              .id(game.id)
               .contextMenu {
                 let selectedGames = contextGames(for: game)
                 LibraryGameSelectionContextMenu(
@@ -2908,6 +3422,12 @@ private struct LibraryGridView: View {
             .padding(.top, 20)
         }
         .contentMargins(28, for: .scrollContent)
+        .scrollPosition(id: $controllerScrollTargetID, anchor: .center)
+        .onGeometryChange(for: CGFloat.self) { geometry in
+          geometry.size.width
+        } action: { width in
+          gridWidth = width
+        }
         .focusable()
         .focused($hasGridFocus)
         .focusEffectDisabled()
@@ -2953,6 +3473,18 @@ private struct LibraryGridView: View {
     }
     .onChange(of: model.hidesGamesWithoutArtwork) { _, _ in
       selectedGameIDs.formIntersection(model.displayedGames.lazy.map(\.id))
+    }
+    .onChange(of: controllerEvent) { _, event in
+      guard let event else {
+        return
+      }
+      if gameToOpen != nil {
+        if event.command == .back {
+          gameToOpen = nil
+        }
+        return
+      }
+      handleControllerCommand(event.command)
     }
     .alert(item: $playbackAlert) { alert in
       Alert(
@@ -3085,6 +3617,93 @@ private struct LibraryGridView: View {
       await Task.yield()
       gameToOpen = game
     }
+  }
+
+  private func handleControllerCommand(
+    _ command: LibraryControllerCommand
+  ) {
+    switch command {
+    case .focusContent:
+      hasGridFocus = true
+      selectGridGameIfNeeded()
+    case .up:
+      hasGridFocus = true
+      moveGridSelection(by: -gridColumnCount)
+    case .down:
+      hasGridFocus = true
+      moveGridSelection(by: gridColumnCount)
+    case .left:
+      hasGridFocus = true
+      guard
+        let selectedIndex = selectedGridIndex,
+        selectedIndex % gridColumnCount != 0
+      else {
+        hasGridFocus = false
+        focusSidebar()
+        return
+      }
+      moveGridSelection(by: -1)
+    case .right:
+      hasGridFocus = true
+      moveGridSelection(by: 1)
+    case .activate:
+      guard let game = selectedGridGame else {
+        selectGridGameIfNeeded()
+        return
+      }
+      handleGameClick(game)
+    case .back:
+      hasGridFocus = false
+      focusSidebar()
+    }
+  }
+
+  private var selectedGridGame: GameSummary? {
+    sortedGames.first {
+      selectedGameIDs.contains($0.id)
+    }
+  }
+
+  private var selectedGridIndex: Int? {
+    selectedGridGame.flatMap { selectedGame in
+      sortedGames.firstIndex { $0.id == selectedGame.id }
+    }
+  }
+
+  private var gridColumnCount: Int {
+    max(1, Int((gridWidth + 22) / (150 + 22)))
+  }
+
+  private func selectGridGameIfNeeded() {
+    guard selectedGridGame == nil, let firstGame = sortedGames.first else {
+      return
+    }
+    selectGridGame(at: 0)
+    controllerScrollTargetID = firstGame.id
+  }
+
+  private func moveGridSelection(by offset: Int) {
+    guard !sortedGames.isEmpty else {
+      return
+    }
+    let currentIndex =
+      selectedGridIndex
+      ?? (offset > 0 ? -1 : sortedGames.count)
+    let destinationIndex = min(
+      max(currentIndex + offset, 0),
+      sortedGames.count - 1
+    )
+    selectGridGame(at: destinationIndex)
+  }
+
+  private func selectGridGame(at index: Int) {
+    guard sortedGames.indices.contains(index) else {
+      return
+    }
+    let gameID = sortedGames[index].id
+    selectedGameIDs = [gameID]
+    selectionAnchorID = gameID
+    controllerScrollTargetID = gameID
   }
 
   private func selectRange(from anchorID: Int, through gameID: Int) {

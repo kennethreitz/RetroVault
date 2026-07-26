@@ -370,6 +370,52 @@ struct BigPictureCatalogTests {
     #expect(reversed == .down)
   }
 
+  @Test("Maps regular library controller navigation with directional repeat")
+  func mapsRegularLibraryControllerNavigation() {
+    var navigation = LibraryControllerNavigation()
+    let up = BigPictureControllerState(isConnected: true, up: true)
+
+    #expect(navigation.command(for: up, at: 10) == .up)
+    #expect(navigation.command(for: up, at: 10.2) == nil)
+    #expect(navigation.command(for: up, at: 10.35) == .up)
+    #expect(
+      navigation.command(
+        for: BigPictureControllerState(isConnected: true),
+        at: 10.5
+      ) == nil
+    )
+    #expect(
+      navigation.command(
+        for: BigPictureControllerState(isConnected: true, left: true),
+        at: 10.51
+      ) == .left
+    )
+  }
+
+  @Test("Maps regular library controller select and back on button edges")
+  func mapsRegularLibraryControllerActions() {
+    var navigation = LibraryControllerNavigation()
+    let activate = BigPictureControllerState(
+      isConnected: true,
+      activate: true
+    )
+
+    #expect(navigation.command(for: activate, at: 20) == .activate)
+    #expect(navigation.command(for: activate, at: 20.1) == nil)
+    #expect(
+      navigation.command(
+        for: BigPictureControllerState(isConnected: true),
+        at: 20.2
+      ) == nil
+    )
+    #expect(
+      navigation.command(
+        for: BigPictureControllerState(isConnected: true, back: true),
+        at: 20.3
+      ) == .back
+    )
+  }
+
   @Test("Maps controller actions and shoulders without repeating a hold")
   func mapsControllerNavigationActions() {
     var navigation = BigPictureControllerNavigation()
