@@ -416,8 +416,8 @@ struct BigPictureCatalogTests {
     #expect(right == .pageDown)
   }
 
-  @Test("Maps Xbox B to select and Xbox A to back")
-  func mapsXboxFaceButtons() {
+  @Test("Maps the right face button to select and bottom face button to back")
+  func mapsFaceButtonPositions() {
     let xboxA = BigPictureControllerState.extendedFaceButtonActions(
       buttonAPressed: true,
       buttonBPressed: false
@@ -431,6 +431,32 @@ struct BigPictureCatalogTests {
     #expect(!xboxA.activate)
     #expect(xboxB.activate)
     #expect(!xboxB.back)
+  }
+
+  @Test("Uses the connected controller's physical face-button labels")
+  func usesPhysicalControllerButtonLabels() {
+    let switchActivate = BigPictureControllerState.buttonPrompt(
+      localizedName: "A Button",
+      systemImage: "a.circle",
+      fallbackLabel: "B"
+    )
+    let switchBack = BigPictureControllerState.buttonPrompt(
+      localizedName: "Button B",
+      systemImage: "b.circle",
+      fallbackLabel: "A"
+    )
+    let fallback = BigPictureControllerState.buttonPrompt(
+      localizedName: nil,
+      systemImage: nil,
+      fallbackLabel: "B"
+    )
+
+    #expect(switchActivate.label == "A")
+    #expect(switchActivate.systemImage == "a.circle")
+    #expect(switchBack.label == "B")
+    #expect(switchBack.systemImage == "b.circle")
+    #expect(fallback.label == "B")
+    #expect(fallback.systemImage == nil)
   }
 
   @Test("Maps Backspace to Big Picture back navigation")

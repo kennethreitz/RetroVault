@@ -362,7 +362,11 @@ struct BigPictureView: View {
       if page == .home {
         actionHint(key: "ESC", label: "EXIT")
       } else {
-        actionHint(key: "A", label: "BACK")
+        actionHint(
+          key: controllerState.backButtonPrompt.label,
+          systemImage: controllerState.backButtonPrompt.systemImage,
+          label: "BACK"
+        )
       }
 
       Spacer()
@@ -379,7 +383,8 @@ struct BigPictureView: View {
           actionHint(key: "←/→", label: "PAGE")
         }
         actionHint(
-          key: "B",
+          key: controllerState.activateButtonPrompt.label,
+          systemImage: controllerState.activateButtonPrompt.systemImage,
           label: page.isGameList ? "PLAY" : "OPEN"
         )
       }
@@ -387,9 +392,19 @@ struct BigPictureView: View {
     .frame(height: 64)
   }
 
-  private func actionHint(key: String, label: String) -> some View {
+  private func actionHint(
+    key: String,
+    systemImage: String? = nil,
+    label: String
+  ) -> some View {
     HStack(spacing: 10) {
-      Text(key)
+      Group {
+        if let systemImage {
+          Image(systemName: systemImage)
+        } else {
+          Text(key)
+        }
+      }
         .foregroundStyle(.black.opacity(0.68))
         .padding(.horizontal, 11)
         .padding(.vertical, 7)
@@ -438,7 +453,11 @@ struct BigPictureView: View {
         .frame(width: 360)
       }
 
-      actionHint(key: "A", label: "CANCEL")
+      actionHint(
+        key: controllerState.backButtonPrompt.label,
+        systemImage: controllerState.backButtonPrompt.systemImage,
+        label: "CANCEL"
+      )
     }
     .padding(42)
     .frame(minWidth: 520)
@@ -465,8 +484,16 @@ struct BigPictureView: View {
         .frame(maxWidth: 460)
 
       HStack(spacing: 18) {
-        actionHint(key: "A", label: "BACK")
-        actionHint(key: "B", label: "TRY AGAIN")
+        actionHint(
+          key: controllerState.backButtonPrompt.label,
+          systemImage: controllerState.backButtonPrompt.systemImage,
+          label: "BACK"
+        )
+        actionHint(
+          key: controllerState.activateButtonPrompt.label,
+          systemImage: controllerState.activateButtonPrompt.systemImage,
+          label: "TRY AGAIN"
+        )
       }
     }
     .padding(42)
@@ -978,10 +1005,27 @@ struct BigPictureControllerState: Equatable, Sendable {
   var back = false
   var pageUp = false
   var pageDown = false
+  var activateButtonPrompt = BigPictureControllerPrompt(label: "B")
+  var backButtonPrompt = BigPictureControllerPrompt(label: "A")
 
   static var current: Self {
     let controllers = GCController.controllers()
     var state = Self(isConnected: !controllers.isEmpty)
+
+    if let controller = GCController.current ?? controllers.first,
+       let gamepad = controller.extendedGamepad
+    {
+      state.activateButtonPrompt = buttonPrompt(
+        localizedName: gamepad.buttonB.localizedName,
+        systemImage: gamepad.buttonB.sfSymbolsName,
+        fallbackLabel: "B"
+      )
+      state.backButtonPrompt = buttonPrompt(
+        localizedName: gamepad.buttonA.localizedName,
+        systemImage: gamepad.buttonA.sfSymbolsName,
+        fallbackLabel: "A"
+      )
+    }
 
     for controller in controllers {
       if let gamepad = controller.extendedGamepad {
@@ -1035,6 +1079,30 @@ struct BigPictureControllerState: Equatable, Sendable {
       back: buttonAPressed
     )
   }
+
+  static func buttonPrompt(
+    localizedName: String?,
+    systemImage: String?,
+    fallbackLabel: String
+  ) -> BigPictureControllerPrompt {
+    let buttonLetters = Set(["A", "B", "X", "Y"])
+    let label =
+      localizedName?
+      .uppercased()
+      .components(separatedBy: CharacterSet.alphanumerics.inverted)
+      .first(where: buttonLetters.contains)
+      ?? fallbackLabel
+
+    return BigPictureControllerPrompt(
+      label: label,
+      systemImage: systemImage
+    )
+  }
+}
+
+struct BigPictureControllerPrompt: Equatable, Sendable {
+  let label: String
+  var systemImage: String?
 }
 
 struct BigPictureControllerNavigation: Sendable {
