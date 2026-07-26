@@ -10,10 +10,16 @@ struct OpenVaultApp: App {
         }
         .defaultSize(width: 1_180, height: 760)
         .windowResizability(.contentMinSize)
+        .commands {
+            DiagnosticsCommands()
+        }
 
         WindowGroup("OpenVault Player", for: LibretroRunRequest.self) { $request in
             if let request {
-                LibretroGameView(request: request)
+                LibretroGameView(
+                    request: request,
+                    service: model.libraryService
+                )
             } else {
                 ContentUnavailableView(
                     "No Game Selected",
@@ -23,15 +29,37 @@ struct OpenVaultApp: App {
         }
         .defaultSize(width: 900, height: 720)
         .windowResizability(.contentMinSize)
+        .commands {
+            DiagnosticsCommands()
+        }
 
         WindowGroup("OpenVault Logs", id: "diagnostics") {
             LogViewerView()
         }
         .defaultSize(width: 980, height: 580)
         .windowResizability(.contentMinSize)
+        .commands {
+            DiagnosticsCommands()
+        }
 
         Settings {
             SettingsView(model: model)
+        }
+        .commands {
+            DiagnosticsCommands()
+        }
+    }
+}
+
+private struct DiagnosticsCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(after: .windowArrangement) {
+            Button("Show Logs") {
+                openWindow(id: "diagnostics")
+            }
+            .keyboardShortcut("l", modifiers: .command)
         }
     }
 }

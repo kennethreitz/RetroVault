@@ -15,8 +15,10 @@ extension CoreManifest {
         let binaryName: String
         let systems: [String]
         let fileExtensions: [String]
+        let loadsArchivesDirectly: Bool?
         let capabilities: [Capability]
         let firmware: [Firmware]
+        let systemAssets: [SystemAsset]?
         let source: Source
         let license: License
         let build: Build
@@ -52,12 +54,15 @@ extension CoreManifest {
         let description: String
         let required: Bool
         let sha256: [String]
+        let sha1: [String]?
     }
 
     struct Source: Codable, Sendable {
         let repository: String
         let revision: String
+        let patches: [String]?
         let licenseFile: String
+        let submodules: [String]?
     }
 
     struct License: Codable, Sendable {
@@ -74,9 +79,20 @@ extension CoreManifest {
 
     struct Build: Codable, Sendable {
         let workingDirectory: String
+        let configure: Command?
         let executable: String
         let arguments: [String]
         let output: String
+    }
+
+    struct Command: Codable, Sendable {
+        let executable: String
+        let arguments: [String]
+    }
+
+    struct SystemAsset: Codable, Sendable {
+        let sourcePath: String
+        let destinationPath: String
     }
 }
 
@@ -157,12 +173,6 @@ enum ManifestValidator {
             )
         }
 
-        guard core.build.output == core.binaryName else {
-            throw CoreToolError.validation(
-                "\(core.id) build.output must match binaryName."
-            )
-        }
-
         guard isHTTPSURL(core.source.repository),
               core.source.repository.hasSuffix(".git")
         else {
@@ -179,10 +189,28 @@ enum ManifestValidator {
             )
         }
 
+        for patch in core.source.patches ?? [] {
+            guard patch.count == 40,
+                  patch.allSatisfy({ $0.isHexDigit && !$0.isUppercase })
+            else {
+                throw CoreToolError.validation(
+                    "\(core.id) source.patches must contain full lowercase Git commits."
+                )
+            }
+        }
+
         guard isSafeRelativePath(core.source.licenseFile, allowCurrentDirectory: false) else {
             throw CoreToolError.validation(
                 "\(core.id) source.licenseFile must be a safe relative path."
             )
+        }
+
+        for submodule in core.source.submodules ?? [] {
+            guard isSafeRelativePath(submodule, allowCurrentDirectory: false) else {
+                throw CoreToolError.validation(
+                    "\(core.id) source.submodules must contain safe relative paths."
+                )
+            }
         }
 
         guard isHTTPSURL(core.license.noticeURL) else {
@@ -222,6 +250,34 @@ enum ManifestValidator {
             )
         }
 
+        if let configure = core.build.configure {
+            guard configure.executable.hasPrefix("/"),
+                  !containsControlCharacter(configure.executable),
+                  !configure.arguments.contains(where: containsControlCharacter)
+            else {
+                throw CoreToolError.validation(
+                    "\(core.id) configure command must use an absolute executable and safe arguments."
+                )
+            }
+        }
+
+        guard isSafeRelativePath(core.build.output, allowCurrentDirectory: false) else {
+            throw CoreToolError.validation(
+                "\(core.id) build.output must be a safe relative path."
+            )
+        }
+
+        for asset in core.systemAssets ?? [] {
+            guard
+                isSafeRelativePath(asset.sourcePath, allowCurrentDirectory: false),
+                isSafeRelativePath(asset.destinationPath, allowCurrentDirectory: false)
+            else {
+                throw CoreToolError.validation(
+                    "\(core.id) system assets must use safe relative paths."
+                )
+            }
+        }
+
         guard Set(core.capabilities).count == core.capabilities.count else {
             throw CoreToolError.validation(
                 "\(core.id) contains duplicate frontend capabilities."
@@ -248,6 +304,14 @@ enum ManifestValidator {
             }) else {
                 throw CoreToolError.validation(
                     "\(core.id) firmware SHA-256 values must contain 64 hexadecimal characters."
+                )
+            }
+
+            guard (firmware.sha1 ?? []).allSatisfy({
+                $0.count == 40 && $0.allSatisfy(\.isHexDigit)
+            }) else {
+                throw CoreToolError.validation(
+                    "\(core.id) firmware SHA-1 values must contain 40 hexadecimal characters."
                 )
             }
         }

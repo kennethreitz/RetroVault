@@ -1,13 +1,21 @@
 import AppKit
-import CoreImage
 import MetalKit
 import SwiftUI
 
 struct LibretroGameView: View {
     @State private var session: LibretroSession
+    @State private var playerWindow: NSWindow?
+    @State private var isFullScreen = false
 
-    init(request: LibretroRunRequest) {
-        _session = State(initialValue: LibretroSession(request: request))
+    init(
+        request: LibretroRunRequest,
+        service: any LibraryServing
+    ) {
+        _session = State(
+            initialValue: LibretroSession(request: request) { configuration in
+                try await service.syncCartridgeSaveAfterPlay(configuration)
+            }
+        )
     }
 
     var body: some View {
@@ -21,18 +29,31 @@ struct LibretroGameView: View {
                     .controlSize(.large)
                     .foregroundStyle(.white)
             case .running:
-                LibretroMetalView(videoBuffer: session.videoBuffer)
+                LibretroMetalView(
+                    videoBuffer: session.videoBuffer,
+                    input: session.input
+                )
                     .ignoresSafeArea()
             case .stopped:
                 ContentUnavailableView {
                     Label("Session Ended", systemImage: "stop.circle")
                 } description: {
-                    Text("Your local save memory has been preserved.")
+                    VStack(spacing: 8) {
+                        Text("Your local save memory has been preserved.")
+                        saveSyncStatus
+                    }
                 } actions: {
+                    if case .failed = session.saveSyncPhase {
+                        Button("Retry Save Sync") {
+                            session.retrySaveSync()
+                        }
+                    }
+
                     Button("Play Again") {
                         session.start()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
+                    .disabled(session.saveSyncPhase == .syncing)
                 }
                 .foregroundStyle(.white)
             case let .failed(message):
@@ -45,12 +66,12 @@ struct LibretroGameView: View {
                     Button("Try Again") {
                         session.start()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                 }
                 .foregroundStyle(.white)
             }
 
-            if case .running = session.phase {
+            if case .running = session.phase, !isFullScreen {
                 controls
             }
 
@@ -60,6 +81,13 @@ struct LibretroGameView: View {
         }
         .navigationTitle(session.request.title)
         .frame(minWidth: 640, minHeight: 480)
+        .background {
+            PlayerWindowAccessor { window in
+                playerWindow = window
+                isFullScreen = window?.styleMask.contains(.fullScreen) == true
+            }
+            .frame(width: 0, height: 0)
+        }
         .task {
             session.start()
         }
@@ -67,8 +95,33 @@ struct LibretroGameView: View {
             session.stop()
         }
         .onExitCommand {
-            session.stop()
+            if isFullScreen {
+                playerWindow?.toggleFullScreen(nil)
+            } else {
+                session.stop()
+            }
         }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: NSWindow.didEnterFullScreenNotification
+            )
+        ) { notification in
+            guard notification.object as? NSWindow === playerWindow else {
+                return
+            }
+            isFullScreen = true
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: NSWindow.didExitFullScreenNotification
+            )
+        ) { notification in
+            guard notification.object as? NSWindow === playerWindow else {
+                return
+            }
+            isFullScreen = false
+        }
+        .windowToolbarFullScreenVisibility(.onHover)
         .toolbar {
             ToolbarItemGroup {
                 Button {
@@ -88,6 +141,15 @@ struct LibretroGameView: View {
                 }
                 .disabled(!isRunning)
 
+                Button {
+                    session.rewind()
+                } label: {
+                    Label("Rewind", systemImage: "gobackward")
+                }
+                .buttonRepeatBehavior(.enabled)
+                .disabled(!isRunning || !session.canRewind)
+                .help("Rewind about one second; hold to continue rewinding")
+
                 Menu {
                     Button("Save Quick State") {
                         session.saveQuickState()
@@ -103,10 +165,11 @@ struct LibretroGameView: View {
                 .disabled(!isRunning)
 
                 Button {
-                    NSApplication.shared.keyWindow?.toggleFullScreen(nil)
+                    playerWindow?.toggleFullScreen(nil)
                 } label: {
                     Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
                 }
+                .keyboardShortcut("f", modifiers: [.control, .command])
 
                 Button(role: .destructive) {
                     session.stop()
@@ -147,8 +210,38 @@ struct LibretroGameView: View {
             .foregroundStyle(.white.opacity(0.82))
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(.black.opacity(0.72), in: Capsule())
+            .openVaultGlass(
+                tint: .black.opacity(0.58),
+                in: Capsule()
+            )
             .padding()
+        }
+    }
+
+    @ViewBuilder
+    private var saveSyncStatus: some View {
+        switch session.saveSyncPhase {
+        case .idle:
+            if session.request.saveSync != nil {
+                Text("Waiting to sync the cartridge save with RomM.")
+                    .foregroundStyle(.secondary)
+            }
+        case .syncing:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Syncing cartridge save to RomM…")
+            }
+        case .unchanged:
+            Label("Cartridge save is already synchronized.", systemImage: "checkmark.circle")
+                .foregroundStyle(.secondary)
+        case .uploaded:
+            Label("Cartridge save uploaded to RomM.", systemImage: "checkmark.icloud")
+                .foregroundStyle(.green)
+        case let .failed(message):
+            Label(message, systemImage: "exclamationmark.icloud")
+                .foregroundStyle(.orange)
+                .frame(maxWidth: 520)
         }
     }
 
@@ -160,11 +253,38 @@ struct LibretroGameView: View {
     }
 }
 
+private struct PlayerWindowAccessor: NSViewRepresentable {
+    let didMoveToWindow: @MainActor (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> PlayerWindowObservationView {
+        let view = PlayerWindowObservationView()
+        view.didMoveToWindow = didMoveToWindow
+        return view
+    }
+
+    func updateNSView(
+        _ nsView: PlayerWindowObservationView,
+        context: Context
+    ) {
+        nsView.didMoveToWindow = didMoveToWindow
+    }
+}
+
+private final class PlayerWindowObservationView: NSView {
+    var didMoveToWindow: (@MainActor (NSWindow?) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        didMoveToWindow?(window)
+    }
+}
+
 private struct LibretroMetalView: NSViewRepresentable {
     let videoBuffer: LibretroVideoBuffer
+    let input: LibretroInputState
 
     func makeNSView(context: Context) -> LibretroMTKView {
-        LibretroMTKView(videoBuffer: videoBuffer)
+        LibretroMTKView(videoBuffer: videoBuffer, input: input)
     }
 
     func updateNSView(_ nsView: LibretroMTKView, context: Context) {}
@@ -172,21 +292,43 @@ private struct LibretroMetalView: NSViewRepresentable {
 
 private final class LibretroMTKView: MTKView, MTKViewDelegate {
     private let videoBuffer: LibretroVideoBuffer
-    private let coreImageContext: CIContext
+    private let input: LibretroInputState
     private let commandQueue: MTLCommandQueue
-    private let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+    private let pipelineState: MTLRenderPipelineState
+    private var sourceTexture: MTLTexture?
+    private var sourceSize = CGSize.zero
+    private var pointerPressed = false
+    private var pointerTrackingArea: NSTrackingArea?
 
-    init(videoBuffer: LibretroVideoBuffer) {
+    init(videoBuffer: LibretroVideoBuffer, input: LibretroInputState) {
         guard
             let device = MTLCreateSystemDefaultDevice(),
-            let commandQueue = device.makeCommandQueue()
+            let commandQueue = device.makeCommandQueue(),
+            let library = try? device.makeLibrary(
+                source: LibretroMetalShader.source,
+                options: nil
+            ),
+            let vertexFunction = library.makeFunction(name: "openVaultPixelVertex"),
+            let fragmentFunction = library.makeFunction(name: "openVaultPixelFragment")
         else {
             fatalError("OpenVault requires a Metal-capable Apple-silicon Mac.")
         }
 
+        let pipelineDescriptor = MTLRenderPipelineDescriptor()
+        pipelineDescriptor.label = "OpenVault nearest-neighbor video"
+        pipelineDescriptor.vertexFunction = vertexFunction
+        pipelineDescriptor.fragmentFunction = fragmentFunction
+        pipelineDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+        guard let pipelineState = try? device.makeRenderPipelineState(
+            descriptor: pipelineDescriptor
+        ) else {
+            fatalError("OpenVault could not create its Libretro video pipeline.")
+        }
+
         self.videoBuffer = videoBuffer
+        self.input = input
         self.commandQueue = commandQueue
-        coreImageContext = CIContext(mtlDevice: device)
+        self.pipelineState = pipelineState
         super.init(frame: .zero, device: device)
 
         delegate = self
@@ -197,6 +339,9 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         isPaused = false
         preferredFramesPerSecond = 60
         autoResizeDrawable = true
+        colorspace = CGColorSpace(name: CGColorSpace.sRGB)
+        layer?.magnificationFilter = .nearest
+        layer?.minificationFilter = .nearest
     }
 
     @available(*, unavailable)
@@ -206,64 +351,251 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let pointerTrackingArea {
+            removeTrackingArea(pointerTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseMoved],
+            owner: self
+        )
+        addTrackingArea(trackingArea)
+        pointerTrackingArea = trackingArea
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        pointerPressed = true
+        updatePointer(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        updatePointer(with: event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updatePointer(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        pointerPressed = false
+        updatePointer(with: event)
+    }
+
     func draw(in view: MTKView) {
         guard
             let frame = videoBuffer.snapshot(),
             let drawable = currentDrawable,
+            let renderPassDescriptor = currentRenderPassDescriptor,
             let commandBuffer = commandQueue.makeCommandBuffer()
         else {
             return
         }
 
-        let targetSize = CGSize(
-            width: drawable.texture.width,
-            height: drawable.texture.height
-        )
-        let targetBounds = CGRect(origin: .zero, size: targetSize)
-        let background = CIImage(color: .black).cropped(to: targetBounds)
-        coreImageContext.render(
-            background,
-            to: drawable.texture,
-            commandBuffer: commandBuffer,
-            bounds: targetBounds,
-            colorSpace: colorSpace
+        guard
+            frame.width > 0,
+            frame.height > 0,
+            frame.pixels.count >= frame.width * frame.height * 4,
+            let texture = texture(for: frame)
+        else {
+            return
+        }
+        sourceSize = CGSize(width: frame.width, height: frame.height)
+
+        frame.pixels.withUnsafeBytes { bytes in
+            guard let baseAddress = bytes.baseAddress else {
+                return
+            }
+            texture.replace(
+                region: MTLRegionMake2D(0, 0, frame.width, frame.height),
+                mipmapLevel: 0,
+                withBytes: baseAddress,
+                bytesPerRow: frame.width * 4
+            )
+        }
+
+        renderPassDescriptor.colorAttachments[0].loadAction = .clear
+        renderPassDescriptor.colorAttachments[0].storeAction = .store
+        renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColorMake(
+            0,
+            0,
+            0,
+            1
         )
 
-        let sourceSize = CGSize(width: frame.width, height: frame.height)
-        var image = CIImage(
-            bitmapData: frame.pixels,
-            bytesPerRow: frame.width * 4,
-            size: sourceSize,
-            format: .BGRA8,
-            colorSpace: colorSpace
-        )
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(
+            descriptor: renderPassDescriptor
+        ) else {
+            return
+        }
 
-        let scale = min(
+        let viewport = LibretroVideoLayout.viewport(
+            sourceSize: CGSize(width: frame.width, height: frame.height),
+            targetSize: CGSize(
+                width: drawable.texture.width,
+                height: drawable.texture.height
+            )
+        )
+        encoder.setViewport(
+            MTLViewport(
+                originX: viewport.origin.x,
+                originY: viewport.origin.y,
+                width: viewport.width,
+                height: viewport.height,
+                znear: 0,
+                zfar: 1
+            )
+        )
+        encoder.setRenderPipelineState(pipelineState)
+        encoder.setFragmentTexture(texture, index: 0)
+        encoder.drawPrimitives(
+            type: .triangleStrip,
+            vertexStart: 0,
+            vertexCount: 4
+        )
+        encoder.endEncoding()
+        commandBuffer.present(drawable)
+        commandBuffer.commit()
+    }
+
+    private func texture(for frame: LibretroVideoFrame) -> MTLTexture? {
+        if
+            let sourceTexture,
+            sourceTexture.width == frame.width,
+            sourceTexture.height == frame.height
+        {
+            return sourceTexture
+        }
+
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm,
+            width: frame.width,
+            height: frame.height,
+            mipmapped: false
+        )
+        descriptor.storageMode = .shared
+        descriptor.usage = .shaderRead
+        sourceTexture = device?.makeTexture(descriptor: descriptor)
+        sourceTexture?.label = "OpenVault Libretro frame"
+        return sourceTexture
+    }
+
+    private func updatePointer(with event: NSEvent) {
+        guard sourceSize.width > 0, sourceSize.height > 0 else {
+            return
+        }
+
+        let location = convert(event.locationInWindow, from: nil)
+        let viewport = LibretroVideoLayout.viewport(
+            sourceSize: sourceSize,
+            targetSize: bounds.size
+        )
+        let inside = viewport.contains(location)
+        let normalizedX = min(
+            max((location.x - viewport.minX) / max(viewport.width, 1), 0),
+            1
+        )
+        let normalizedY = min(
+            max((viewport.maxY - location.y) / max(viewport.height, 1), 0),
+            1
+        )
+        input.setPointer(
+            x: Int16((normalizedX * 65_534 - 32_767).rounded()),
+            y: Int16((normalizedY * 65_534 - 32_767).rounded()),
+            pressed: pointerPressed,
+            inside: inside
+        )
+    }
+
+}
+
+enum LibretroMetalShader {
+    static let source = """
+        #include <metal_stdlib>
+        using namespace metal;
+
+        struct OpenVaultPixelVertex {
+            float4 position [[position]];
+            float2 textureCoordinate;
+        };
+
+        vertex OpenVaultPixelVertex openVaultPixelVertex(
+            uint vertexID [[vertex_id]]
+        ) {
+            constexpr float2 positions[] = {
+                float2(-1.0, -1.0),
+                float2( 1.0, -1.0),
+                float2(-1.0,  1.0),
+                float2( 1.0,  1.0)
+            };
+            constexpr float2 textureCoordinates[] = {
+                float2(0.0, 1.0),
+                float2(1.0, 1.0),
+                float2(0.0, 0.0),
+                float2(1.0, 0.0)
+            };
+
+            OpenVaultPixelVertex output;
+            output.position = float4(positions[vertexID], 0.0, 1.0);
+            output.textureCoordinate = textureCoordinates[vertexID];
+            return output;
+        }
+
+        fragment float4 openVaultPixelFragment(
+            OpenVaultPixelVertex input [[stage_in]],
+            texture2d<float> frame [[texture(0)]]
+        ) {
+            constexpr sampler pixelSampler(
+                coord::normalized,
+                address::clamp_to_edge,
+                mag_filter::nearest,
+                min_filter::nearest,
+                mip_filter::none
+            );
+            return frame.sample(pixelSampler, input.textureCoordinate);
+        }
+        """
+}
+
+struct LibretroVideoLayout {
+    static func viewport(
+        sourceSize: CGSize,
+        targetSize: CGSize
+    ) -> CGRect {
+        guard
+            sourceSize.width > 0,
+            sourceSize.height > 0,
+            targetSize.width > 0,
+            targetSize.height > 0
+        else {
+            return .zero
+        }
+
+        let fittingScale = min(
             targetSize.width / sourceSize.width,
             targetSize.height / sourceSize.height
         )
+        let scale = fittingScale >= 1 ? floor(fittingScale) : fittingScale
         let renderedSize = CGSize(
             width: sourceSize.width * scale,
             height: sourceSize.height * scale
         )
-        let origin = CGPoint(
-            x: (targetSize.width - renderedSize.width) / 2,
-            y: (targetSize.height - renderedSize.height) / 2
+        return CGRect(
+            x: floor((targetSize.width - renderedSize.width) / 2),
+            y: floor((targetSize.height - renderedSize.height) / 2),
+            width: renderedSize.width,
+            height: renderedSize.height
         )
-        image = image.transformed(
-            by: CGAffineTransform(translationX: origin.x, y: origin.y)
-                .scaledBy(x: scale, y: scale)
-        )
-
-        coreImageContext.render(
-            image,
-            to: drawable.texture,
-            commandBuffer: commandBuffer,
-            bounds: targetBounds,
-            colorSpace: colorSpace
-        )
-        commandBuffer.present(drawable)
-        commandBuffer.commit()
     }
 }
 

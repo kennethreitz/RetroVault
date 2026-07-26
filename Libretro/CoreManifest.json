@@ -81,6 +81,1307 @@
         ],
         "output": "gambatte_libretro.dylib"
       }
+    },
+    {
+      "id": "libretro-nestopia",
+      "displayName": "Nestopia UE",
+      "status": "bundled",
+      "binaryName": "nestopia_libretro.dylib",
+      "systems": [
+        "nes"
+      ],
+      "fileExtensions": [
+        "nes",
+        "unf",
+        "unif"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/libretro/nestopia.git",
+        "revision": "b0fd87dd07e3c52903435d302b04e5e97796f127",
+        "licenseFile": "COPYING"
+      },
+      "license": {
+        "spdx": "GPL-2.0-or-later",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/nestopia/blob/b0fd87dd07e3c52903435d302b04e5e97796f127/COPYING"
+      },
+      "build": {
+        "workingDirectory": "libretro",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "nestopia_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-bsnes-mercury-balanced",
+      "displayName": "bsnes-mercury Balanced",
+      "status": "bundled",
+      "binaryName": "bsnes_mercury_balanced_libretro.dylib",
+      "systems": [
+        "snes"
+      ],
+      "fileExtensions": [
+        "bml",
+        "sfc",
+        "smc"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/libretro/bsnes-mercury.git",
+        "revision": "ac0b6b1fe5cb9448492f4c6b3d815205eefbd142",
+        "licenseFile": "LICENSE"
+      },
+      "license": {
+        "spdx": "GPL-3.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/bsnes-mercury/blob/ac0b6b1fe5cb9448492f4c6b3d815205eefbd142/LICENSE"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "PROFILE=balanced",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "bsnes_mercury_balanced_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-mgba",
+      "displayName": "mGBA",
+      "status": "bundled",
+      "binaryName": "mgba_libretro.dylib",
+      "systems": [
+        "gba"
+      ],
+      "fileExtensions": [
+        "gba"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization",
+        "virtualFileSystem"
+      ],
+      "firmware": [
+        {
+          "id": "gba-bios",
+          "fileName": "gba_bios.bin",
+          "description": "Game Boy Advance BIOS",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "300c20df6731a33952ded8c436f7f186d25d3492"
+          ]
+        }
+      ],
+      "source": {
+        "repository": "https://github.com/libretro/mgba.git",
+        "revision": "6dce57eef127dc4cc292644f38196e0e7c58590c",
+        "licenseFile": "LICENSE"
+      },
+      "license": {
+        "spdx": "MPL-2.0",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/mgba/blob/6dce57eef127dc4cc292644f38196e0e7c58590c/LICENSE"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "-f",
+          "Makefile.libretro",
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0",
+          "CODE_DEFINES=-DHAVE_LOCALE"
+        ],
+        "output": "mgba_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-gearsystem",
+      "displayName": "Gearsystem",
+      "status": "bundled",
+      "binaryName": "gearsystem_libretro.dylib",
+      "systems": [
+        "gg",
+        "sg-1000",
+        "sms"
+      ],
+      "fileExtensions": [
+        "bin",
+        "gg",
+        "rom",
+        "sg",
+        "sms"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization"
+      ],
+      "firmware": [
+        {
+          "id": "master-system-bios",
+          "fileName": "bios.sms",
+          "description": "Sega Master System BIOS",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "c315672807d8ddb8d91443729405c766dd95cae7"
+          ]
+        },
+        {
+          "id": "game-gear-bios",
+          "fileName": "bios.gg",
+          "description": "Sega Game Gear BIOS",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "914aa165e3d879f060be77870d345b60cfeb4ede"
+          ]
+        }
+      ],
+      "source": {
+        "repository": "https://github.com/drhelius/Gearsystem.git",
+        "revision": "c4f8dcd603a3037e2c05d9a63240455b505b002c",
+        "licenseFile": "LICENSE"
+      },
+      "license": {
+        "spdx": "GPL-3.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/drhelius/Gearsystem/blob/c4f8dcd603a3037e2c05d9a63240455b505b002c/LICENSE"
+      },
+      "build": {
+        "workingDirectory": "platforms/libretro",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "gearsystem_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-stella2014",
+      "displayName": "Stella 2014",
+      "status": "bundled",
+      "binaryName": "stella2014_libretro.dylib",
+      "systems": [
+        "atari-2600"
+      ],
+      "fileExtensions": [
+        "a26",
+        "bin"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/libretro/stella2014-libretro.git",
+        "revision": "4a7da82595d27b8df7af1ecb467a64b642a41bc9",
+        "licenseFile": "stella/license.txt"
+      },
+      "license": {
+        "spdx": "GPL-2.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/stella2014-libretro/blob/4a7da82595d27b8df7af1ecb467a64b642a41bc9/stella/license.txt"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "stella2014_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-prosystem",
+      "displayName": "ProSystem",
+      "status": "bundled",
+      "binaryName": "prosystem_libretro.dylib",
+      "systems": [
+        "atari-7800"
+      ],
+      "fileExtensions": [
+        "a78",
+        "bin"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization",
+        "virtualFileSystem"
+      ],
+      "firmware": [
+        {
+          "id": "atari-7800-bios-us",
+          "fileName": "7800 BIOS (U).rom",
+          "description": "Atari 7800 NTSC BIOS",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "d9d134bb6b36907c615a594cc7688f7bfcef5b43"
+          ]
+        },
+        {
+          "id": "atari-7800-bios-eu",
+          "fileName": "7800 BIOS (E).rom",
+          "description": "Atari 7800 PAL BIOS",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "5a140136a16d1d83e4ff32a19409ca376a8df874"
+          ]
+        }
+      ],
+      "source": {
+        "repository": "https://github.com/libretro/prosystem-libretro.git",
+        "revision": "363b6dfbd3e240762e022c2b4897b4fe55722be3",
+        "licenseFile": "License.txt"
+      },
+      "license": {
+        "spdx": "GPL-2.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/prosystem-libretro/blob/363b6dfbd3e240762e022c2b4897b4fe55722be3/License.txt"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "prosystem_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-a5200",
+      "displayName": "A5200",
+      "status": "bundled",
+      "binaryName": "a5200_libretro.dylib",
+      "systems": [
+        "atari-5200"
+      ],
+      "fileExtensions": [
+        "a52",
+        "bin"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/libretro/a5200.git",
+        "revision": "23c1ea482afb08656ec507e9ce98ed242a20bdfa",
+        "licenseFile": "License.txt"
+      },
+      "license": {
+        "spdx": "GPL-2.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/a5200/blob/23c1ea482afb08656ec507e9ce98ed242a20bdfa/License.txt"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "a5200_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-beetle-vb",
+      "displayName": "Beetle VB",
+      "status": "bundled",
+      "binaryName": "mednafen_vb_libretro.dylib",
+      "systems": [
+        "virtual-boy"
+      ],
+      "fileExtensions": [
+        "bin",
+        "vb",
+        "vboy"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/libretro/beetle-vb-libretro.git",
+        "revision": "7cc663e9044459b3dab1790bdce8f48dc7358ed6",
+        "licenseFile": "COPYING"
+      },
+      "license": {
+        "spdx": "GPL-2.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/beetle-vb-libretro/blob/7cc663e9044459b3dab1790bdce8f48dc7358ed6/COPYING"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "mednafen_vb_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-beetle-ngp",
+      "displayName": "Beetle NeoPop",
+      "status": "bundled",
+      "binaryName": "mednafen_ngp_libretro.dylib",
+      "systems": [
+        "ngp",
+        "ngpc"
+      ],
+      "fileExtensions": [
+        "ngc",
+        "ngp",
+        "ngpc",
+        "npc"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization",
+        "virtualFileSystem"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/libretro/beetle-ngp-libretro.git",
+        "revision": "a50d5ac288a81f2104ddf43195a4efdd15c72227",
+        "licenseFile": "COPYING"
+      },
+      "license": {
+        "spdx": "GPL-2.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/beetle-ngp-libretro/blob/a50d5ac288a81f2104ddf43195a4efdd15c72227/COPYING"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "mednafen_ngp_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-beetle-wswan",
+      "displayName": "Beetle Cygne",
+      "status": "bundled",
+      "binaryName": "mednafen_wswan_libretro.dylib",
+      "systems": [
+        "ws",
+        "wsc"
+      ],
+      "fileExtensions": [
+        "pc2",
+        "ws",
+        "wsc"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/libretro/beetle-wswan-libretro.git",
+        "revision": "da6d0d9acb8d4e9bd6725ab44225a275325d8352",
+        "licenseFile": "COPYING"
+      },
+      "license": {
+        "spdx": "GPL-2.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/beetle-wswan-libretro/blob/da6d0d9acb8d4e9bd6725ab44225a275325d8352/COPYING"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "mednafen_wswan_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-pokemini",
+      "displayName": "PokeMini",
+      "status": "bundled",
+      "binaryName": "pokemini_libretro.dylib",
+      "systems": [
+        "pokemon-mini"
+      ],
+      "fileExtensions": [
+        "min"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization",
+        "virtualFileSystem"
+      ],
+      "firmware": [
+        {
+          "id": "pokemon-mini-bios",
+          "fileName": "bios.min",
+          "description": "Pokemon Mini BIOS",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "daad4113713ed776fbd47727762bca81ba74915f"
+          ]
+        }
+      ],
+      "source": {
+        "repository": "https://github.com/libretro/PokeMini.git",
+        "revision": "bb009b1379ad15f1514f20ca7cbf710b4af42b3e",
+        "licenseFile": "LICENSE"
+      },
+      "license": {
+        "spdx": "GPL-3.0-or-later",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/PokeMini/blob/bb009b1379ad15f1514f20ca7cbf710b4af42b3e/LICENSE"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "-f",
+          "Makefile.libretro",
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "pokemini_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-pcsx-rearmed",
+      "displayName": "PCSX-ReARMed",
+      "status": "bundled",
+      "binaryName": "pcsx_rearmed_libretro.dylib",
+      "systems": [
+        "psx"
+      ],
+      "fileExtensions": [
+        "m3u",
+        "cue",
+        "bin",
+        "chd",
+        "iso",
+        "pbp"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization",
+        "virtualFileSystem"
+      ],
+      "firmware": [
+        {
+          "id": "playstation-bios-jp",
+          "fileName": "scph5500.bin",
+          "description": "PlayStation Japanese BIOS",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "b05def971d8ec59f346f2d9ac21fb742e3eb6917"
+          ]
+        },
+        {
+          "id": "playstation-bios-us",
+          "fileName": "scph5501.bin",
+          "description": "PlayStation North American BIOS",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "0555c6fae8906f3f09baf5988f00e55f88e9f30b"
+          ]
+        },
+        {
+          "id": "playstation-bios-eu",
+          "fileName": "scph5502.bin",
+          "description": "PlayStation European BIOS",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "f6bc2d1f5eb6593de7d089c425ac681d6fffd3f0"
+          ]
+        }
+      ],
+      "source": {
+        "repository": "https://github.com/libretro/pcsx_rearmed.git",
+        "revision": "050981b6eeb715f142854f57c68086f62921f027",
+        "licenseFile": "COPYING"
+      },
+      "license": {
+        "spdx": "GPL-2.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/pcsx_rearmed/blob/050981b6eeb715f142854f57c68086f62921f027/COPYING"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "-f",
+          "Makefile.libretro",
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "pcsx_rearmed_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-geargrafx",
+      "displayName": "Geargrafx",
+      "status": "bundled",
+      "binaryName": "geargrafx_libretro.dylib",
+      "systems": [
+        "pce",
+        "pce-cd",
+        "sgx"
+      ],
+      "fileExtensions": [
+        "chd",
+        "hes",
+        "pce",
+        "sgx"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization",
+        "virtualFileSystem"
+      ],
+      "firmware": [
+        {
+          "id": "pc-engine-super-cd-rom2-system-card",
+          "fileName": "syscard3.pce",
+          "description": "PC Engine Super CD-ROM2 System Card 3",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "79f5ff55dd10187c7fd7b8daab0b3ffbd1f56a2c"
+          ]
+        }
+      ],
+      "source": {
+        "repository": "https://github.com/drhelius/Geargrafx.git",
+        "revision": "98dc7cb62268a3063498b1c2cacb7887c7c451c6",
+        "licenseFile": "LICENSE"
+      },
+      "license": {
+        "spdx": "GPL-3.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/drhelius/Geargrafx/blob/98dc7cb62268a3063498b1c2cacb7887c7c451c6/LICENSE"
+      },
+      "build": {
+        "workingDirectory": "platforms/libretro",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "geargrafx_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-genesis-plus-gx",
+      "displayName": "Genesis Plus GX",
+      "status": "bundled",
+      "binaryName": "genesis_plus_gx_libretro.dylib",
+      "systems": [
+        "genesis",
+        "sega-cd"
+      ],
+      "fileExtensions": [
+        "68k",
+        "bin",
+        "bms",
+        "chd",
+        "cue",
+        "gen",
+        "iso",
+        "m3u",
+        "md",
+        "mdx",
+        "sgd",
+        "smd"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization",
+        "virtualFileSystem"
+      ],
+      "firmware": [
+        {
+          "id": "sega-cd-europe-bios",
+          "fileName": "bios_CD_E.bin",
+          "description": "Mega CD Europe BIOS",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "e66fa1dc5820d254611fdcdba0662372b5238f8f"
+          ]
+        },
+        {
+          "id": "sega-cd-japan-bios",
+          "fileName": "bios_CD_J.bin",
+          "description": "Mega CD Japan BIOS",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "278a9397d192149e84e820ac621a8edd7c7d0179"
+          ]
+        },
+        {
+          "id": "sega-cd-usa-bios",
+          "fileName": "bios_CD_U.bin",
+          "description": "Sega CD USA BIOS",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "f4f315adcef9b8feb0364c21ab7f0eaf5457f3ed"
+          ]
+        }
+      ],
+      "source": {
+        "repository": "https://github.com/libretro/Genesis-Plus-GX.git",
+        "revision": "fa4dca561e08d5be9077419f7b255e1da213ed21",
+        "licenseFile": "LICENSE.txt"
+      },
+      "license": {
+        "spdx": "LicenseRef-Genesis-Plus-GX-NonCommercial",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/Genesis-Plus-GX/blob/fa4dca561e08d5be9077419f7b255e1da213ed21/LICENSE.txt"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "-f",
+          "Makefile.libretro",
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "genesis_plus_gx_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-picodrive",
+      "displayName": "PicoDrive",
+      "status": "bundled",
+      "binaryName": "picodrive_libretro.dylib",
+      "systems": [
+        "sega-32x"
+      ],
+      "fileExtensions": [
+        "32x",
+        "68k",
+        "bin",
+        "gen",
+        "md",
+        "pco",
+        "sgd",
+        "smd"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization",
+        "virtualFileSystem"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/libretro/picodrive.git",
+        "revision": "78a662e3135871a6c657d5e61900f6704152e594",
+        "licenseFile": "COPYING",
+        "submodules": [
+          "cpu/cyclone",
+          "pico/cd/libchdr",
+          "pico/sound/emu2413",
+          "platform/common/dr_libs",
+          "platform/libpicofe"
+        ]
+      },
+      "license": {
+        "spdx": "LicenseRef-PicoDrive-NonCommercial",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/picodrive/blob/78a662e3135871a6c657d5e61900f6704152e594/COPYING"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "-f",
+          "Makefile.libretro",
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "picodrive_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-dosbox-pure",
+      "displayName": "DOSBox Pure",
+      "status": "bundled",
+      "binaryName": "dosbox_pure_libretro.dylib",
+      "systems": [
+        "dos"
+      ],
+      "fileExtensions": [
+        "bat",
+        "chd",
+        "com",
+        "conf",
+        "cue",
+        "dosz",
+        "exe",
+        "ima",
+        "img",
+        "ins",
+        "iso",
+        "jrc",
+        "m3u",
+        "m3u8",
+        "vhd",
+        "zip"
+      ],
+      "loadsArchivesDirectly": true,
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "keyboard",
+        "serialization",
+        "virtualFileSystem"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/schellingb/dosbox-pure.git",
+        "revision": "a4a0bab7f8931433588f2fcad9045c85b277373d",
+        "licenseFile": "LICENSE"
+      },
+      "license": {
+        "spdx": "GPL-2.0-or-later",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/schellingb/dosbox-pure/blob/a4a0bab7f8931433588f2fcad9045c85b277373d/LICENSE"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "-f",
+          "Makefile",
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "dosbox_pure_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-fbneo",
+      "displayName": "FinalBurn Neo",
+      "status": "bundled",
+      "binaryName": "fbneo_libretro.dylib",
+      "systems": [
+        "arcade"
+      ],
+      "fileExtensions": [
+        "7z",
+        "ccd",
+        "cue",
+        "zip"
+      ],
+      "loadsArchivesDirectly": true,
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization",
+        "virtualFileSystem"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/libretro/FBNeo.git",
+        "revision": "a2594cfa5e10341eb475647b77ebeb554779e740",
+        "licenseFile": "src/license.txt"
+      },
+      "license": {
+        "spdx": "LicenseRef-FinalBurn-Neo-NonCommercial",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/FBNeo/blob/a2594cfa5e10341eb475647b77ebeb554779e740/src/license.txt"
+      },
+      "build": {
+        "workingDirectory": "src/burner/libretro",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "UNIVERSAL=1",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "fbneo_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-arduous",
+      "displayName": "Arduous",
+      "status": "bundled",
+      "binaryName": "arduous_libretro.dylib",
+      "systems": [
+        "arduboy"
+      ],
+      "fileExtensions": [
+        "hex"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/libretro/arduous.git",
+        "revision": "798e3950f1de7c69455bc988d55eafeebac5a1eb",
+        "licenseFile": "COPYING",
+        "submodules": [
+          "simavr"
+        ]
+      },
+      "license": {
+        "spdx": "GPL-3.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/arduous/blob/798e3950f1de7c69455bc988d55eafeebac5a1eb/COPYING"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "configure": {
+          "executable": "/usr/bin/env",
+          "arguments": [
+            "cmake",
+            "-S",
+            ".",
+            "-B",
+            "build-openvault",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_OSX_ARCHITECTURES=arm64",
+            "-DCMAKE_OSX_DEPLOYMENT_TARGET=26.0",
+            "-DWERROR=OFF"
+          ]
+        },
+        "executable": "/usr/bin/env",
+        "arguments": [
+          "cmake",
+          "--build",
+          "build-openvault",
+          "--target",
+          "arduous_libretro",
+          "--parallel",
+          "9"
+        ],
+        "output": "build-openvault/arduous_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-fake08",
+      "displayName": "FAKE-08",
+      "status": "bundled",
+      "binaryName": "fake08_libretro.dylib",
+      "systems": [
+        "pico-8"
+      ],
+      "fileExtensions": [
+        "p8",
+        "png"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "serialization"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/jtothebell/fake-08.git",
+        "revision": "814991a2571ad3970e386cef48f3b148aa1c27b9",
+        "licenseFile": "LICENSE.MD",
+        "submodules": [
+          "libs/z8lua"
+        ]
+      },
+      "license": {
+        "spdx": "MIT",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/jtothebell/fake-08/blob/814991a2571ad3970e386cef48f3b148aa1c27b9/LICENSE.MD"
+      },
+      "build": {
+        "workingDirectory": "platform/libretro",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "fake08_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-parallel-n64",
+      "displayName": "ParaLLEl-N64",
+      "status": "bundled",
+      "binaryName": "parallel_n64_libretro.dylib",
+      "systems": [
+        "n64"
+      ],
+      "fileExtensions": [
+        "bin",
+        "n64",
+        "ndd",
+        "u1",
+        "v64",
+        "z64"
+      ],
+      "capabilities": [
+        "hardwareVideo",
+        "audio",
+        "retropad",
+        "serialization"
+      ],
+      "firmware": [],
+      "source": {
+        "repository": "https://github.com/libretro/parallel-n64.git",
+        "revision": "39819865868231319f185b741466b9bb2203620d",
+        "licenseFile": "mupen64plus-core/LICENSES"
+      },
+      "license": {
+        "spdx": "GPL-2.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/parallel-n64/blob/39819865868231319f185b741466b9bb2203620d/mupen64plus-core/LICENSES"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "parallel_n64_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-dolphin",
+      "displayName": "Dolphin",
+      "status": "bundled",
+      "binaryName": "dolphin_libretro.dylib",
+      "systems": [
+        "gamecube",
+        "wii"
+      ],
+      "fileExtensions": [
+        "ciso",
+        "dol",
+        "elf",
+        "gcm",
+        "gcz",
+        "iso",
+        "m3u",
+        "rvz",
+        "tgc",
+        "wbfs",
+        "wia"
+      ],
+      "capabilities": [
+        "hardwareVideo",
+        "audio",
+        "retropad",
+        "serialization"
+      ],
+      "firmware": [],
+      "systemAssets": [
+        {
+          "sourcePath": "Data/Sys",
+          "destinationPath": "dolphin-emu/Sys"
+        }
+      ],
+      "source": {
+        "repository": "https://github.com/libretro/dolphin.git",
+        "revision": "d735584d1e1672a5a269508bbd84cf50e2e522a8",
+        "licenseFile": "COPYING",
+        "submodules": [
+          "Externals/SFML/SFML",
+          "Externals/bzip2/bzip2",
+          "Externals/cpp-optparse/cpp-optparse",
+          "Externals/curl/curl",
+          "Externals/enet/enet",
+          "Externals/fmt/fmt",
+          "Externals/glslang/glslang",
+          "Externals/hidapi/hidapi-src",
+          "Externals/imgui/imgui",
+          "Externals/implot/implot",
+          "Externals/libspng/libspng",
+          "Externals/libusb/libusb",
+          "Externals/lz4/lz4",
+          "Externals/minizip-ng/minizip-ng",
+          "Externals/pugixml/pugixml",
+          "Externals/spirv_cross/SPIRV-Cross",
+          "Externals/tinygltf/tinygltf",
+          "Externals/watcher/watcher",
+          "Externals/xxhash/xxHash",
+          "Externals/zlib-ng/zlib-ng",
+          "Externals/zstd/zstd"
+        ]
+      },
+      "license": {
+        "spdx": "GPL-2.0-or-later",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/dolphin/blob/d735584d1e1672a5a269508bbd84cf50e2e522a8/COPYING"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "configure": {
+          "executable": "/usr/bin/env",
+          "arguments": [
+            "cmake",
+            "-S",
+            ".",
+            "-B",
+            "build-openvault",
+            "-DLIBRETRO=ON",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_OSX_ARCHITECTURES=arm64",
+            "-DCMAKE_OSX_DEPLOYMENT_TARGET=26.0",
+            "-DENABLE_VULKAN=OFF",
+            "-DUSE_MGBA=OFF",
+            "-DUSE_SYSTEM_LIBS=OFF",
+            "-DENABLE_TESTS=OFF",
+            "-DHAVE_PIPE2=0"
+          ]
+        },
+        "executable": "/usr/bin/env",
+        "arguments": [
+          "cmake",
+          "--build",
+          "build-openvault",
+          "--target",
+          "dolphin_libretro",
+          "--parallel",
+          "9"
+        ],
+        "output": "build-openvault/dolphin_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-ppsspp",
+      "displayName": "PPSSPP",
+      "status": "bundled",
+      "binaryName": "ppsspp_libretro.dylib",
+      "systems": [
+        "psp"
+      ],
+      "fileExtensions": [
+        "chd",
+        "cso",
+        "elf",
+        "iso",
+        "pbp",
+        "prx"
+      ],
+      "capabilities": [
+        "hardwareVideo",
+        "audio",
+        "retropad",
+        "serialization",
+        "virtualFileSystem"
+      ],
+      "firmware": [],
+      "systemAssets": [
+        {
+          "sourcePath": "assets",
+          "destinationPath": "PPSSPP"
+        }
+      ],
+      "source": {
+        "repository": "https://github.com/hrydgard/ppsspp.git",
+        "revision": "fa50bb1976065c4f8b1b47af227d367fe9771555",
+        "patches": [
+          "77045b89ad0f5a2ff4757546e6a675553c69400c"
+        ],
+        "licenseFile": "LICENSE.TXT",
+        "submodules": [
+          "libretro/libretro-common",
+          "ffmpeg",
+          "ext/armips",
+          "ext/glslang",
+          "ext/SPIRV-Cross",
+          "ext/rapidjson",
+          "ext/miniupnp",
+          "ext/zstd",
+          "ext/cpu_features",
+          "ext/rcheevos",
+          "ext/naett",
+          "ext/libchdr",
+          "ext/OpenXR-SDK",
+          "ext/lua",
+          "ext/freetype",
+          "ext/nanosvg",
+          "ext/aemu_postoffice"
+        ]
+      },
+      "license": {
+        "spdx": "GPL-2.0-or-later",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/hrydgard/ppsspp/blob/fa50bb1976065c4f8b1b47af227d367fe9771555/LICENSE.TXT"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "configure": {
+          "executable": "/usr/bin/env",
+          "arguments": [
+            "cmake",
+            "-S",
+            ".",
+            "-B",
+            "build-openvault",
+            "-DLIBRETRO=ON",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_OSX_ARCHITECTURES=arm64",
+            "-DCMAKE_OSX_DEPLOYMENT_TARGET=26.0",
+            "-DUSE_SYSTEM_LIBPNG=OFF",
+            "-DUSE_DISCORD=OFF",
+            "-DUSE_MINIUPNPC=OFF",
+            "-DHEADLESS=OFF",
+            "-DUNITTEST=OFF",
+            "-DATLAS_TOOL=OFF"
+          ]
+        },
+        "executable": "/usr/bin/env",
+        "arguments": [
+          "cmake",
+          "--build",
+          "build-openvault",
+          "--target",
+          "ppsspp_libretro",
+          "--parallel",
+          "9"
+        ],
+        "output": "build-openvault/lib/ppsspp_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-melonds",
+      "displayName": "melonDS",
+      "status": "bundled",
+      "binaryName": "melonds_libretro.dylib",
+      "systems": [
+        "nds"
+      ],
+      "fileExtensions": [
+        "nds"
+      ],
+      "capabilities": [
+        "softwareVideo",
+        "audio",
+        "retropad",
+        "pointer",
+        "serialization"
+      ],
+      "firmware": [
+        {
+          "id": "nintendo-ds-bios7",
+          "fileName": "bios7.bin",
+          "description": "Nintendo DS ARM7 BIOS",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "24f67bdea115a2c847c8813a262502ee1607b7df"
+          ]
+        },
+        {
+          "id": "nintendo-ds-bios9",
+          "fileName": "bios9.bin",
+          "description": "Nintendo DS ARM9 BIOS",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "bfaac75f101c135e32e2aaf541de6b1be4c8c62d"
+          ]
+        },
+        {
+          "id": "nintendo-ds-firmware",
+          "fileName": "firmware.bin",
+          "description": "Nintendo DS firmware",
+          "required": false,
+          "sha256": [],
+          "sha1": [
+            "cfe072921ee3fb93f688743f8beef89043c3e9ad"
+          ]
+        }
+      ],
+      "source": {
+        "repository": "https://github.com/libretro/melonDS.git",
+        "revision": "66b5d2634cd0a79030562811e6e05f5532f800ba",
+        "licenseFile": "LICENSE"
+      },
+      "license": {
+        "spdx": "GPL-3.0-only",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/melonDS/blob/66b5d2634cd0a79030562811e6e05f5532f800ba/LICENSE"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "executable": "/usr/bin/make",
+        "arguments": [
+          "platform=osx",
+          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+        ],
+        "output": "melonds_libretro.dylib"
+      }
     }
   ]
 }

@@ -101,6 +101,32 @@ private enum RomMPlayStatus: String, CaseIterable, Identifiable {
     }
 }
 
+struct GameDetailsViewport: Equatable {
+    let origin: CGPoint
+    let size: CGSize
+
+    init(containerSize: CGSize, safeAreaInsets: EdgeInsets) {
+        origin = CGPoint(
+            x: safeAreaInsets.leading,
+            y: safeAreaInsets.top
+        )
+        size = CGSize(
+            width: max(
+                containerSize.width
+                    - safeAreaInsets.leading
+                    - safeAreaInsets.trailing,
+                0
+            ),
+            height: max(
+                containerSize.height
+                    - safeAreaInsets.top
+                    - safeAreaInsets.bottom,
+                0
+            )
+        )
+    }
+}
+
 struct GameDetailsView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var model: GameDetailsModel
@@ -137,7 +163,7 @@ struct GameDetailsView: View {
                             await model.reload()
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                 }
             } else {
                 ProgressView("Loading \(model.game.name)…")
@@ -153,15 +179,23 @@ struct GameDetailsView: View {
             downloadAlertTitle,
             isPresented: downloadAlertIsPresented
         ) {
-            if let downloadedFileURL = model.downloadedFileURL {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(downloadAlertMessage)
+        }
+        .alert(
+            exportAlertTitle,
+            isPresented: exportAlertIsPresented
+        ) {
+            if let exportedFileURL = model.exportedFileURL {
                 Button("Show in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([downloadedFileURL])
+                    NSWorkspace.shared.activateFileViewerSelecting([exportedFileURL])
                 }
             }
 
             Button("OK", role: .cancel) {}
         } message: {
-            Text(downloadAlertMessage)
+            Text(exportAlertMessage)
         }
         .alert(
             "Couldn’t Start Game",
@@ -193,55 +227,83 @@ struct GameDetailsView: View {
 
     private func detailsContent(_ details: GameDetails) -> some View {
         GeometryReader { geometry in
-            ZStack {
+            let viewport = GameDetailsViewport(
+                containerSize: geometry.size,
+                safeAreaInsets: geometry.safeAreaInsets
+            )
+
+            ZStack(alignment: .topLeading) {
                 GameDetailsBackdrop(
                     details: details,
                     session: model.session,
                     service: model.service
                 )
 
-                if geometry.size.width >= 820 {
-                    desktopLayout(details)
-                } else {
-                    compactLayout(details)
+                Group {
+                    if viewport.size.width >= 820 {
+                        desktopLayout(
+                            details,
+                            viewportHeight: viewport.size.height
+                        )
+                    } else {
+                        compactLayout(details)
+                    }
                 }
+                .frame(
+                    width: viewport.size.width,
+                    height: viewport.size.height,
+                    alignment: .topLeading
+                )
+                .clipped()
+                .offset(
+                    x: viewport.origin.x,
+                    y: viewport.origin.y
+                )
             }
+            .frame(
+                width: geometry.size.width,
+                height: geometry.size.height
+            )
         }
         .clipped()
     }
 
-    private func desktopLayout(_ details: GameDetails) -> some View {
-        HStack(alignment: .top, spacing: 46) {
-            coverColumn(details)
-                .padding(.top, 36)
+    private func desktopLayout(
+        _ details: GameDetails,
+        viewportHeight: CGFloat
+    ) -> some View {
+        ScrollView(.vertical) {
+            HStack(alignment: .top, spacing: 46) {
+                coverColumn(details)
+                    .padding(.top, 36)
 
-            VStack(alignment: .leading, spacing: 0) {
-                gameHeader(details)
-                    .padding(.top, 22)
+                VStack(alignment: .leading, spacing: 0) {
+                    gameHeader(details)
+                        .padding(.top, 22)
 
-                GameDetailsTabBar(
-                    selection: $selectedTab,
-                    fileCount: details.files.count,
-                    saveDataCount: details.saves.count + details.states.count
-                )
-                .padding(.top, 18)
+                    GameDetailsTabBar(
+                        selection: $selectedTab,
+                        fileCount: details.files.count,
+                        saveDataCount: details.saves.count + details.states.count
+                    )
+                    .padding(.top, 18)
 
-                Divider()
-                    .padding(.top, 10)
+                    Divider()
+                        .padding(.top, 10)
 
-                ScrollView {
                     tabContent(details)
                         .padding(.top, 24)
-                        .padding(.bottom, 32)
+                        .padding(.bottom, 48)
                         .padding(.trailing, 8)
                 }
-                .scrollIndicators(.visible)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(.horizontal, 34)
+            .frame(maxWidth: 1_360, alignment: .top)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .padding(.horizontal, 34)
-        .frame(maxWidth: 1_360, maxHeight: .infinity, alignment: .top)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(height: viewportHeight)
+        .scrollIndicators(.visible)
     }
 
     private func compactLayout(_ details: GameDetails) -> some View {
@@ -279,6 +341,49 @@ struct GameDetailsView: View {
             .frame(width: 260)
             .shadow(color: .black.opacity(0.28), radius: 22, y: 12)
 
+            if let core = model.playbackCore {
+                Button {
+                    Task {
+                        if let request = await model.prepareToPlay(details) {
+                            openWindow(value: request)
+                        }
+                    }
+                } label: {
+                    Group {
+                        if model.isPreparingToPlay {
+                            HStack(spacing: 7) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Preparing…")
+                            }
+                        } else {
+                            Label("Play", systemImage: "play.fill")
+                        }
+                    }
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glassProminent)
+                .controlSize(.large)
+                .disabled(
+                    model.isPreparingToPlay
+                        || model.isDownloading
+                        || model.isRemovingDownload
+                        || model.isExporting
+                        || details.isMissingFromFileSystem
+                )
+                .help("Play with the bundled \(core.displayName) core.")
+
+                if model.isPreparingToPlay,
+                    let progress = model.playbackDownloadProgress
+                {
+                    RomMDownloadProgressView(
+                        progress: progress,
+                        title: "Downloading from RomM"
+                    )
+                }
+            }
+
             if details.isMissingFromFileSystem {
                 DetailBadge(
                     "Missing from Filesystem",
@@ -301,6 +406,15 @@ struct GameDetailsView: View {
                 Label(details.systemName, systemImage: "gamecontroller")
                     .foregroundStyle(.secondary)
 
+                if let cachedDetailsLabel {
+                    Label(cachedDetailsLabel, systemImage: "wifi.slash")
+                        .foregroundStyle(.orange)
+                        .help(
+                            model.refreshErrorMessage
+                                ?? "Showing metadata stored on this Mac."
+                        )
+                }
+
                 if let releaseDate = details.metadata.firstReleaseDate {
                     Text(releaseDate.formatted(date: .abbreviated, time: .omitted))
                         .foregroundStyle(.secondary)
@@ -315,37 +429,13 @@ struct GameDetailsView: View {
                         .foregroundStyle(.green)
                 }
 
-                if let core = model.playbackCore {
-                    Button {
-                        Task {
-                            if let request = await model.prepareToPlay(details) {
-                                openWindow(value: request)
-                            }
-                        }
-                    } label: {
-                        if model.isPreparingToPlay {
-                            HStack(spacing: 5) {
-                                ProgressView()
-                                    .controlSize(.mini)
-                                Text("Preparing…")
-                            }
-                        } else {
-                            Label("Play", systemImage: "play.fill")
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .disabled(
-                        model.isPreparingToPlay
-                            || model.isDownloading
-                            || details.isMissingFromFileSystem
-                    )
-                    .help("Play with the bundled \(core.displayName) core.")
-                }
-
                 Button {
                     Task {
-                        await model.download(details)
+                        if model.isLocallyAvailable {
+                            await model.removeDownload()
+                        } else {
+                            await model.download(details)
+                        }
                     }
                 } label: {
                     if model.isDownloading {
@@ -354,18 +444,60 @@ struct GameDetailsView: View {
                                 .controlSize(.mini)
                             Text("Downloading…")
                         }
+                    } else if model.isRemovingDownload {
+                        HStack(spacing: 5) {
+                            ProgressView()
+                                .controlSize(.mini)
+                            Text("Removing…")
+                        }
                     } else {
-                        Label("Download", systemImage: "arrow.down.circle")
+                        Label(
+                            model.isLocallyAvailable ? "Remove Download" : "Download",
+                            systemImage: model.isLocallyAvailable
+                                ? "trash"
+                                : "arrow.down.circle"
+                        )
                     }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
                 .controlSize(.small)
-                .disabled(model.isDownloading || details.isMissingFromFileSystem)
-                .help(
-                    details.isMissingFromFileSystem
-                        ? "RomM reports that this game is missing from the server filesystem."
-                        : "Download this game to your Downloads folder."
+                .disabled(
+                    model.isDownloading
+                        || model.isRemovingDownload
+                        || (details.isMissingFromFileSystem && !model.isLocallyAvailable)
                 )
+                .help(
+                    model.isLocallyAvailable
+                        ? "Remove OpenVault’s local copy. The game remains on RomM."
+                        : details.isMissingFromFileSystem
+                        ? "RomM reports that this game is missing from the server filesystem."
+                        : "Add this game to OpenVault’s managed local library."
+                )
+
+                Button {
+                    Task {
+                        await model.export(details)
+                    }
+                } label: {
+                    if model.isExporting {
+                        HStack(spacing: 5) {
+                            ProgressView()
+                                .controlSize(.mini)
+                            Text("Exporting…")
+                        }
+                    } else {
+                        Label("Export", systemImage: "square.and.arrow.up")
+                    }
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .disabled(
+                    model.isExporting
+                        || model.isDownloading
+                        || model.isRemovingDownload
+                        || (details.isMissingFromFileSystem && !model.isLocallyAvailable)
+                )
+                .help("Export a shareable copy to your Downloads folder.")
 
                 SaveDataCountButton(
                     title: countLabel(details.saves.count, singular: "Save"),
@@ -387,6 +519,14 @@ struct GameDetailsView: View {
             }
             .font(.callout)
 
+            if model.isDownloading, let progress = model.downloadProgress {
+                RomMDownloadProgressView(
+                    progress: progress,
+                    title: "Adding to Downloaded"
+                )
+                .frame(maxWidth: 420)
+            }
+
             if !details.regions.isEmpty || !details.languages.isEmpty || !details.tags.isEmpty {
                 FlowLayout(spacing: 6) {
                     ForEach(details.regions, id: \.self) {
@@ -401,7 +541,9 @@ struct GameDetailsView: View {
                 }
             }
 
-            activityRibbon(details)
+            GlassEffectContainer(spacing: 8) {
+                activityRibbon(details)
+            }
                 .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -505,7 +647,7 @@ struct GameDetailsView: View {
             Link(destination: model.session.serverURL.endpoint("rom/\(details.id)")) {
                 Label("Open in RomM", systemImage: "arrow.up.right.square")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.glass)
             .controlSize(.small)
         }
     }
@@ -522,14 +664,40 @@ struct GameDetailsView: View {
         }
     }
 
+    private var cachedDetailsLabel: String? {
+        switch model.dataSource {
+        case .cachedDetails:
+            "Cached"
+        case .librarySummary:
+            "Cached Summary"
+        case .remote, .none:
+            nil
+        }
+    }
+
     private var downloadAlertIsPresented: Binding<Bool> {
         Binding(
             get: {
-                model.downloadedFileURL != nil || model.downloadErrorMessage != nil
+                model.didDownloadGame
+                    || model.didRemoveDownload
+                    || model.downloadErrorMessage != nil
             },
             set: { isPresented in
                 if !isPresented {
                     model.dismissDownloadResult()
+                }
+            }
+        )
+    }
+
+    private var exportAlertIsPresented: Binding<Bool> {
+        Binding(
+            get: {
+                model.exportedFileURL != nil || model.exportErrorMessage != nil
+            },
+            set: { isPresented in
+                if !isPresented {
+                    model.dismissExportResult()
                 }
             }
         )
@@ -562,14 +730,34 @@ struct GameDetailsView: View {
     }
 
     private var downloadAlertTitle: String {
-        model.downloadedFileURL == nil ? "Download Failed" : "Download Complete"
+        if model.didDownloadGame {
+            return "Download Complete"
+        }
+        if model.didRemoveDownload {
+            return "Download Removed"
+        }
+        return "Download Failed"
     }
 
     private var downloadAlertMessage: String {
-        if let downloadedFileURL = model.downloadedFileURL {
-            return "\(downloadedFileURL.lastPathComponent) was saved to Downloads."
+        if model.didDownloadGame {
+            return "This game was added to OpenVault’s local library."
+        }
+        if model.didRemoveDownload {
+            return "The local ROM was removed. The game remains available on RomM."
         }
         return model.downloadErrorMessage ?? "OpenVault could not download this game."
+    }
+
+    private var exportAlertTitle: String {
+        model.exportedFileURL == nil ? "Export Failed" : "Export Complete"
+    }
+
+    private var exportAlertMessage: String {
+        if let exportedFileURL = model.exportedFileURL {
+            return "\(exportedFileURL.lastPathComponent) was saved to Downloads."
+        }
+        return model.exportErrorMessage ?? "OpenVault could not export this game."
     }
 
     private func countLabel(_ count: Int, singular: String) -> String {
@@ -755,14 +943,13 @@ struct GameDetailsView: View {
                         url: url,
                         session: model.session,
                         service: model.service,
-                        targetSize: CGSize(width: 720, height: 405),
-                        contentMode: .fill,
+                        targetSize: CGSize(width: 680, height: 440),
+                        contentMode: .fit,
                         placeholderSystemImage: "photo",
                         cornerRadius: 9,
                         imagePadding: 0
                     )
-                    .aspectRatio(16 / 9, contentMode: .fit)
-                    .frame(width: 310)
+                    .frame(width: 340, height: 220)
                 }
             }
             .scrollTargetLayout()
@@ -828,7 +1015,7 @@ struct GameDetailsView: View {
                 Link(destination: manualURL) {
                     Label("Open Manual", systemImage: "arrow.up.right.square")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1101,6 +1288,44 @@ struct GameDetailsView: View {
     }
 }
 
+private struct RomMDownloadProgressView: View {
+    let progress: RomMDownloadProgress
+    let title: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(byteDescription)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .font(.caption)
+
+            Group {
+                if let fractionCompleted = progress.fractionCompleted {
+                    ProgressView(value: fractionCompleted)
+                } else {
+                    ProgressView()
+                }
+            }
+            .progressViewStyle(.linear)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var byteDescription: String {
+        let received = progress.bytesReceived.formatted(
+            .byteCount(style: .file)
+        )
+        guard let totalBytesExpected = progress.totalBytesExpected else {
+            return received
+        }
+        return "\(received) of \(totalBytesExpected.formatted(.byteCount(style: .file)))"
+    }
+}
+
 private struct GameDetailsBackdrop: View {
     let details: GameDetails
     let session: ServerSession
@@ -1203,7 +1428,11 @@ private struct SaveDataCountButton: View {
                 .foregroundStyle(tint)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(tint.opacity(0.11), in: .capsule)
+                .openVaultGlass(
+                    tint: tint.opacity(0.14),
+                    interactive: true,
+                    in: Capsule()
+                )
         }
         .buttonStyle(.plain)
         .contentShape(.capsule)
@@ -1275,11 +1504,7 @@ private struct EditableStatusPill: View {
             .font(.caption)
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .background(.regularMaterial, in: .capsule)
-            .overlay {
-                Capsule()
-                    .stroke(.separator.opacity(0.35), lineWidth: 0.5)
-            }
+            .openVaultGlass(interactive: true, in: Capsule())
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -1317,17 +1542,11 @@ private struct EditableFlagPill: View {
             .foregroundStyle(isOn ? tint : Color.secondary)
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .background(
-                isOn ? tint.opacity(0.12) : Color.clear,
-                in: .capsule
+            .openVaultGlass(
+                tint: isOn ? tint.opacity(0.18) : nil,
+                interactive: true,
+                in: Capsule()
             )
-            .overlay {
-                Capsule()
-                    .stroke(
-                        isOn ? tint.opacity(0.28) : Color.secondary.opacity(0.2),
-                        lineWidth: 0.5
-                    )
-            }
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
@@ -1409,7 +1628,7 @@ private struct EditableGameMetricPill: View {
                         isEditing = false
                         onSave(draftValue)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .keyboardShortcut(.defaultAction)
                 }
             }
@@ -1444,11 +1663,11 @@ private struct GameMetricPill: View {
         .font(.caption)
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
-        .background(.regularMaterial, in: .capsule)
-        .overlay {
-            Capsule()
-                .stroke(.separator.opacity(0.35), lineWidth: 0.5)
-        }
+        .openVaultGlass(
+            tint: tint.opacity(0.10),
+            interactive: true,
+            in: Capsule()
+        )
     }
 }
 

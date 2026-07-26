@@ -7,16 +7,35 @@ struct LibrarySystem: Codable, Identifiable, Hashable, Sendable {
   let gameCount: Int
 }
 
-/// A regular or smart collection exposed by RomM.
+/// A regular, smart, or automatically generated virtual collection exposed by RomM.
 struct LibraryCollection: Codable, Identifiable, Hashable, Sendable {
   enum ID: Codable, Hashable, Sendable {
     case regular(Int)
     case smart(Int)
+    case virtual(String)
   }
 
   let id: ID
   let name: String
   let gameCount: Int
+  /// RomM's virtual collection category, such as `collection` or `genre`.
+  let virtualType: String?
+  /// Membership supplied inline by RomM, used only while constructing a snapshot.
+  let memberGameIDs: [Int]?
+
+  init(
+    id: ID,
+    name: String,
+    gameCount: Int,
+    virtualType: String? = nil,
+    memberGameIDs: [Int]? = nil
+  ) {
+    self.id = id
+    self.name = name
+    self.gameCount = gameCount
+    self.virtualType = virtualType
+    self.memberGameIDs = memberGameIDs
+  }
 }
 
 /// The subset of RomM game metadata needed to render the library grid.
@@ -39,6 +58,7 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
   let fileSizeBytes: Int64?
   let isIdentified: Bool?
   let isMissingFromFileSystem: Bool?
+  let createdAt: String?
   let updatedAt: String?
 
   init(
@@ -60,6 +80,7 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
     fileSizeBytes: Int64? = nil,
     isIdentified: Bool? = nil,
     isMissingFromFileSystem: Bool? = nil,
+    createdAt: String? = nil,
     updatedAt: String? = nil
   ) {
     self.id = id
@@ -80,6 +101,7 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
     self.fileSizeBytes = fileSizeBytes
     self.isIdentified = isIdentified
     self.isMissingFromFileSystem = isMissingFromFileSystem
+    self.createdAt = createdAt
     self.updatedAt = updatedAt
   }
 
@@ -106,6 +128,7 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
       fileSizeBytes: fileSizeBytes,
       isIdentified: isIdentified,
       isMissingFromFileSystem: isMissingFromFileSystem,
+      createdAt: createdAt,
       updatedAt: updatedAt
     )
   }
@@ -120,6 +143,62 @@ struct GamePage: Equatable, Sendable {
 
   var hasMore: Bool {
     offset + games.count < total
+  }
+}
+
+/// Outcome of a bulk RomM game-deletion request.
+struct GameDeletionResult: Equatable, Sendable {
+  let successfulItemCount: Int
+  let failedItemCount: Int
+  let errors: [String]
+
+  var completedWithoutErrors: Bool {
+    failedItemCount == 0 && errors.isEmpty
+  }
+}
+
+/// Outcome of adding one or more RomM games to OpenVault's managed local library.
+struct GameDownloadResult: Equatable, Sendable {
+  let downloadedGameIDs: [Int]
+  let failedItemCount: Int
+  let errors: [String]
+
+  var successfulItemCount: Int {
+    downloadedGameIDs.count
+  }
+
+  var completedWithoutErrors: Bool {
+    failedItemCount == 0 && errors.isEmpty
+  }
+}
+
+/// Outcome of removing one or more locally cached games from OpenVault.
+struct GameDownloadRemovalResult: Equatable, Sendable {
+  let removedGameIDs: [Int]
+  let failedItemCount: Int
+  let errors: [String]
+
+  var successfulItemCount: Int {
+    removedGameIDs.count
+  }
+
+  var completedWithoutErrors: Bool {
+    failedItemCount == 0 && errors.isEmpty
+  }
+}
+
+/// Outcome of exporting one or more games from OpenVault to the user's Downloads folder.
+struct GameExportResult: Equatable, Sendable {
+  let exportedFileURLs: [URL]
+  let failedItemCount: Int
+  let errors: [String]
+
+  var successfulItemCount: Int {
+    exportedFileURLs.count
+  }
+
+  var completedWithoutErrors: Bool {
+    failedItemCount == 0 && errors.isEmpty
   }
 }
 
@@ -188,6 +267,54 @@ struct LibrarySnapshot: Codable, Equatable, Sendable {
       total: matchingGames.count,
       limit: safeLimit,
       offset: safeOffset
+    )
+  }
+
+  func removingGames(withIDs removedGameIDs: Set<Int>) -> LibrarySnapshot {
+    guard !removedGameIDs.isEmpty else {
+      return self
+    }
+
+    let remainingGames = games.filter {
+      !removedGameIDs.contains($0.id)
+    }
+    let systemCounts = Dictionary(
+      grouping: remainingGames,
+      by: \.systemID
+    ).mapValues(\.count)
+    let memberships = collectionMemberships.map { membership in
+      CollectionMembership(
+        collectionID: membership.collectionID,
+        gameIDs: membership.gameIDs.filter {
+          !removedGameIDs.contains($0)
+        }
+      )
+    }
+    let collectionCounts = Dictionary(
+      uniqueKeysWithValues: memberships.map {
+        ($0.collectionID, $0.gameIDs.count)
+      }
+    )
+
+    return LibrarySnapshot(
+      synchronizedAt: synchronizedAt,
+      systems: systems.map {
+        LibrarySystem(
+          id: $0.id,
+          name: $0.name,
+          gameCount: systemCounts[$0.id, default: 0]
+        )
+      },
+      collections: collections.map {
+        LibraryCollection(
+          id: $0.id,
+          name: $0.name,
+          gameCount: collectionCounts[$0.id, default: 0],
+          virtualType: $0.virtualType
+        )
+      },
+      games: remainingGames,
+      collectionMemberships: memberships
     )
   }
 }

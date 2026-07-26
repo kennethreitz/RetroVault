@@ -63,7 +63,87 @@ struct GameDetails: Codable, Identifiable, Hashable, Sendable {
       fileSizeBytes: fileSizeBytes,
       isIdentified: isIdentified,
       isMissingFromFileSystem: isMissingFromFileSystem,
+      createdAt: createdAt,
       updatedAt: updatedAt
+    )
+  }
+
+  /// Builds the best offline detail representation available from a synchronized
+  /// library row. A later RomM refresh replaces this summary with full metadata.
+  static func cachedSummary(_ game: GameSummary) -> GameDetails {
+    let releaseDate = game.releaseYear.flatMap { year in
+      var components = DateComponents()
+      components.calendar = Calendar(identifier: .gregorian)
+      components.timeZone = TimeZone(secondsFromGMT: 0)
+      components.year = year
+      components.month = 1
+      components.day = 1
+      return components.date
+    }
+
+    return GameDetails(
+      id: game.id,
+      name: game.name,
+      systemID: game.systemID,
+      systemName: game.systemName,
+      summary: nil,
+      coverURL: game.coverURL,
+      screenshotURLs: [],
+      alternativeNames: [],
+      metadata: GameMetadata(
+        genres: game.genres ?? [],
+        franchises: [],
+        collections: [],
+        companies: [],
+        gameModes: [],
+        ageRatings: [],
+        playerCount: nil,
+        firstReleaseDate: releaseDate,
+        averageRating: nil
+      ),
+      regions: game.regions ?? [],
+      languages: [],
+      tags: [],
+      files: [],
+      fileName: "",
+      fileExtension: "",
+      filePath: "",
+      fullPath: "",
+      fileSizeBytes: game.fileSizeBytes ?? 0,
+      revision: nil,
+      crcHash: nil,
+      md5Hash: nil,
+      sha1Hash: nil,
+      retroAchievementsHash: nil,
+      isIdentified: game.isIdentified ?? false,
+      isMissingFromFileSystem: game.isMissingFromFileSystem ?? false,
+      hasManual: false,
+      hasSoundtrack: false,
+      manualURL: nil,
+      videoURL: nil,
+      createdAt: game.createdAt ?? "",
+      updatedAt: game.updatedAt ?? "",
+      userMetadata: GameUserMetadata(
+        status: game.userStatus,
+        lastPlayed: nil,
+        rating: game.rating ?? 0,
+        difficulty: game.difficulty ?? 0,
+        completion: game.completion ?? 0,
+        isBacklogged: false,
+        isNowPlaying: false,
+        isHidden: false
+      ),
+      saves: [],
+      states: [],
+      contentCounts: GameContentCounts(
+        siblingGames: 0,
+        saves: game.hasSave == true ? 1 : 0,
+        states: game.hasState == true ? 1 : 0,
+        screenshots: 0,
+        collections: 0,
+        notes: 0
+      ),
+      providerIdentifiers: []
     )
   }
 }
@@ -162,6 +242,23 @@ struct GameSaveDataItem: Codable, Identifiable, Hashable, Sendable {
   let contentHash: String?
   let isPublic: Bool
   let screenshotURL: URL?
+}
+
+/// Non-secret information carried into a Libretro session so battery-backed
+/// save memory can use OpenVault's stable, server-scoped local save file.
+struct CartridgeSaveSyncConfiguration: Codable, Hashable, Sendable {
+  let serverURL: ServerURL
+  let gameID: Int
+  let localSaveURL: URL
+  let uploadFileName: String
+  let emulator: String
+  let slot: String
+}
+
+/// Result of reconciling a locally persisted cartridge save with RomM.
+enum CartridgeSaveSyncOutcome: Equatable, Sendable {
+  case unchanged
+  case uploaded
 }
 
 /// Counts for related content whose full presentation belongs to later features.

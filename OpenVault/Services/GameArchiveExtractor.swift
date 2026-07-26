@@ -7,6 +7,9 @@ protocol GameArchiveExtracting: Sendable {
         from sourceURL: URL,
         supportedFileExtensions: [String]
     ) throws -> URL
+
+    /// Returns the combined size of all regular files in a ZIP archive.
+    func uncompressedContentSize(of sourceURL: URL) -> UInt64?
 }
 
 /// ZIP extraction backed by ZIPFoundation.
@@ -21,9 +24,11 @@ struct ZIPFoundationGameArchiveExtractor: GameArchiveExtracting {
         from sourceURL: URL,
         supportedFileExtensions: [String]
     ) throws -> URL {
+        let orderedSupportedExtensions = supportedFileExtensions
+            .map(Self.normalizedFileExtension)
+            .filter { !$0.isEmpty }
         let supportedExtensions = Set(
-            supportedFileExtensions.map(Self.normalizedFileExtension)
-                .filter { !$0.isEmpty }
+            orderedSupportedExtensions
         )
         let sourceExtension = Self.normalizedFileExtension(sourceURL.pathExtension)
 
@@ -47,20 +52,10 @@ struct ZIPFoundationGameArchiveExtractor: GameArchiveExtracting {
         let archiveStem = sourceURL.deletingPathExtension()
             .lastPathComponent
             .lowercased()
-        let candidates = archive
+        let safeEntries = archive.filter(Self.isSafeRegularFile)
+        let candidates = safeEntries
             .filter { entry in
-                guard entry.type == .file else {
-                    return false
-                }
                 let path = Self.normalizedArchivePath(entry.path)
-                let components = path.split(separator: "/", omittingEmptySubsequences: true)
-                guard !components.isEmpty,
-                      !components.contains(where: {
-                          $0 == "__MACOSX" || $0.hasPrefix(".")
-                      })
-                else {
-                    return false
-                }
                 return supportedExtensions.contains(
                     Self.normalizedFileExtension(
                         URL(fileURLWithPath: path).pathExtension
@@ -68,6 +63,17 @@ struct ZIPFoundationGameArchiveExtractor: GameArchiveExtracting {
                 )
             }
             .sorted { lhs, rhs in
+                let lhsPriority = Self.extensionPriority(
+                    for: lhs.path,
+                    in: orderedSupportedExtensions
+                )
+                let rhsPriority = Self.extensionPriority(
+                    for: rhs.path,
+                    in: orderedSupportedExtensions
+                )
+                if lhsPriority != rhsPriority {
+                    return lhsPriority < rhsPriority
+                }
                 let lhsMatchesArchive = Self.stem(of: lhs.path) == archiveStem
                 let rhsMatchesArchive = Self.stem(of: rhs.path) == archiveStem
                 if lhsMatchesArchive != rhsMatchesArchive {
@@ -90,11 +96,69 @@ struct ZIPFoundationGameArchiveExtractor: GameArchiveExtracting {
             )
         }
 
-        return try extract(
-            entry,
-            from: archive,
-            nextTo: sourceURL
+        let selectedExtension = Self.normalizedFileExtension(
+            URL(fileURLWithPath: entry.path).pathExtension
         )
+        guard ["cue", "m3u"].contains(selectedExtension) else {
+            return try extract(entry, from: archive, nextTo: sourceURL)
+        }
+
+        let companionEntries = safeEntries.filter {
+            Self.parentDirectory(of: $0.path)
+                == Self.parentDirectory(of: entry.path)
+        }
+        let totalSize = companionEntries.reduce(UInt64(0)) {
+            $0.addingReportingOverflow($1.uncompressedSize).overflow
+                ? UInt64.max
+                : $0 + $1.uncompressedSize
+        }
+        guard totalSize <= Self.maximumExtractedBytes else {
+            throw GameArchiveError.contentTooLarge(
+                name: URL(fileURLWithPath: entry.path).lastPathComponent
+            )
+        }
+
+        var selectedURL: URL?
+        for companion in companionEntries {
+            let extractedURL = try extract(
+                companion,
+                from: archive,
+                nextTo: sourceURL
+            )
+            if companion.path == entry.path {
+                selectedURL = extractedURL
+            }
+        }
+
+        guard let selectedURL else {
+            throw GameArchiveError.extractionFailed(
+                name: URL(fileURLWithPath: entry.path).lastPathComponent,
+                reason: "The selected descriptor could not be extracted."
+            )
+        }
+        return selectedURL
+    }
+
+    func uncompressedContentSize(of sourceURL: URL) -> UInt64? {
+        guard Self.normalizedFileExtension(sourceURL.pathExtension) == "zip" else {
+            return nil
+        }
+        let archive: Archive
+        do {
+            archive = try Archive(url: sourceURL, accessMode: .read)
+        } catch {
+            return nil
+        }
+
+        var total: UInt64 = 0
+        for entry in archive where entry.type == .file {
+            let addition = total.addingReportingOverflow(entry.uncompressedSize)
+            guard !addition.overflow else {
+                return nil
+            }
+            total = addition.partialValue
+        }
+        return total
     }
 
     private func extract(
@@ -153,6 +217,46 @@ struct ZIPFoundationGameArchiveExtractor: GameArchiveExtracting {
 
     private static func normalizedArchivePath(_ value: String) -> String {
         value.replacingOccurrences(of: "\\", with: "/")
+    }
+
+    private static func isSafeRegularFile(_ entry: Entry) -> Bool {
+        guard entry.type == .file else {
+            return false
+        }
+        let path = normalizedArchivePath(entry.path)
+        guard !path.hasPrefix("/") else {
+            return false
+        }
+        let components = path.split(
+            separator: "/",
+            omittingEmptySubsequences: false
+        )
+        return !components.isEmpty
+            && !components.contains(where: {
+                $0.isEmpty
+                    || $0 == "."
+                    || $0 == ".."
+                    || $0 == "__MACOSX"
+                    || $0.hasPrefix(".")
+            })
+    }
+
+    private static func extensionPriority(
+        for path: String,
+        in supportedExtensions: [String]
+    ) -> Int {
+        let fileExtension = normalizedFileExtension(
+            URL(fileURLWithPath: normalizedArchivePath(path)).pathExtension
+        )
+        return supportedExtensions.firstIndex(of: fileExtension)
+            ?? supportedExtensions.endIndex
+    }
+
+    private static func parentDirectory(of path: String) -> String {
+        normalizedArchivePath(path)
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .dropLast()
+            .joined(separator: "/")
     }
 
     private static func stem(of path: String) -> String {

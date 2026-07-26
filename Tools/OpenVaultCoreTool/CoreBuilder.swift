@@ -27,6 +27,7 @@ struct CoreBuildReceipt: Codable, Sendable {
         let binaryName: String
         let sourceRepository: String
         let sourceRevision: String
+        let sourcePatches: [String]
         let sha256: String
         let licenseSPDX: String
         let licenseFile: String
@@ -52,12 +53,17 @@ enum CoreBuilder {
 
         let coresDirectory = options.outputDirectory.appending(path: "Cores")
         let licensesDirectory = options.outputDirectory.appending(path: "Licenses")
+        let systemDirectory = options.outputDirectory.appending(path: "System")
         try fileManager.createDirectory(
             at: coresDirectory,
             withIntermediateDirectories: true
         )
         try fileManager.createDirectory(
             at: licensesDirectory,
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: systemDirectory,
             withIntermediateDirectories: true
         )
 
@@ -86,6 +92,17 @@ enum CoreBuilder {
                 path: core.build.workingDirectory,
                 directoryHint: .isDirectory
             )
+            if let configure = core.build.configure {
+                try run(
+                    configure.executable,
+                    arguments: configure.arguments,
+                    currentDirectory: buildDirectory,
+                    environment: [
+                        "MACOSX_DEPLOYMENT_TARGET": manifest.minimumMacOS,
+                        "ZERO_AR_DATE": "1",
+                    ]
+                )
+            }
             try run(
                 core.build.executable,
                 arguments: core.build.arguments,
@@ -130,6 +147,30 @@ enum CoreBuilder {
             )
             try fileManager.copyItem(at: sourceLicense, to: destinationLicense)
 
+            for asset in core.systemAssets ?? [] {
+                let sourceAsset = sourceDirectory.appending(path: asset.sourcePath)
+                guard fileManager.fileExists(atPath: sourceAsset.path) else {
+                    throw CoreToolError.build(
+                        "\(core.id) is missing its declared system asset "
+                            + asset.sourcePath
+                    )
+                }
+                let destinationAsset = systemDirectory.appending(
+                    path: asset.destinationPath
+                )
+                try fileManager.createDirectory(
+                    at: destinationAsset.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                guard !fileManager.fileExists(atPath: destinationAsset.path) else {
+                    throw CoreToolError.build(
+                        "\(core.id) system asset destination already exists: "
+                            + asset.destinationPath
+                    )
+                }
+                try fileManager.copyItem(at: sourceAsset, to: destinationAsset)
+            }
+
             receipts.append(
                 CoreBuildReceipt.Core(
                     id: core.id,
@@ -137,6 +178,7 @@ enum CoreBuilder {
                     binaryName: core.binaryName,
                     sourceRepository: core.source.repository,
                     sourceRevision: core.source.revision,
+                    sourcePatches: core.source.patches ?? [],
                     sha256: try sha256(of: destinationBinary),
                     licenseSPDX: core.license.spdx,
                     licenseFile: "Licenses/\(core.id)/\(sourceLicense.lastPathComponent)"
@@ -234,6 +276,55 @@ enum CoreBuilder {
         guard revision == core.source.revision else {
             throw CoreToolError.build(
                 "\(core.id) resolved to \(revision), not \(core.source.revision)."
+            )
+        }
+
+        for patch in core.source.patches ?? [] {
+            try run(
+                "/usr/bin/git",
+                arguments: [
+                    "-c",
+                    "protocol.version=2",
+                    "fetch",
+                    "--quiet",
+                    "--depth",
+                    "2",
+                    "origin",
+                    patch,
+                ],
+                currentDirectory: sourceDirectory
+            )
+            let resolvedPatch = try capture(
+                "/usr/bin/git",
+                arguments: ["rev-parse", "FETCH_HEAD"],
+                currentDirectory: sourceDirectory
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard resolvedPatch == patch else {
+                throw CoreToolError.build(
+                    "\(core.id) patch resolved to \(resolvedPatch), not \(patch)."
+                )
+            }
+            try run(
+                "/usr/bin/git",
+                arguments: ["cherry-pick", "--no-commit", patch],
+                currentDirectory: sourceDirectory
+            )
+        }
+
+        let submodules = core.source.submodules ?? []
+        if !submodules.isEmpty {
+            try run(
+                "/usr/bin/git",
+                arguments: [
+                    "submodule",
+                    "update",
+                    "--init",
+                    "--recursive",
+                    "--depth",
+                    "1",
+                    "--",
+                ] + submodules,
+                currentDirectory: sourceDirectory
             )
         }
     }

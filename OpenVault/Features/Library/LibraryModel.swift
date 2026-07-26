@@ -4,12 +4,18 @@ import Observation
 
 enum LibrarySelection: Hashable {
   case allGames
+  case downloaded
+  case virtualCollections
   case system(Int)
   case collection(LibraryCollection.ID)
 
   var filter: LibraryFilter {
     switch self {
     case .allGames:
+      .allGames
+    case .downloaded:
+      .allGames
+    case .virtualCollections:
       .allGames
     case .system(let id):
       .system(id)
@@ -30,9 +36,13 @@ final class LibraryModel {
   var selection: LibrarySelection = .allGames
   private(set) var systems: [LibrarySystem] = []
   private(set) var collections: [LibraryCollection] = []
+  private(set) var collectionPreviewGames: [LibraryCollection.ID: [GameSummary]] = [:]
+  private(set) var downloadedGameIDs: Set<Int> = []
+  private(set) var managedDownloadedGameIDs: Set<Int> = []
   private(set) var games: [GameSummary] = []
   private(set) var searchTerm = ""
   private(set) var searchesAllSystems = false
+  private(set) var hidesBIOSGames = true
   private(set) var hidesGamesWithoutArtwork = false
   private(set) var systemIDsWithArtwork: Set<Int> = []
   private(set) var systemIDsWithoutArtwork: Set<Int> = []
@@ -43,8 +53,16 @@ final class LibraryModel {
   private(set) var isCheckingSystemArtwork = false
   private(set) var isSynchronizing = false
   private(set) var isPurgingLocalCache = false
+  private(set) var isCachingArtwork = false
+  private(set) var isDownloadingGames = false
+  private(set) var isRemovingDownloads = false
+  private(set) var isExportingGames = false
+  private(set) var isDeletingGames = false
   private(set) var synchronizedGameCount = 0
   private(set) var synchronizationTotalGameCount = 0
+  private(set) var cachedArtworkCount = 0
+  private(set) var artworkCacheTotalCount = 0
+  private(set) var artworkCacheFailureCount = 0
   private(set) var lastSuccessfulSync: Date?
   private(set) var isShowingStaleData = false
   private(set) var refreshErrorMessage: String?
@@ -54,17 +72,28 @@ final class LibraryModel {
   private var requestID = UUID()
   private var synchronizationID = UUID()
   private var artworkInspectionID = UUID()
+  private var artworkCachingTask: Task<Void, Never>?
   private var snapshot: LibrarySnapshot?
+  private let artworkCache: any ArtworkCaching
 
-  init(session: ServerSession, service: any LibraryServing) {
+  init(
+    session: ServerSession,
+    service: any LibraryServing,
+    artworkCache: any ArtworkCaching = DisabledArtworkCache()
+  ) {
     self.session = session
     self.service = service
+    self.artworkCache = artworkCache
   }
 
   var title: String {
     switch selection {
     case .allGames:
       "All Games"
+    case .downloaded:
+      "Downloaded"
+    case .virtualCollections:
+      "Virtual Collections"
     case .system(let id):
       systems.first(where: { $0.id == id })?.name ?? "System"
     case .collection(let id):
@@ -73,11 +102,24 @@ final class LibraryModel {
   }
 
   var displayedGames: [GameSummary] {
-    let libraryGames = games.filter { !$0.isBIOS }
+    let libraryGames =
+      hidesBIOSGames
+      ? games.filter { !$0.isBIOS }
+      : games
     guard hidesGamesWithoutArtwork else {
       return libraryGames
     }
     return libraryGames.filter { $0.coverURL != nil }
+  }
+
+  var downloadedGameCount: Int {
+    guard let snapshot else {
+      return downloadedGameIDs.count
+    }
+    return snapshot.games.lazy.filter {
+      self.downloadedGameIDs.contains($0.id)
+        && (!self.hidesBIOSGames || !$0.isBIOS)
+    }.count
   }
 
   var hasMoreGames: Bool {
@@ -107,6 +149,7 @@ final class LibraryModel {
       )
     }
 
+    await reloadDownloadedGames()
     await refresh()
   }
 
@@ -114,6 +157,9 @@ final class LibraryModel {
     guard !isSynchronizing else {
       return
     }
+
+    cancelArtworkCaching()
+    await reloadDownloadedGames()
 
     let currentSynchronizationID = UUID()
     synchronizationID = currentSynchronizationID
@@ -148,6 +194,7 @@ final class LibraryModel {
       isSynchronizing = false
       isShowingStaleData = false
       refreshErrorMessage = nil
+      startArtworkCaching(for: refreshedSnapshot.games)
 
       if hidesGamesWithoutArtwork {
         await inspectSystemArtwork()
@@ -186,6 +233,7 @@ final class LibraryModel {
       return
     }
 
+    cancelArtworkCaching()
     isSynchronizing = true
     isPurgingLocalCache = true
     refreshErrorMessage = nil
@@ -212,6 +260,7 @@ final class LibraryModel {
     hasLoaded = false
     systems = []
     collections = []
+    collectionPreviewGames = [:]
     games = []
     systemIDsWithArtwork = []
     systemIDsWithoutArtwork = []
@@ -226,6 +275,65 @@ final class LibraryModel {
     await refresh()
   }
 
+  private func startArtworkCaching(for games: [GameSummary]) {
+    artworkCachingTask?.cancel()
+
+    let totalCount = Set(games.compactMap(\.coverURL)).count
+    cachedArtworkCount = 0
+    artworkCacheTotalCount = totalCount
+    artworkCacheFailureCount = 0
+    isCachingArtwork = totalCount > 0
+
+    guard totalCount > 0 else {
+      artworkCachingTask = nil
+      return
+    }
+
+    let artworkCache = self.artworkCache
+    let session = self.session
+    let service = self.service
+    artworkCachingTask = Task { [weak self] in
+      await artworkCache.cacheArtwork(
+        for: games,
+        in: session,
+        using: service
+      ) { [weak self] progress in
+        await self?.apply(progress)
+      }
+
+      guard !Task.isCancelled else {
+        return
+      }
+      self?.isCachingArtwork = false
+      self?.artworkCachingTask = nil
+
+      if let failureCount = self?.artworkCacheFailureCount,
+        failureCount > 0
+      {
+        OpenVaultLog.library.notice(
+          "Artwork caching completed with \(failureCount, privacy: .public) failed requests"
+        )
+      } else {
+        OpenVaultLog.library.notice("Artwork caching completed")
+      }
+    }
+  }
+
+  private func apply(_ progress: ArtworkCacheProgress) {
+    cachedArtworkCount = progress.completedCount
+    artworkCacheTotalCount = progress.totalCount
+    artworkCacheFailureCount = progress.failedCount
+  }
+
+  private func cancelArtworkCaching() {
+    artworkCachingTask?.cancel()
+    artworkCachingTask = nil
+    isCachingArtwork = false
+    cachedArtworkCount = 0
+    artworkCacheTotalCount = 0
+    artworkCacheFailureCount = 0
+  }
+
   func reloadGames() async {
     let currentRequestID = UUID()
     requestID = currentRequestID
@@ -233,12 +341,18 @@ final class LibraryModel {
     isLoadingMore = false
     errorMessage = nil
 
+    if selection == .virtualCollections {
+      games = []
+      totalGameCount = 0
+      isLoading = false
+      return
+    }
+
     if let snapshot {
-      let page = snapshot.page(
-        matching: requestFilter,
-        searchTerm: normalizedSearchTerm,
+      let page = pageFromSnapshot(
+        from: snapshot,
         offset: 0,
-        limit: Self.pageSize
+        limit: snapshot.games.count
       )
       games = page.games
       totalGameCount = page.total
@@ -247,6 +361,13 @@ final class LibraryModel {
       if displayedGames.isEmpty, hasMoreGames {
         await loadMore()
       }
+      return
+    }
+
+    guard selection != .downloaded else {
+      games = []
+      totalGameCount = 0
+      isLoading = false
       return
     }
 
@@ -316,9 +437,8 @@ final class LibraryModel {
       repeat {
         let page: GamePage
         if let snapshot {
-          page = snapshot.page(
-            matching: requestFilter,
-            searchTerm: normalizedSearchTerm,
+          page = pageFromSnapshot(
+            from: snapshot,
             offset: games.count,
             limit: Self.pageSize
           )
@@ -351,41 +471,6 @@ final class LibraryModel {
       }
       errorMessage = error.localizedDescription
       isLoadingMore = false
-    }
-  }
-
-  func loadAllGamesForTable() async {
-    guard !isLoading, !isLoadingMore, hasMoreGames else {
-      return
-    }
-
-    if let snapshot {
-      let currentRequestID = requestID
-      isLoadingMore = true
-      await Task.yield()
-
-      let page = snapshot.page(
-        matching: requestFilter,
-        searchTerm: normalizedSearchTerm,
-        offset: 0,
-        limit: snapshot.games.count
-      )
-      guard requestID == currentRequestID, !Task.isCancelled else {
-        return
-      }
-
-      games = page.games
-      totalGameCount = page.total
-      isLoadingMore = false
-      return
-    }
-
-    while hasMoreGames, !Task.isCancelled {
-      let previousCount = games.count
-      await loadMore()
-      guard games.count > previousCount else {
-        return
-      }
     }
   }
 
@@ -430,6 +515,247 @@ final class LibraryModel {
     }
   }
 
+  func setHidesBIOSGames(_ enabled: Bool) async {
+    guard hidesBIOSGames != enabled else {
+      return
+    }
+
+    hidesBIOSGames = enabled
+    systemIDsWithArtwork = []
+    systemIDsWithoutArtwork = []
+
+    if let snapshot {
+      apply(snapshot)
+    } else if hasLoaded {
+      await reloadGames()
+    }
+
+    if hidesGamesWithoutArtwork {
+      await inspectSystemArtwork()
+    }
+  }
+
+  func reloadDownloadedGames() async {
+    async let downloadedGameIDsRequest = service.downloadedGameIDs(in: session)
+    async let managedDownloadedGameIDsRequest = service.managedDownloadedGameIDs(
+      in: session
+    )
+    let (gameIDs, managedGameIDs) = await (
+      downloadedGameIDsRequest,
+      managedDownloadedGameIDsRequest
+    )
+    guard
+      gameIDs != downloadedGameIDs
+        || managedGameIDs != managedDownloadedGameIDs
+    else {
+      return
+    }
+
+    downloadedGameIDs = gameIDs
+    managedDownloadedGameIDs = managedGameIDs
+    if selection == .downloaded {
+      await reloadGames()
+    }
+  }
+
+  func downloadGames(
+    _ gamesToDownload: [GameSummary]
+  ) async -> GameDownloadResult {
+    var seenGameIDs: Set<Int> = []
+    let uniqueGames = gamesToDownload.filter {
+      seenGameIDs.insert($0.id).inserted
+        && !managedDownloadedGameIDs.contains($0.id)
+    }
+    guard !uniqueGames.isEmpty, !isDownloadingGames else {
+      return GameDownloadResult(
+        downloadedGameIDs: [],
+        failedItemCount: 0,
+        errors: []
+      )
+    }
+
+    isDownloadingGames = true
+    defer { isDownloadingGames = false }
+
+    var downloadedGameIDs: [Int] = []
+    var errors: [String] = []
+
+    for game in uniqueGames {
+      guard !Task.isCancelled else {
+        break
+      }
+
+      if game.isMissingFromFileSystem == true {
+        errors.append("\(game.name): RomM reports that its ROM file is missing.")
+        continue
+      }
+
+      do {
+        let details = try await transferableDetails(for: game)
+        _ = try await service.downloadGame(
+          details,
+          in: session
+        )
+        downloadedGameIDs.append(game.id)
+      } catch is CancellationError {
+        break
+      } catch {
+        errors.append("\(game.name): \(error.localizedDescription)")
+      }
+    }
+
+    await reloadDownloadedGames()
+    return GameDownloadResult(
+      downloadedGameIDs: downloadedGameIDs,
+      failedItemCount: errors.count,
+      errors: errors
+    )
+  }
+
+  func removeDownloads(
+    _ gamesToRemove: [GameSummary]
+  ) async -> GameDownloadRemovalResult {
+    var seenGameIDs: Set<Int> = []
+    let uniqueGames = gamesToRemove.filter {
+      seenGameIDs.insert($0.id).inserted
+        && downloadedGameIDs.contains($0.id)
+    }
+    guard !uniqueGames.isEmpty, !isRemovingDownloads else {
+      return GameDownloadRemovalResult(
+        removedGameIDs: [],
+        failedItemCount: 0,
+        errors: []
+      )
+    }
+
+    isRemovingDownloads = true
+    defer { isRemovingDownloads = false }
+
+    var removedGameIDs: [Int] = []
+    var errors: [String] = []
+
+    for game in uniqueGames {
+      guard !Task.isCancelled else {
+        break
+      }
+
+      do {
+        try await service.removeDownloadedGame(
+          withID: game.id,
+          in: session
+        )
+        removedGameIDs.append(game.id)
+      } catch is CancellationError {
+        break
+      } catch {
+        errors.append("\(game.name): \(error.localizedDescription)")
+      }
+    }
+
+    await reloadDownloadedGames()
+    return GameDownloadRemovalResult(
+      removedGameIDs: removedGameIDs,
+      failedItemCount: errors.count,
+      errors: errors
+    )
+  }
+
+  func exportGames(
+    _ gamesToExport: [GameSummary]
+  ) async -> GameExportResult {
+    var seenGameIDs: Set<Int> = []
+    let uniqueGames = gamesToExport.filter {
+      seenGameIDs.insert($0.id).inserted
+    }
+    guard !uniqueGames.isEmpty, !isExportingGames else {
+      return GameExportResult(
+        exportedFileURLs: [],
+        failedItemCount: 0,
+        errors: []
+      )
+    }
+
+    isExportingGames = true
+    defer { isExportingGames = false }
+
+    var exportedFileURLs: [URL] = []
+    var errors: [String] = []
+
+    for game in uniqueGames {
+      guard !Task.isCancelled else {
+        break
+      }
+
+      if game.isMissingFromFileSystem == true,
+        !downloadedGameIDs.contains(game.id)
+      {
+        errors.append("\(game.name): RomM reports that its ROM file is missing.")
+        continue
+      }
+
+      do {
+        let details = try await transferableDetails(for: game)
+        let destination = try await service.exportGame(
+          details,
+          in: session
+        )
+        exportedFileURLs.append(destination)
+      } catch is CancellationError {
+        break
+      } catch {
+        errors.append("\(game.name): \(error.localizedDescription)")
+      }
+    }
+
+    return GameExportResult(
+      exportedFileURLs: exportedFileURLs,
+      failedItemCount: errors.count,
+      errors: errors
+    )
+  }
+
+  func deleteGames(
+    _ gamesToDelete: [GameSummary],
+    deletingFilesFromServer: Bool
+  ) async throws -> GameDeletionResult {
+    let gameIDs = Set(gamesToDelete.map(\.id))
+    guard !gameIDs.isEmpty else {
+      return GameDeletionResult(
+        successfulItemCount: 0,
+        failedItemCount: 0,
+        errors: []
+      )
+    }
+    guard !isDeletingGames else {
+      throw CancellationError()
+    }
+
+    isDeletingGames = true
+    defer { isDeletingGames = false }
+
+    let result = try await service.deleteGames(
+      withIDs: Array(gameIDs),
+      deletingFilesFromServer: deletingFilesFromServer,
+      in: session
+    )
+
+    if result.completedWithoutErrors,
+      result.successfulItemCount == gameIDs.count
+    {
+      if let snapshot {
+        apply(snapshot.removingGames(withIDs: gameIDs))
+      } else {
+        games.removeAll { gameIDs.contains($0.id) }
+        totalGameCount = max(0, totalGameCount - gameIDs.count)
+        allGameCount = max(0, allGameCount - gameIDs.count)
+      }
+    } else if result.successfulItemCount > 0 {
+      await refresh()
+    }
+
+    return result
+  }
+
   private func inspectSystemArtwork() async {
     guard !isCheckingSystemArtwork else {
       return
@@ -438,7 +764,9 @@ final class LibraryModel {
     if let snapshot {
       systemIDsWithArtwork = Set(
         snapshot.games.lazy
-          .filter { !$0.isBIOS && $0.coverURL != nil }
+          .filter {
+            (!self.hidesBIOSGames || !$0.isBIOS) && $0.coverURL != nil
+          }
           .map(\.systemID)
       )
       systemIDsWithoutArtwork = Set(
@@ -451,7 +779,9 @@ final class LibraryModel {
 
     systemIDsWithArtwork.formUnion(
       games.lazy
-        .filter { !$0.isBIOS && $0.coverURL != nil }
+        .filter {
+          (!self.hidesBIOSGames || !$0.isBIOS) && $0.coverURL != nil
+        }
         .map(\.systemID)
     )
 
@@ -514,6 +844,19 @@ final class LibraryModel {
     isCheckingSystemArtwork = false
   }
 
+  private func transferableDetails(for game: GameSummary) async throws -> GameDetails {
+    if let cachedDetails = try await service.cachedGameDetails(
+      for: game.id,
+      in: session
+    ) {
+      return cachedDetails
+    }
+    return try await service.gameDetails(
+      for: game.id,
+      in: session
+    )
+  }
+
   private var requestFilter: LibraryFilter {
     if !searchTerm.isEmpty, searchesAllSystems {
       return .allGames
@@ -525,24 +868,89 @@ final class LibraryModel {
     searchTerm.isEmpty ? nil : searchTerm
   }
 
+  private func pageFromSnapshot(
+    from librarySnapshot: LibrarySnapshot,
+    offset: Int,
+    limit: Int
+  ) -> GamePage {
+    let visibleGames = gamesVisibleUnderBIOSFilter(
+      in: librarySnapshot
+    )
+    let scopedSnapshot = LibrarySnapshot(
+      synchronizedAt: librarySnapshot.synchronizedAt,
+      systems: librarySnapshot.systems,
+      collections: librarySnapshot.collections,
+      games:
+        selection == .downloaded
+        ? visibleGames.filter { downloadedGameIDs.contains($0.id) }
+        : visibleGames,
+      collectionMemberships: librarySnapshot.collectionMemberships
+    )
+    return scopedSnapshot.page(
+      matching: selection == .downloaded ? .allGames : requestFilter,
+      searchTerm: normalizedSearchTerm,
+      offset: offset,
+      limit: limit
+    )
+  }
+
   private func apply(_ librarySnapshot: LibrarySnapshot) {
     snapshot = librarySnapshot
-    systems = librarySnapshot.systems
-    collections = librarySnapshot.collections
-    allGameCount = librarySnapshot.games.count
+    let visibleGames = gamesVisibleUnderBIOSFilter(
+      in: librarySnapshot
+    )
+    let visibleGameIDs = Set(visibleGames.map(\.id))
+    let systemCounts = Dictionary(
+      grouping: visibleGames,
+      by: \.systemID
+    ).mapValues(\.count)
+    let collectionCounts = Dictionary(
+      uniqueKeysWithValues: librarySnapshot.collectionMemberships.map {
+        membership in
+        (
+          membership.collectionID,
+          membership.gameIDs.count { visibleGameIDs.contains($0) }
+        )
+      }
+    )
+
+    systems = librarySnapshot.systems.map {
+      LibrarySystem(
+        id: $0.id,
+        name: $0.name,
+        gameCount: systemCounts[$0.id, default: 0]
+      )
+    }
+    collections = librarySnapshot.collections.map {
+      LibraryCollection(
+        id: $0.id,
+        name: $0.name,
+        gameCount: collectionCounts[$0.id, default: 0],
+        virtualType: $0.virtualType
+      )
+    }
+    collectionPreviewGames = Self.makeCollectionPreviews(
+      from: librarySnapshot,
+      visibleGameIDs: visibleGameIDs
+    )
+    allGameCount = visibleGames.count
     lastSuccessfulSync = librarySnapshot.synchronizedAt
     systemIDsWithArtwork = []
     systemIDsWithoutArtwork = []
     validateSelection()
 
-    let page = librarySnapshot.page(
-      matching: requestFilter,
-      searchTerm: normalizedSearchTerm,
-      offset: 0,
-      limit: Self.pageSize
-    )
-    games = page.games
-    totalGameCount = page.total
+    if selection == .virtualCollections {
+      games = []
+      totalGameCount = 0
+    } else {
+      let page = pageFromSnapshot(
+        from: librarySnapshot,
+        offset: 0,
+        limit: librarySnapshot.games.count
+      )
+      games = page.games
+      totalGameCount = page.total
+    }
   }
 
   private func apply(
@@ -565,7 +973,9 @@ final class LibraryModel {
     allGameCount = progress.totalGameCount
     validateSelection()
 
-    let visibleGames = progress.games.filter { !$0.isBIOS }
+    let visibleGames = progress.games.filter {
+      !hidesBIOSGames || !$0.isBIOS
+    }
     if !visibleGames.isEmpty {
       games = Array(visibleGames.prefix(Self.pageSize))
       totalGameCount = progress.totalGameCount
@@ -576,16 +986,76 @@ final class LibraryModel {
     }
   }
 
+  private func gamesVisibleUnderBIOSFilter(
+    in librarySnapshot: LibrarySnapshot
+  ) -> [GameSummary] {
+    guard hidesBIOSGames else {
+      return librarySnapshot.games
+    }
+    return librarySnapshot.games.filter { !$0.isBIOS }
+  }
+
   private func validateSelection() {
     switch selection {
-    case .allGames:
+    case .allGames, .downloaded:
+      break
+    case .virtualCollections
+      where collections.contains(where: {
+        if case .virtual = $0.id {
+          true
+        } else {
+          false
+        }
+      }):
       break
     case .system(let id) where systems.contains(where: { $0.id == id }):
       break
     case .collection(let id) where collections.contains(where: { $0.id == id }):
       break
-    case .system, .collection:
+    case .virtualCollections, .system, .collection:
       selection = .allGames
     }
+  }
+
+  private static func makeCollectionPreviews(
+    from snapshot: LibrarySnapshot,
+    visibleGameIDs: Set<Int>
+  ) -> [LibraryCollection.ID: [GameSummary]] {
+    let gamesByID = Dictionary(
+      uniqueKeysWithValues: snapshot.games.map { ($0.id, $0) }
+    )
+
+    return Dictionary(
+      uniqueKeysWithValues: snapshot.collectionMemberships.map { membership in
+        var gamesWithArtwork: [GameSummary] = []
+        var gamesWithoutArtwork: [GameSummary] = []
+
+        for gameID in membership.gameIDs {
+          guard
+            visibleGameIDs.contains(gameID),
+            let game = gamesByID[gameID]
+          else {
+            continue
+          }
+
+          if game.coverURL != nil {
+            if gamesWithArtwork.count < 4 {
+              gamesWithArtwork.append(game)
+            }
+          } else if gamesWithoutArtwork.count < 4 {
+            gamesWithoutArtwork.append(game)
+          }
+
+          if gamesWithArtwork.count == 4 {
+            break
+          }
+        }
+
+        return (
+          membership.collectionID,
+          Array((gamesWithArtwork + gamesWithoutArtwork).prefix(4))
+        )
+      }
+    )
   }
 }

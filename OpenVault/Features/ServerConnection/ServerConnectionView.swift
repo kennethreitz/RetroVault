@@ -82,13 +82,13 @@ struct ServerConnectionView: View {
                         Text("Connect")
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canConnect)
             }
             .frame(maxWidth: 520)
 
-            Text("OpenVault needs me.read, platforms.read, roms.read, collections.read, and roms.user.write. During development, the token is stored in OpenVault's sandboxed Application Support folder on this Mac.")
+            Text("OpenVault needs me.read, platforms.read, roms.read, roms.write, collections.read, roms.user.write, assets.read, assets.write, and firmware.read. Firmware access supplies system files to compatible bundled cores; asset access synchronizes cartridge saves. During development, the token is stored in OpenVault's sandboxed Application Support folder on this Mac.")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)

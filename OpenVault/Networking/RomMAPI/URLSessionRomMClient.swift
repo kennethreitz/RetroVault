@@ -1,6 +1,43 @@
 import Foundation
 import OSLog
 
+private final class RomMDownloadProgressDelegate:
+  NSObject,
+  URLSessionDownloadDelegate,
+  @unchecked Sendable
+{
+  private let onProgress: @Sendable (RomMDownloadProgress) -> Void
+
+  init(
+    onProgress: @escaping @Sendable (RomMDownloadProgress) -> Void
+  ) {
+    self.onProgress = onProgress
+  }
+
+  func urlSession(
+    _ session: URLSession,
+    downloadTask: URLSessionDownloadTask,
+    didWriteData bytesWritten: Int64,
+    totalBytesWritten: Int64,
+    totalBytesExpectedToWrite: Int64
+  ) {
+    onProgress(
+      RomMDownloadProgress(
+        bytesReceived: totalBytesWritten,
+        totalBytesExpected: totalBytesExpectedToWrite > 0
+          ? totalBytesExpectedToWrite
+          : nil
+      )
+    )
+  }
+
+  func urlSession(
+    _ session: URLSession,
+    downloadTask: URLSessionDownloadTask,
+    didFinishDownloadingTo location: URL
+  ) {}
+}
+
 final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
   private let session: URLSession
   private let decoder: JSONDecoder
@@ -89,15 +126,34 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
       at: serverURL.endpoint("api/collections/smart"),
       token: token
     )
+    var virtualComponents = URLComponents(
+      url: serverURL.endpoint("api/collections/virtual"),
+      resolvingAgainstBaseURL: false
+    )
+    virtualComponents?.queryItems = [
+      URLQueryItem(name: "type", value: "all")
+    ]
+    guard let virtualURL = virtualComponents?.url else {
+      throw RomMAPIError.invalidResponse
+    }
+    async let virtualData = authenticatedData(
+      at: virtualURL,
+      token: token
+    )
 
     do {
-      let (regular, smart) = try await (regularData, smartData)
+      let (regular, smart, virtual) = try await (
+        regularData,
+        smartData,
+        virtualData
+      )
       let regularCollections = try decoder.decode([CollectionDTO].self, from: regular)
         .map {
           LibraryCollection(
             id: .regular($0.id),
             name: $0.name,
-            gameCount: $0.gameCount
+            gameCount: $0.gameCount,
+            memberGameIDs: $0.gameIDs
           )
         }
       let smartCollections = try decoder.decode([CollectionDTO].self, from: smart)
@@ -105,12 +161,29 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
           LibraryCollection(
             id: .smart($0.id),
             name: $0.name,
-            gameCount: $0.gameCount
+            gameCount: $0.gameCount,
+            memberGameIDs: $0.gameIDs
+          )
+        }
+      let virtualCollections = try decoder.decode([VirtualCollectionDTO].self, from: virtual)
+        .map {
+          LibraryCollection(
+            id: .virtual($0.id),
+            name: $0.name,
+            gameCount: $0.gameCount,
+            virtualType: $0.type,
+            memberGameIDs: $0.gameIDs
           )
         }
 
-      return (regularCollections + smartCollections)
-        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+      return (regularCollections + smartCollections + virtualCollections)
+        .sorted {
+          let comparison = $0.name.localizedStandardCompare($1.name)
+          if comparison == .orderedSame {
+            return ($0.virtualType ?? "") < ($1.virtualType ?? "")
+          }
+          return comparison == .orderedAscending
+        }
     } catch let error as RomMAPIError {
       throw error
     } catch {
@@ -136,8 +209,6 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
       URLQueryItem(name: "with_files", value: "false"),
       URLQueryItem(name: "order_by", value: "name"),
       URLQueryItem(name: "order_dir", value: "asc"),
-      URLQueryItem(name: "tags", value: "BIOS"),
-      URLQueryItem(name: "tags_logic", value: "none"),
       URLQueryItem(name: "limit", value: String(limit)),
       URLQueryItem(name: "offset", value: String(offset)),
     ]
@@ -155,6 +226,8 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
       queryItems.append(URLQueryItem(name: "collection_id", value: String(id)))
     case .collection(.smart(let id)):
       queryItems.append(URLQueryItem(name: "smart_collection_id", value: String(id)))
+    case .collection(.virtual(let id)):
+      queryItems.append(URLQueryItem(name: "virtual_collection_id", value: id))
     }
 
     components?.queryItems = queryItems
@@ -199,8 +272,6 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
         URLQueryItem(name: "with_char_index", value: "false"),
         URLQueryItem(name: "with_filter_values", value: "false"),
         URLQueryItem(name: "with_files", value: "false"),
-        URLQueryItem(name: "tags", value: "BIOS"),
-        URLQueryItem(name: "tags_logic", value: "none"),
         URLQueryItem(
           name: kind == .save ? "has_saves" : "has_states",
           value: "true"
@@ -287,6 +358,22 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
     at serverURL: ServerURL,
     token: ClientToken
   ) async throws -> RomMDownload {
+    try await downloadGame(
+      for: gameID,
+      fileName: fileName,
+      at: serverURL,
+      token: token,
+      onProgress: { _ in }
+    )
+  }
+
+  func downloadGame(
+    for gameID: Int,
+    fileName: String,
+    at serverURL: ServerURL,
+    token: ClientToken,
+    onProgress: @escaping @Sendable (RomMDownloadProgress) -> Void
+  ) async throws -> RomMDownload {
     var request = URLRequest(
       url: serverURL.endpoint("api/roms/\(gameID)/content/\(fileName)")
     )
@@ -301,9 +388,21 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
 
     let temporaryFileURL: URL
     let response: URLResponse
+    let progressDelegate = RomMDownloadProgressDelegate(
+      onProgress: onProgress
+    )
 
     do {
-      (temporaryFileURL, response) = try await session.download(for: request)
+      onProgress(
+        RomMDownloadProgress(
+          bytesReceived: 0,
+          totalBytesExpected: nil
+        )
+      )
+      (temporaryFileURL, response) = try await session.download(
+        for: request,
+        delegate: progressDelegate
+      )
     } catch let error as URLError {
       OpenVaultLog.network.error(
         "ROM download transport error \(error.code.rawValue, privacy: .public)"
@@ -327,6 +426,21 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
         throw RomMAPIError.downloadUnavailable
       }
       _ = try validatedHTTPResponse(httpResponse)
+      let resourceValues = try? temporaryFileURL.resourceValues(
+        forKeys: [.fileSizeKey]
+      )
+      let receivedBytes = Int64(
+        resourceValues?.fileSize ?? 0
+      )
+      let expectedBytes = response.expectedContentLength > 0
+        ? response.expectedContentLength
+        : nil
+      onProgress(
+        RomMDownloadProgress(
+          bytesReceived: receivedBytes,
+          totalBytesExpected: expectedBytes
+        )
+      )
       return RomMDownload(
         temporaryFileURL: temporaryFileURL,
         suggestedFileName: httpResponse.suggestedFilename ?? fileName
@@ -340,6 +454,214 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
     }
   }
 
+  func firmware(
+    for platformID: Int,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> [RomMFirmware] {
+    var components = URLComponents(
+      url: serverURL.endpoint("api/firmware"),
+      resolvingAgainstBaseURL: false
+    )
+    components?.queryItems = [
+      URLQueryItem(name: "platform_id", value: String(platformID))
+    ]
+    guard let url = components?.url else {
+      throw RomMAPIError.invalidResponse
+    }
+
+    var request = URLRequest(url: url)
+    authorize(&request, with: token)
+
+    do {
+      let data = try await data(for: request)
+      return try decoder.decode([FirmwareDTO].self, from: data).map(\.firmware)
+    } catch let error as RomMAPIError {
+      throw error
+    } catch {
+      throw RomMAPIError.decoding(error)
+    }
+  }
+
+  func downloadFirmware(
+    _ firmware: RomMFirmware,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> RomMDownload {
+    var request = URLRequest(
+      url: serverURL.endpoint(
+        "api/firmware/\(firmware.id)/content/\(firmware.fileName)"
+      )
+    )
+    authorize(&request, with: token)
+    request.setValue(
+      "application/octet-stream, */*;q=0.8",
+      forHTTPHeaderField: "Accept"
+    )
+    OpenVaultLog.network.debug(
+      "GET \(request.url?.path ?? "", privacy: .public) (firmware download)"
+    )
+
+    let temporaryFileURL: URL
+    let response: URLResponse
+
+    do {
+      (temporaryFileURL, response) = try await session.download(for: request)
+    } catch let error as URLError {
+      OpenVaultLog.network.error(
+        "Firmware download transport error \(error.code.rawValue, privacy: .public)"
+      )
+      throw RomMAPIError.transport(error)
+    }
+
+    do {
+      let httpResponse = try validatedHTTPResponse(response)
+      return RomMDownload(
+        temporaryFileURL: temporaryFileURL,
+        suggestedFileName: httpResponse.suggestedFilename ?? firmware.fileName
+      )
+    } catch {
+      try? FileManager.default.removeItem(at: temporaryFileURL)
+      throw error
+    }
+  }
+
+  func downloadSave(
+    _ save: GameSaveDataItem,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> RomMDownload {
+    guard
+      !save.isMissingFromFileSystem,
+      let downloadURL = save.downloadURL,
+      serverURL.hasSameOrigin(as: downloadURL)
+    else {
+      throw RomMAPIError.notFound
+    }
+
+    var request = URLRequest(url: downloadURL)
+    authorize(&request, with: token)
+    request.setValue(
+      "application/octet-stream, */*;q=0.8",
+      forHTTPHeaderField: "Accept"
+    )
+    OpenVaultLog.network.debug(
+      "GET \(request.url?.path ?? "", privacy: .public) (save download)"
+    )
+
+    let temporaryFileURL: URL
+    let response: URLResponse
+
+    do {
+      (temporaryFileURL, response) = try await session.download(for: request)
+    } catch let error as URLError {
+      OpenVaultLog.network.error(
+        "Save download transport error \(error.code.rawValue, privacy: .public)"
+      )
+      throw RomMAPIError.transport(error)
+    }
+
+    do {
+      let httpResponse = try validatedHTTPResponse(response)
+      OpenVaultLog.network.debug(
+        "GET \(request.url?.path ?? "", privacy: .public) → \(httpResponse.statusCode, privacy: .public) (save download)"
+      )
+      return RomMDownload(
+        temporaryFileURL: temporaryFileURL,
+        suggestedFileName: httpResponse.suggestedFilename ?? save.fileName
+      )
+    } catch {
+      try? FileManager.default.removeItem(at: temporaryFileURL)
+      throw error
+    }
+  }
+
+  func uploadSave(
+    _ data: Data,
+    fileName: String,
+    for gameID: Int,
+    emulator: String,
+    slot: String,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> GameSaveDataItem {
+    var components = URLComponents(
+      url: serverURL.endpoint("api/saves"),
+      resolvingAgainstBaseURL: false
+    )
+    components?.queryItems = [
+      URLQueryItem(name: "rom_id", value: String(gameID)),
+      URLQueryItem(name: "emulator", value: emulator),
+      URLQueryItem(name: "slot", value: slot),
+      URLQueryItem(name: "overwrite", value: "false"),
+      URLQueryItem(name: "autocleanup", value: "true"),
+      URLQueryItem(name: "autocleanup_limit", value: "10"),
+    ]
+    guard let url = components?.url else {
+      throw RomMAPIError.invalidResponse
+    }
+
+    let boundary = "OpenVault-\(UUID().uuidString)"
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    authorize(&request, with: token)
+    request.setValue(
+      "multipart/form-data; boundary=\(boundary)",
+      forHTTPHeaderField: "Content-Type"
+    )
+    request.httpBody = multipartBody(
+      data: data,
+      fieldName: "saveFile",
+      fileName: fileName,
+      boundary: boundary
+    )
+
+    do {
+      let responseData = try await self.data(for: request)
+      return try decoder.decode(GameSaveDataItemDTO.self, from: responseData)
+        .gameSaveDataItem(kind: .save, serverURL: serverURL)
+    } catch let error as RomMAPIError {
+      throw error
+    } catch {
+      throw RomMAPIError.decoding(error)
+    }
+  }
+
+  func deleteGames(
+    withIDs gameIDs: [Int],
+    deletingFiles: Bool,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> GameDeletionResult {
+    var request = URLRequest(url: serverURL.endpoint("api/roms/delete"))
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    authorize(&request, with: token)
+    request.httpBody = try encoder.encode(
+      DeleteGamesRequestDTO(
+        roms: gameIDs,
+        deleteFromFileSystem: deletingFiles ? gameIDs : []
+      )
+    )
+
+    do {
+      let data = try await data(for: request)
+      let response = try decoder.decode(
+        BulkOperationResponseDTO.self,
+        from: data
+      )
+      return GameDeletionResult(
+        successfulItemCount: response.successfulItems,
+        failedItemCount: response.failedItems,
+        errors: response.errors
+      )
+    } catch let error as RomMAPIError {
+      throw error
+    } catch {
+      throw RomMAPIError.decoding(error)
+    }
+  }
+
   private func authenticatedData(at url: URL, token: ClientToken) async throws -> Data {
     var request = URLRequest(url: url)
     authorize(&request, with: token)
@@ -349,6 +671,31 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
   private func authorize(_ request: inout URLRequest, with token: ClientToken) {
     request.setValue("Bearer \(token.rawValue)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
+  }
+
+  private func multipartBody(
+    data: Data,
+    fieldName: String,
+    fileName: String,
+    boundary: String
+  ) -> Data {
+    let safeFileName = URL(fileURLWithPath: fileName)
+      .lastPathComponent
+      .replacingOccurrences(of: "\"", with: "_")
+      .replacingOccurrences(of: "\r", with: "_")
+      .replacingOccurrences(of: "\n", with: "_")
+    var body = Data()
+    body.append(Data("--\(boundary)\r\n".utf8))
+    body.append(
+      Data(
+        "Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(safeFileName)\"\r\n"
+          .utf8
+      )
+    )
+    body.append(Data("Content-Type: application/octet-stream\r\n\r\n".utf8))
+    body.append(data)
+    body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+    return body
   }
 
   private func data(for request: URLRequest) async throws -> Data {
@@ -427,6 +774,28 @@ private struct UserDTO: Decodable {
   }
 }
 
+private struct DeleteGamesRequestDTO: Encodable {
+  let roms: [Int]
+  let deleteFromFileSystem: [Int]
+
+  enum CodingKeys: String, CodingKey {
+    case roms
+    case deleteFromFileSystem = "delete_from_fs"
+  }
+}
+
+private struct BulkOperationResponseDTO: Decodable {
+  let successfulItems: Int
+  let failedItems: Int
+  let errors: [String]
+
+  enum CodingKeys: String, CodingKey {
+    case successfulItems = "successful_items"
+    case failedItems = "failed_items"
+    case errors
+  }
+}
+
 private struct SystemDTO: Decodable {
   let id: Int
   let displayName: String
@@ -443,11 +812,29 @@ private struct CollectionDTO: Decodable {
   let id: Int
   let name: String
   let gameCount: Int
+  let gameIDs: [Int]?
 
   enum CodingKeys: String, CodingKey {
     case id
     case name
     case gameCount = "rom_count"
+    case gameIDs = "rom_ids"
+  }
+}
+
+private struct VirtualCollectionDTO: Decodable {
+  let id: String
+  let name: String
+  let type: String
+  let gameCount: Int
+  let gameIDs: [Int]
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case name
+    case type
+    case gameCount = "rom_count"
+    case gameIDs = "rom_ids"
   }
 }
 
@@ -473,6 +860,7 @@ private struct GameDTO: Decodable {
   let fileSizeBytes: Int64?
   let isIdentified: Bool?
   let isMissingFromFileSystem: Bool?
+  let createdAt: String?
   let updatedAt: String?
 
   enum CodingKeys: String, CodingKey {
@@ -490,6 +878,7 @@ private struct GameDTO: Decodable {
     case fileSizeBytes = "fs_size_bytes"
     case isIdentified = "is_identified"
     case isMissingFromFileSystem = "missing_from_fs"
+    case createdAt = "created_at"
     case updatedAt = "updated_at"
   }
 
@@ -517,6 +906,7 @@ private struct GameDTO: Decodable {
       fileSizeBytes: fileSizeBytes,
       isIdentified: isIdentified,
       isMissingFromFileSystem: isMissingFromFileSystem,
+      createdAt: createdAt,
       updatedAt: updatedAt
     )
   }
@@ -1014,6 +1404,35 @@ private struct GameUserMetadataUpdateDTO: Encodable {
     try container.encode(isBacklogged, forKey: .isBacklogged)
     try container.encode(isNowPlaying, forKey: .isNowPlaying)
     try container.encode(isHidden, forKey: .isHidden)
+  }
+}
+
+private struct FirmwareDTO: Decodable {
+  let id: Int
+  let fileName: String
+  let fileSizeBytes: Int64
+  let sha1Hash: String?
+  let isVerified: Bool
+  let isMissingFromFileSystem: Bool
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case fileName = "file_name"
+    case fileSizeBytes = "file_size_bytes"
+    case sha1Hash = "sha1_hash"
+    case isVerified = "is_verified"
+    case isMissingFromFileSystem = "missing_from_fs"
+  }
+
+  var firmware: RomMFirmware {
+    RomMFirmware(
+      id: id,
+      fileName: fileName,
+      fileSizeBytes: fileSizeBytes,
+      sha1Hash: sha1Hash,
+      isVerified: isVerified,
+      isMissingFromFileSystem: isMissingFromFileSystem
+    )
   }
 }
 

@@ -6,6 +6,7 @@ protocol LibraryCaching: Sendable {
     func replaceSnapshot(_ snapshot: LibrarySnapshot, for serverURL: ServerURL) async throws
     func gameDetails(for gameID: Int, serverURL: ServerURL) async throws -> GameDetails?
     func saveGameDetails(_ details: GameDetails, for serverURL: ServerURL) async throws
+    func removeGames(withIDs gameIDs: Set<Int>, for serverURL: ServerURL) async throws
     func removeAll() async throws
 }
 
@@ -33,6 +34,15 @@ actor InMemoryLibraryCache: LibraryCaching {
 
     func saveGameDetails(_ gameDetails: GameDetails, for serverURL: ServerURL) {
         details[serverURL, default: [:]][gameDetails.id] = gameDetails
+    }
+
+    func removeGames(withIDs gameIDs: Set<Int>, for serverURL: ServerURL) {
+        if let snapshot = snapshots[serverURL] {
+            snapshots[serverURL] = snapshot.removingGames(withIDs: gameIDs)
+        }
+        details[serverURL] = details[serverURL]?.filter {
+            !gameIDs.contains($0.key)
+        }
     }
 
     func removeAll() {

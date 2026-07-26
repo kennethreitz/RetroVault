@@ -16,12 +16,17 @@ struct LibretroCoreManifest: Decodable, Sendable {
         let binaryName: String
         let systems: [String]
         let fileExtensions: [String]
+        let loadsArchivesDirectly: Bool?
         let capabilities: [String]
         let firmware: [Firmware]
 
         struct Firmware: Decodable, Sendable {
+            let id: String
             let fileName: String
+            let description: String
             let required: Bool
+            let sha256: [String]
+            let sha1: [String]?
         }
     }
 
@@ -34,15 +39,30 @@ struct LibretroCoreManifest: Decodable, Sendable {
         cores.first { $0.id == id }
     }
 
+    /// Returns whether OpenVault ships a reviewed core for the named RomM system.
+    func supportsSystem(named systemName: String) -> Bool {
+        let system = Self.systemIdentifier(for: systemName)
+        return cores.contains {
+            $0.status == .bundled && $0.systems.contains(system)
+        }
+    }
+
     func compatibleCore(
         systemName: String,
         fileExtension: String,
-        archiveMemberNames: [String] = []
+        archiveMemberNames: [String] = [],
+        contentFileNames: [String] = []
     ) -> Core? {
         let system = Self.systemIdentifier(for: systemName)
         let fileExtension = fileExtension
             .trimmingCharacters(in: CharacterSet(charactersIn: "."))
             .lowercased()
+        let contentFileExtensions = Set(
+            contentFileNames.map {
+                URL(fileURLWithPath: $0).pathExtension.lowercased()
+            }
+            .filter { !$0.isEmpty }
+        )
 
         return cores.first { core in
             guard core.status == .bundled, core.systems.contains(system) else {
@@ -50,6 +70,14 @@ struct LibretroCoreManifest: Decodable, Sendable {
             }
             guard fileExtension == "zip" else {
                 return core.fileExtensions.contains(fileExtension)
+                    || !contentFileExtensions.isDisjoint(
+                        with: core.fileExtensions
+                    )
+            }
+            if core.loadsArchivesDirectly == true,
+               core.fileExtensions.contains(fileExtension)
+            {
+                return true
             }
             guard !archiveMemberNames.isEmpty else {
                 return true
@@ -68,6 +96,69 @@ struct LibretroCoreManifest: Decodable, Sendable {
             "gb"
         case "game boy color", "nintendo game boy color":
             "gbc"
+        case "game boy advance", "nintendo game boy advance":
+            "gba"
+        case "nes", "famicom", "nintendo famicom",
+             "nintendo entertainment system", "nintendo nes":
+            "nes"
+        case "snes", "super famicom", "nintendo super famicom",
+             "super nintendo", "super nintendo entertainment system",
+             "nintendo super nintendo entertainment system":
+            "snes"
+        case "master system", "sega master system",
+             "sega master system/mark iii":
+            "sms"
+        case "game gear", "sega game gear":
+            "gg"
+        case "sg-1000", "sega sg-1000":
+            "sg-1000"
+        case "genesis", "mega drive", "sega genesis", "sega mega drive",
+             "sega mega drive/genesis":
+            "genesis"
+        case "sega cd", "mega cd", "sega mega cd":
+            "sega-cd"
+        case "sega 32x", "mega 32x":
+            "sega-32x"
+        case "atari 2600":
+            "atari-2600"
+        case "atari 5200":
+            "atari-5200"
+        case "atari 7800":
+            "atari-7800"
+        case "virtual boy", "nintendo virtual boy":
+            "virtual-boy"
+        case "neo geo pocket", "snk neo geo pocket":
+            "ngp"
+        case "neo geo pocket color", "snk neo geo pocket color":
+            "ngpc"
+        case "wonderswan", "bandai wonderswan":
+            "ws"
+        case "wonderswan color", "bandai wonderswan color":
+            "wsc"
+        case "pokemon mini", "pokémon mini", "nintendo pokemon mini",
+             "nintendo pokémon mini":
+            "pokemon-mini"
+        case "playstation", "playstation 1", "sony playstation", "ps1", "psx":
+            "psx"
+        case "playstation portable", "sony playstation portable", "psp":
+            "psp"
+        case "pc engine", "nec pc engine", "turbografx-16", "turbografx 16",
+             "turbo grafx 16", "turbografx-16/pc engine", "nec turbografx-16":
+            "pce"
+        case "pc engine cd", "pc engine cd-rom2", "pc engine cd-rom²",
+             "turbografx-cd", "turbografx cd", "nec pc engine cd":
+            "pce-cd"
+        case "pc engine supergrafx", "supergrafx", "nec supergrafx":
+            "sgx"
+        case "gamecube", "nintendo gamecube", "nintendo game cube",
+             "gcn", "ngc":
+            "gamecube"
+        case "nintendo 64", "n64":
+            "n64"
+        case "wii", "nintendo wii":
+            "wii"
+        case "nintendo ds", "nds":
+            "nds"
         default:
             name
                 .lowercased()
@@ -121,10 +212,28 @@ struct LibretroInstallation: Sendable {
             throw LibretroInstallationError.missingManifest
         }
 
-        let manifest: LibretroCoreManifest
+        let coresDirectory = bundle.builtInPlugInsURL?
+            .appending(path: "Libretro", directoryHint: .isDirectory)
+            ?? bundle.bundleURL
+                .appending(path: "Contents/PlugIns/Libretro", directoryHint: .isDirectory)
+
+        return try Self(
+            manifestURL: manifestURL,
+            coresDirectory: coresDirectory
+        )
+    }
+
+    /// Creates an installation from explicit manifest and core locations.
+    ///
+    /// OpenVault uses this entry point for integration tests against the same
+    /// reviewed core artifacts that are later embedded in the application.
+    init(manifestURL: URL, coresDirectory: URL) throws {
         do {
             let data = try Data(contentsOf: manifestURL)
-            manifest = try JSONDecoder().decode(LibretroCoreManifest.self, from: data)
+            manifest = try JSONDecoder().decode(
+                LibretroCoreManifest.self,
+                from: data
+            )
         } catch {
             throw LibretroInstallationError.invalidManifest(error.localizedDescription)
         }
@@ -133,12 +242,7 @@ struct LibretroInstallation: Sendable {
             throw LibretroInstallationError.unsupportedManifestVersion(manifest.schemaVersion)
         }
 
-        let coresDirectory = bundle.builtInPlugInsURL?
-            .appending(path: "Libretro", directoryHint: .isDirectory)
-            ?? bundle.bundleURL
-                .appending(path: "Contents/PlugIns/Libretro", directoryHint: .isDirectory)
-
-        return Self(manifest: manifest, coresDirectory: coresDirectory)
+        self.coresDirectory = coresDirectory
     }
 
     func core(id: String) throws -> (LibretroCoreManifest.Core, URL) {
@@ -157,12 +261,14 @@ struct LibretroInstallation: Sendable {
     func compatibleCore(
         systemName: String,
         fileExtension: String,
-        archiveMemberNames: [String] = []
+        archiveMemberNames: [String] = [],
+        contentFileNames: [String] = []
     ) -> LibretroCoreManifest.Core? {
         manifest.compatibleCore(
             systemName: systemName,
             fileExtension: fileExtension,
-            archiveMemberNames: archiveMemberNames
+            archiveMemberNames: archiveMemberNames,
+            contentFileNames: contentFileNames
         )
     }
 }

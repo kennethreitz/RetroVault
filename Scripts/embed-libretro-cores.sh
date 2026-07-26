@@ -30,6 +30,9 @@ mkdir -p -- "$plugins_directory" "$resources_directory"
 
 ditto "$artifact_directory/Cores" "$plugins_directory"
 ditto "$artifact_directory/Licenses" "$resources_directory/Licenses"
+if [ -d "$artifact_directory/System" ]; then
+    ditto "$artifact_directory/System" "$resources_directory/System"
+fi
 ditto "$artifact_directory/CoreManifest.json" "$resources_directory/CoreManifest.json"
 ditto "$artifact_directory/BuildReceipt.json" "$resources_directory/BuildReceipt.json"
 

@@ -8,10 +8,14 @@ protocol ServerConnecting: Sendable {
 
 actor ServerConnectionService: ServerConnecting {
     private static let requiredScopes: Set<String> = [
+        "assets.read",
+        "assets.write",
         "collections.read",
+        "firmware.read",
         "me.read",
         "platforms.read",
         "roms.read",
+        "roms.write",
         "roms.user.write",
     ]
 

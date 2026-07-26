@@ -1,15 +1,37 @@
+@preconcurrency import AppKit
 @preconcurrency import AVFoundation
 import CryptoKit
 import Darwin
 import Foundation
 @preconcurrency import GameController
 import Observation
+import OpenGL
+import OpenGL.GL3
 import OSLog
+
+@_silgen_name("openvault_libretro_log_callback_pointer")
+private func openVaultLibretroLogCallbackPointer() -> UnsafeMutableRawPointer
 
 struct LibretroRunRequest: Codable, Hashable, Sendable {
     let title: String
     let coreID: String
     let contentURL: URL?
+    let systemDirectory: URL?
+    let saveSync: CartridgeSaveSyncConfiguration?
+
+    init(
+        title: String,
+        coreID: String,
+        contentURL: URL?,
+        systemDirectory: URL? = nil,
+        saveSync: CartridgeSaveSyncConfiguration? = nil
+    ) {
+        self.title = title
+        self.coreID = coreID
+        self.contentURL = contentURL
+        self.systemDirectory = systemDirectory
+        self.saveSync = saveSync
+    }
 
     static let pipelineTest = Self(
         title: "2048",
@@ -22,6 +44,56 @@ struct LibretroVideoFrame: Sendable {
     let pixels: Data
     let width: Int
     let height: Int
+}
+
+struct LibretroRewindBuffer: Sendable {
+    let byteLimit: Int
+    let entryLimit: Int
+
+    private var states: [Data] = []
+    private(set) var byteCount = 0
+
+    init(byteLimit: Int, entryLimit: Int) {
+        self.byteLimit = max(byteLimit, 1)
+        self.entryLimit = max(entryLimit, 1)
+    }
+
+    var count: Int {
+        states.count
+    }
+
+    var isEmpty: Bool {
+        states.isEmpty
+    }
+
+    @discardableResult
+    mutating func append(_ state: Data) -> Bool {
+        guard !state.isEmpty, state.count <= byteLimit else {
+            removeAll()
+            return false
+        }
+
+        states.append(state)
+        byteCount += state.count
+
+        while states.count > entryLimit || byteCount > byteLimit {
+            byteCount -= states.removeFirst().count
+        }
+        return !states.isEmpty
+    }
+
+    mutating func popLast() -> Data? {
+        guard let state = states.popLast() else {
+            return nil
+        }
+        byteCount -= state.count
+        return state
+    }
+
+    mutating func removeAll() {
+        states.removeAll(keepingCapacity: true)
+        byteCount = 0
+    }
 }
 
 final class LibretroVideoBuffer: @unchecked Sendable {
@@ -47,6 +119,14 @@ final class LibretroInputState: @unchecked Sendable {
     private var pendingKeyboardPresses: UInt16 = 0
     private var controllerButtons: UInt16 = 0
     private var polledButtons: UInt16 = 0
+    private var leftAnalogX: Int16 = 0
+    private var leftAnalogY: Int16 = 0
+    private var rightAnalogX: Int16 = 0
+    private var rightAnalogY: Int16 = 0
+    private var pointerX: Int16 = 0
+    private var pointerY: Int16 = 0
+    private var pointerPressed = false
+    private var pointerInside = false
 
     func setKeyboardButton(_ button: LibretroButton, pressed: Bool) {
         lock.lock()
@@ -67,11 +147,35 @@ final class LibretroInputState: @unchecked Sendable {
         lock.unlock()
     }
 
+    func setPointer(
+        x: Int16,
+        y: Int16,
+        pressed: Bool,
+        inside: Bool
+    ) {
+        lock.lock()
+        pointerX = x
+        pointerY = y
+        pointerPressed = pressed
+        pointerInside = inside
+        lock.unlock()
+    }
+
     func pollController() {
         guard let gamepad = GCController.controllers().first?.extendedGamepad else {
             lock.lock()
             controllerButtons = 0
             polledButtons = keyboardButtons | pendingKeyboardPresses
+            leftAnalogX = digitalAxis(
+                negative: polledButtons & LibretroButton.left.mask != 0,
+                positive: polledButtons & LibretroButton.right.mask != 0
+            )
+            leftAnalogY = digitalAxis(
+                negative: polledButtons & LibretroButton.up.mask != 0,
+                positive: polledButtons & LibretroButton.down.mask != 0
+            )
+            rightAnalogX = 0
+            rightAnalogY = 0
             pendingKeyboardPresses = 0
             lock.unlock()
             return
@@ -96,6 +200,10 @@ final class LibretroInputState: @unchecked Sendable {
         lock.lock()
         controllerButtons = buttons
         polledButtons = keyboardButtons | pendingKeyboardPresses | controllerButtons
+        leftAnalogX = analogAxis(gamepad.leftThumbstick.xAxis.value)
+        leftAnalogY = analogAxis(-gamepad.leftThumbstick.yAxis.value)
+        rightAnalogX = analogAxis(gamepad.rightThumbstick.xAxis.value)
+        rightAnalogY = analogAxis(-gamepad.rightThumbstick.yAxis.value)
         pendingKeyboardPresses = 0
         lock.unlock()
     }
@@ -113,6 +221,56 @@ final class LibretroInputState: @unchecked Sendable {
             return 0
         }
         return buttons & (1 << UInt16(id)) == 0 ? 0 : 1
+    }
+
+    func pointerValue(for id: UInt32) -> Int16 {
+        lock.lock()
+        defer { lock.unlock() }
+
+        return switch id {
+        case LibretroABI.pointerXID:
+            pointerX
+        case LibretroABI.pointerYID:
+            pointerY
+        case LibretroABI.pointerPressedID:
+            pointerPressed && pointerInside ? 1 : 0
+        default:
+            0
+        }
+    }
+
+    func analogValue(index: UInt32, id: UInt32) -> Int16 {
+        lock.lock()
+        defer { lock.unlock() }
+
+        return switch (index, id) {
+        case (LibretroABI.analogLeftIndex, LibretroABI.analogXID):
+            leftAnalogX
+        case (LibretroABI.analogLeftIndex, LibretroABI.analogYID):
+            leftAnalogY
+        case (LibretroABI.analogRightIndex, LibretroABI.analogXID):
+            rightAnalogX
+        case (LibretroABI.analogRightIndex, LibretroABI.analogYID):
+            rightAnalogY
+        default:
+            0
+        }
+    }
+
+    private func analogAxis(_ value: Float) -> Int16 {
+        let clamped = min(max(value, -1), 1)
+        return Int16(clamping: Int(clamped * Float(Int16.max)))
+    }
+
+    private func digitalAxis(negative: Bool, positive: Bool) -> Int16 {
+        switch (negative, positive) {
+        case (true, false):
+            Int16.min + 1
+        case (false, true):
+            Int16.max
+        default:
+            0
+        }
     }
 }
 
@@ -158,6 +316,14 @@ final class LibretroSession {
         case failed(String)
     }
 
+    enum SaveSyncPhase: Equatable {
+        case idle
+        case syncing
+        case unchanged
+        case uploaded
+        case failed(String)
+    }
+
     let request: LibretroRunRequest
     let videoBuffer = LibretroVideoBuffer()
     let input = LibretroInputState()
@@ -166,15 +332,28 @@ final class LibretroSession {
     private(set) var isPaused = false
     private(set) var message: String?
     private(set) var hasQuickState = false
+    private(set) var canRewind = false
+    private(set) var saveSyncPhase: SaveSyncPhase = .idle
 
     private let engine: LibretroEngine
+    private let syncCartridgeSave:
+        @Sendable (CartridgeSaveSyncConfiguration) async throws
+            -> CartridgeSaveSyncOutcome
 
-    init(request: LibretroRunRequest) {
+    init(
+        request: LibretroRunRequest,
+        installation: LibretroInstallation? = nil,
+        syncCartridgeSave:
+            @escaping @Sendable (CartridgeSaveSyncConfiguration) async throws
+                -> CartridgeSaveSyncOutcome = { _ in .unchanged }
+    ) {
         self.request = request
+        self.syncCartridgeSave = syncCartridgeSave
         engine = LibretroEngine(
             request: request,
             videoBuffer: videoBuffer,
-            input: input
+            input: input,
+            installation: installation
         )
         hasQuickState = engine.hasQuickState
     }
@@ -189,13 +368,14 @@ final class LibretroSession {
 
         phase = .starting
         isPaused = false
+        canRewind = false
         message = nil
         OpenVaultLog.libretro.notice(
             "Starting core \(self.request.coreID, privacy: .public)"
         )
-        engine.start { [weak self] event in
-            Task { @MainActor [weak self] in
-                self?.receive(event)
+        engine.start { [self] event in
+            Task { @MainActor [self] in
+                receive(event)
             }
         }
     }
@@ -213,7 +393,15 @@ final class LibretroSession {
             return
         }
         engine.reset()
+        canRewind = false
         message = "Game reset."
+    }
+
+    func rewind() {
+        guard case .running = phase, canRewind else {
+            return
+        }
+        engine.rewind()
     }
 
     func saveQuickState() {
@@ -235,20 +423,33 @@ final class LibretroSession {
         input.releaseKeyboard()
     }
 
+    func retrySaveSync() {
+        guard case .failed = saveSyncPhase else {
+            return
+        }
+        synchronizeCartridgeSave()
+    }
+
     private func receive(_ event: LibretroEngine.Event) {
         switch event {
         case let .running(coreName, framesPerSecond):
             phase = .running(coreName: coreName, framesPerSecond: framesPerSecond)
+            saveSyncPhase = .idle
             OpenVaultLog.libretro.notice(
                 "Core \(coreName, privacy: .public) is running at \(framesPerSecond, privacy: .public) FPS"
             )
         case .stopped:
             phase = .stopped
             isPaused = false
+            canRewind = false
+            if request.saveSync != nil, saveSyncPhase == .idle {
+                synchronizeCartridgeSave()
+            }
             OpenVaultLog.libretro.notice("Libretro session stopped")
         case let .failed(error):
             phase = .failed(error)
             isPaused = false
+            canRewind = false
             OpenVaultLog.libretro.error("Libretro session failed: \(error)")
         case .quickStateSaved:
             hasQuickState = true
@@ -256,8 +457,42 @@ final class LibretroSession {
             message = "Quick state saved locally."
         case .quickStateLoaded:
             message = "Quick state restored."
+        case let .rewindAvailabilityChanged(isAvailable):
+            canRewind = isAvailable
+        case let .rewound(canContinue):
+            canRewind = canContinue
+            message = canContinue
+                ? "Rewound about one second."
+                : "Rewound to the beginning of available history."
         case let .notice(text):
             message = text
+        case .saveMemoryPersisted:
+            synchronizeCartridgeSave()
+        }
+    }
+
+    private func synchronizeCartridgeSave() {
+        guard
+            let configuration = request.saveSync,
+            saveSyncPhase != .syncing
+        else {
+            return
+        }
+
+        saveSyncPhase = .syncing
+        let operation = syncCartridgeSave
+        Task {
+            do {
+                let outcome = try await operation(configuration)
+                switch outcome {
+                case .unchanged:
+                    saveSyncPhase = .unchanged
+                case .uploaded:
+                    saveSyncPhase = .uploaded
+                }
+            } catch {
+                saveSyncPhase = .failed(error.localizedDescription)
+            }
         }
     }
 }
@@ -269,6 +504,7 @@ private enum LibretroRuntimeError: LocalizedError {
     case unsupportedAPIVersion(UInt32)
     case contentRejected
     case invalidSystemInformation
+    case couldNotInitializeHardwareContext
     case unsupportedPixelFormat(Int32)
     case stateUnavailable
     case stateOperationFailed(String)
@@ -287,6 +523,8 @@ private enum LibretroRuntimeError: LocalizedError {
             "The core rejected this game file."
         case .invalidSystemInformation:
             "The core returned invalid system or video information."
+        case .couldNotInitializeHardwareContext:
+            "The core's hardware-rendering context could not be initialized."
         case let .unsupportedPixelFormat(format):
             "The core requested unsupported pixel format \(format)."
         case .stateUnavailable:
@@ -300,7 +538,16 @@ private enum LibretroRuntimeError: LocalizedError {
 private enum LibretroABI {
     static let apiVersion: UInt32 = 1
     static let joypadDevice: UInt32 = 1
+    static let analogDevice: UInt32 = 5
     static let joypadMaskID: UInt32 = 256
+    static let analogLeftIndex: UInt32 = 0
+    static let analogRightIndex: UInt32 = 1
+    static let analogXID: UInt32 = 0
+    static let analogYID: UInt32 = 1
+    static let pointerDevice: UInt32 = 6
+    static let pointerXID: UInt32 = 0
+    static let pointerYID: UInt32 = 1
+    static let pointerPressedID: UInt32 = 2
     static let saveRAM: UInt32 = 0
 
     enum PixelFormat: Int32 {
@@ -316,6 +563,7 @@ private enum LibretroABI {
         case getSystemDirectory = 9
         case setPixelFormat = 10
         case setInputDescriptors = 11
+        case setHardwareRender = 14
         case getVariable = 15
         case setVariables = 16
         case getVariableUpdate = 17
@@ -331,6 +579,13 @@ private enum LibretroABI {
         case getVFSInterface = 45
         case getTargetRefreshRate = 50
         case getInputBitmasks = 51
+        case getPreferredHardwareRender = 56
+    }
+
+    enum HardwareContext: Int32 {
+        case none = 0
+        case openGL = 1
+        case openGLCore = 3
     }
 }
 
@@ -346,6 +601,29 @@ private typealias RetroInputPollCallback =
     @convention(c) () -> Void
 private typealias RetroInputStateCallback =
     @convention(c) (UInt32, UInt32, UInt32, UInt32) -> Int16
+private typealias RetroHardwareContextCallback =
+    @convention(c) () -> Void
+private typealias RetroHardwareFramebufferCallback =
+    @convention(c) () -> UInt
+private typealias RetroHardwareProc =
+    @convention(c) () -> Void
+private typealias RetroHardwareProcAddressCallback =
+    @convention(c) (UnsafePointer<CChar>?) -> RetroHardwareProc?
+
+private struct RetroHardwareRenderCallback {
+    var contextType: Int32
+    var contextReset: RetroHardwareContextCallback?
+    var getCurrentFramebuffer: RetroHardwareFramebufferCallback?
+    var getProcAddress: RetroHardwareProcAddressCallback?
+    var depth: Bool
+    var stencil: Bool
+    var bottomLeftOrigin: Bool
+    var versionMajor: UInt32
+    var versionMinor: UInt32
+    var cacheContext: Bool
+    var contextDestroy: RetroHardwareContextCallback?
+    var debugContext: Bool
+}
 
 private protocol LibretroCallbackTarget: AnyObject {
     func environment(command: UInt32, data: UnsafeMutableRawPointer?) -> Bool
@@ -354,6 +632,8 @@ private protocol LibretroCallbackTarget: AnyObject {
     func audio(data: UnsafePointer<Int16>?, frames: Int) -> Int
     func pollInput()
     func input(port: UInt32, device: UInt32, index: UInt32, id: UInt32) -> Int16
+    func currentHardwareFramebuffer() -> UInt
+    func hardwareProcAddress(_ name: UnsafePointer<CChar>?) -> RetroHardwareProc?
 }
 
 private final class LibretroCallbackRouter: @unchecked Sendable {
@@ -413,6 +693,14 @@ private let libretroInputPollCallback: RetroInputPollCallback = {
 private let libretroInputStateCallback: RetroInputStateCallback = { port, device, index, id in
     LibretroCallbackRouter.shared.currentTarget()?
         .input(port: port, device: device, index: index, id: id) ?? 0
+}
+
+private let libretroHardwareFramebufferCallback: RetroHardwareFramebufferCallback = {
+    LibretroCallbackRouter.shared.currentTarget()?.currentHardwareFramebuffer() ?? 0
+}
+
+private let libretroHardwareProcAddressCallback: RetroHardwareProcAddressCallback = { name in
+    LibretroCallbackRouter.shared.currentTarget()?.hardwareProcAddress(name)
 }
 
 private final class LibretroCore {
@@ -747,6 +1035,14 @@ private final class LibretroAudioOutput: @unchecked Sendable {
         schedule(samples: samples, frames: frames)
     }
 
+    func flush() {
+        individualSamples.removeAll(keepingCapacity: true)
+        player.stop()
+        if engine.isRunning {
+            player.play()
+        }
+    }
+
     func stop() {
         if !individualSamples.isEmpty {
             individualSamples.withUnsafeBufferPointer {
@@ -782,6 +1078,208 @@ private final class LibretroAudioOutput: @unchecked Sendable {
     }
 }
 
+/// Provides the OpenGL 4.1 context required by hardware-rendered Libretro cores.
+///
+/// The core renders into an offscreen framebuffer. OpenVault reads completed
+/// frames back into its existing Metal presentation path, keeping the SwiftUI
+/// window and fullscreen behavior shared with software-rendered cores.
+private final class LibretroOpenGLRenderer: @unchecked Sendable {
+    private static let maximumDimension: GLsizei = 4_096
+    private let openGLLibrary = dlopen(
+        "/System/Library/Frameworks/OpenGL.framework/OpenGL",
+        RTLD_LAZY | RTLD_LOCAL
+    )
+
+    private let context: CGLContextObj
+    private var framebuffer: GLuint = 0
+    private var colorTexture: GLuint = 0
+    private var depthStencilBuffer: GLuint = 0
+
+    init?() {
+        var attributes: [CGLPixelFormatAttribute] = [
+            kCGLPFAOpenGLProfile,
+            CGLPixelFormatAttribute(
+                rawValue: UInt32(kCGLOGLPVersion_GL4_Core.rawValue)
+            ),
+            kCGLPFAAccelerated,
+            CGLPixelFormatAttribute(rawValue: 0),
+        ]
+        var pixelFormat: CGLPixelFormatObj?
+        var pixelFormatCount: GLint = 0
+        guard
+            CGLChoosePixelFormat(
+                &attributes,
+                &pixelFormat,
+                &pixelFormatCount
+            ) == kCGLNoError,
+            let pixelFormat
+        else {
+            return nil
+        }
+        defer {
+            CGLDestroyPixelFormat(pixelFormat)
+        }
+
+        var context: CGLContextObj?
+        guard
+            CGLCreateContext(pixelFormat, nil, &context) == kCGLNoError,
+            let context
+        else {
+            return nil
+        }
+        self.context = context
+
+        guard makeCurrent() else {
+            CGLDestroyContext(context)
+            return nil
+        }
+
+        glGenFramebuffers(1, &framebuffer)
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), framebuffer)
+
+        glGenTextures(1, &colorTexture)
+        glBindTexture(GLenum(GL_TEXTURE_2D), colorTexture)
+        glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_MIN_FILTER), GL_LINEAR)
+        glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_MAG_FILTER), GL_LINEAR)
+        glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_WRAP_S), GL_CLAMP_TO_EDGE)
+        glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_WRAP_T), GL_CLAMP_TO_EDGE)
+        glTexImage2D(
+            GLenum(GL_TEXTURE_2D),
+            0,
+            GL_RGBA8,
+            Self.maximumDimension,
+            Self.maximumDimension,
+            0,
+            GLenum(GL_BGRA),
+            GLenum(GL_UNSIGNED_BYTE),
+            nil
+        )
+        glFramebufferTexture2D(
+            GLenum(GL_FRAMEBUFFER),
+            GLenum(GL_COLOR_ATTACHMENT0),
+            GLenum(GL_TEXTURE_2D),
+            colorTexture,
+            0
+        )
+
+        glGenRenderbuffers(1, &depthStencilBuffer)
+        glBindRenderbuffer(GLenum(GL_RENDERBUFFER), depthStencilBuffer)
+        glRenderbufferStorage(
+            GLenum(GL_RENDERBUFFER),
+            GLenum(GL_DEPTH24_STENCIL8),
+            Self.maximumDimension,
+            Self.maximumDimension
+        )
+        glFramebufferRenderbuffer(
+            GLenum(GL_FRAMEBUFFER),
+            GLenum(GL_DEPTH_STENCIL_ATTACHMENT),
+            GLenum(GL_RENDERBUFFER),
+            depthStencilBuffer
+        )
+
+        guard glCheckFramebufferStatus(GLenum(GL_FRAMEBUFFER)) == GLenum(GL_FRAMEBUFFER_COMPLETE) else {
+            CGLDestroyContext(context)
+            return nil
+        }
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), 0)
+    }
+
+    deinit {
+        guard makeCurrent() else {
+            CGLDestroyContext(context)
+            return
+        }
+        if depthStencilBuffer != 0 {
+            glDeleteRenderbuffers(1, &depthStencilBuffer)
+        }
+        if colorTexture != 0 {
+            glDeleteTextures(1, &colorTexture)
+        }
+        if framebuffer != 0 {
+            glDeleteFramebuffers(1, &framebuffer)
+        }
+        CGLSetCurrentContext(nil)
+        CGLDestroyContext(context)
+    }
+
+    func makeCurrent() -> Bool {
+        CGLSetCurrentContext(context) == kCGLNoError
+    }
+
+    func currentFramebuffer() -> UInt {
+        UInt(framebuffer)
+    }
+
+    func procAddress(_ name: UnsafePointer<CChar>?) -> RetroHardwareProc? {
+        guard
+            let name,
+            let library = openGLLibrary,
+            let address = dlsym(library, name)
+        else {
+            return nil
+        }
+        return unsafeBitCast(address, to: RetroHardwareProc.self)
+    }
+
+    func capture(width: Int, height: Int) -> LibretroVideoFrame? {
+        guard
+            width > 0,
+            height > 0,
+            width <= Int(Self.maximumDimension),
+            height <= Int(Self.maximumDimension),
+            makeCurrent()
+        else {
+            return nil
+        }
+
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), framebuffer)
+        glFinish()
+        glPixelStorei(GLenum(GL_PACK_ALIGNMENT), 1)
+
+        let bytesPerRow = width * 4
+        var source = Data(count: bytesPerRow * height)
+        source.withUnsafeMutableBytes {
+            glReadPixels(
+                0,
+                0,
+                GLsizei(width),
+                GLsizei(height),
+                GLenum(GL_BGRA),
+                GLenum(GL_UNSIGNED_BYTE),
+                $0.baseAddress
+            )
+        }
+
+        var pixels = Data(count: source.count)
+        source.withUnsafeBytes { sourceBytes in
+            pixels.withUnsafeMutableBytes { destinationBytes in
+                guard
+                    let sourceBase = sourceBytes.baseAddress,
+                    let destinationBase = destinationBytes.baseAddress
+                else {
+                    return
+                }
+                for row in 0 ..< height {
+                    destinationBase
+                        .advanced(by: row * bytesPerRow)
+                        .copyMemory(
+                            from: sourceBase.advanced(
+                                by: (height - row - 1) * bytesPerRow
+                            ),
+                            byteCount: bytesPerRow
+                        )
+                }
+            }
+        }
+
+        return LibretroVideoFrame(
+            pixels: pixels,
+            width: width,
+            height: height
+        )
+    }
+}
+
 private final class LibretroCStringStore {
     private var pointers: [UnsafeMutablePointer<CChar>] = []
 
@@ -799,11 +1297,25 @@ private final class LibretroCStringStore {
 }
 
 private final class LibretroEnvironment {
+    private static let preferredVariableValues = [
+        // GLideN64's framebuffer path can produce valid but entirely black
+        // frames through macOS's deprecated OpenGL implementation. The
+        // multithreaded Angrylion renderer is CPU-based, accurate, and avoids
+        // that hardware-context compatibility boundary on Apple Silicon.
+        "parallel-n64-gfxplugin": "angrylion",
+        "parallel-n64-rspplugin": "cxd4",
+        "parallel-n64-angrylion-multithread": "all threads",
+    ]
+
     private let strings = LibretroCStringStore()
     private let systemDirectory: UnsafePointer<CChar>
     private let saveDirectory: UnsafePointer<CChar>
     private let assetsDirectory: UnsafePointer<CChar>
     private var variables: [String: UnsafePointer<CChar>] = [:]
+    private var hardwareRenderer: LibretroOpenGLRenderer?
+    private var hardwareContextReset: RetroHardwareContextCallback?
+    private var hardwareContextDestroy: RetroHardwareContextCallback?
+    private var isHardwareContextActive = false
 
     private(set) var pixelFormat = LibretroABI.PixelFormat.zeroRGB1555
     private(set) var supportsNoGame = false
@@ -843,6 +1355,8 @@ private final class LibretroEnvironment {
             return true
         case .setInputDescriptors:
             return true
+        case .setHardwareRender:
+            return configureHardwareRenderer(from: data)
         case .getVariable:
             return readVariable(from: data)
         case .setVariables:
@@ -859,7 +1373,14 @@ private final class LibretroEnvironment {
         case .setFrameTimeCallback:
             return true
         case .getLogInterface:
-            return false
+            guard let data else {
+                return false
+            }
+            data.storeBytes(
+                of: openVaultLibretroLogCallbackPointer(),
+                as: UnsafeMutableRawPointer?.self
+            )
+            return true
         case .getCoreAssetsDirectory:
             return write(assetsDirectory, to: data)
         case .getSaveDirectory:
@@ -878,7 +1399,97 @@ private final class LibretroEnvironment {
             return data != nil
         case .getInputBitmasks:
             return true
+        case .getPreferredHardwareRender:
+            guard let data else {
+                return false
+            }
+            data.storeBytes(
+                of: LibretroABI.HardwareContext.openGLCore.rawValue,
+                as: Int32.self
+            )
+            return true
         }
+    }
+
+    func makeHardwareContextCurrent() {
+        _ = hardwareRenderer?.makeCurrent()
+    }
+
+    func currentHardwareFramebuffer() -> UInt {
+        hardwareRenderer?.currentFramebuffer() ?? 0
+    }
+
+    func hardwareProcAddress(_ name: UnsafePointer<CChar>?) -> RetroHardwareProc? {
+        hardwareRenderer?.procAddress(name)
+    }
+
+    func captureHardwareFrame(width: Int, height: Int) -> LibretroVideoFrame? {
+        hardwareRenderer?.capture(width: width, height: height)
+    }
+
+    func destroyHardwareRenderer() {
+        guard hardwareRenderer != nil else {
+            return
+        }
+        makeHardwareContextCurrent()
+        if isHardwareContextActive {
+            hardwareContextDestroy?()
+        }
+        hardwareContextReset = nil
+        hardwareContextDestroy = nil
+        isHardwareContextActive = false
+        hardwareRenderer = nil
+    }
+
+    func activateHardwareRenderer() -> Bool {
+        guard let hardwareRenderer else {
+            return true
+        }
+        guard hardwareRenderer.makeCurrent() else {
+            return false
+        }
+        guard !isHardwareContextActive else {
+            return true
+        }
+
+        hardwareContextReset?()
+        isHardwareContextActive = true
+        return true
+    }
+
+    private func configureHardwareRenderer(
+        from data: UnsafeMutableRawPointer?
+    ) -> Bool {
+        guard let data else {
+            return false
+        }
+        let callback = data.assumingMemoryBound(
+            to: RetroHardwareRenderCallback.self
+        )
+        guard
+            callback.pointee.contextType
+                == LibretroABI.HardwareContext.openGLCore.rawValue,
+            callback.pointee.versionMajor <= 4,
+            let renderer = hardwareRenderer ?? LibretroOpenGLRenderer()
+        else {
+            return false
+        }
+
+        hardwareRenderer = renderer
+        hardwareContextReset = callback.pointee.contextReset
+        hardwareContextDestroy = callback.pointee.contextDestroy
+        callback.pointee.getCurrentFramebuffer =
+            libretroHardwareFramebufferCallback
+        callback.pointee.getProcAddress =
+            libretroHardwareProcAddressCallback
+
+        guard renderer.makeCurrent() else {
+            hardwareContextReset = nil
+            hardwareContextDestroy = nil
+            hardwareRenderer = nil
+            return false
+        }
+        return true
     }
 
     private func write(
@@ -922,7 +1533,9 @@ private final class LibretroEnvironment {
                         $0.trimmingCharacters(in: .whitespacesAndNewlines)
                     }
                 if let defaultValue = values?.first, !defaultValue.isEmpty {
-                    variables[key] = strings.store(defaultValue)
+                    variables[key] = strings.store(
+                        Self.preferredVariableValues[key] ?? defaultValue
+                    )
                 }
             }
             index += 1
@@ -956,13 +1569,21 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         case quickStateSaved
         case quickStateLoaded
         case notice(String)
+        case saveMemoryPersisted
+        case rewindAvailabilityChanged(Bool)
+        case rewound(canContinue: Bool)
     }
 
     private enum Command {
         case reset
         case saveQuickState
         case loadQuickState
+        case rewind
     }
+
+    private static let rewindCaptureInterval = 1.0
+    private static let rewindByteLimit = 128 * 1_024 * 1_024
+    private static let rewindEntryLimit = 90
 
     private struct Paths {
         let system: URL
@@ -985,6 +1606,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
     private let paths: Paths
     private let quickStateURL: URL
     private let saveMemoryURL: URL
+    private let installationOverride: LibretroInstallation?
 
     private var environment: LibretroEnvironment?
     private var eventHandler: (@Sendable (Event) -> Void)?
@@ -996,16 +1618,20 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
     init(
         request: LibretroRunRequest,
         videoBuffer: LibretroVideoBuffer,
-        input: LibretroInputState
+        input: LibretroInputState,
+        installation: LibretroInstallation? = nil
     ) {
         self.request = request
         self.videoBuffer = videoBuffer
         inputState = input
+        installationOverride = installation
 
         let paths = Self.paths(for: request)
         self.paths = paths
         quickStateURL = paths.states.appending(path: "Quick.state")
-        saveMemoryURL = paths.saves.appending(path: "SaveRAM.srm")
+        saveMemoryURL =
+            request.saveSync?.localSaveURL
+            ?? paths.saves.appending(path: "SaveRAM.srm")
         hasQuickState = FileManager.default.fileExists(atPath: quickStateURL.path)
     }
 
@@ -1046,6 +1672,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         enqueue(.loadQuickState)
     }
 
+    func rewind() {
+        enqueue(.rewind)
+    }
+
     func stop() {
         controlLock.lock()
         shouldStop = true
@@ -1058,6 +1688,25 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
 
     func video(data: UnsafeRawPointer?, width: UInt32, height: UInt32, pitch: Int) {
         guard let data else {
+            return
+        }
+
+        if UInt(bitPattern: data) == UInt.max {
+            guard
+                let frame = environment?.captureHardwareFrame(
+                    width: Int(width),
+                    height: Int(height)
+                )
+            else {
+                stop()
+                emit(
+                    .failed(
+                        "The hardware-rendered frame could not be read from the core."
+                    )
+                )
+                return
+            }
+            videoBuffer.publish(frame)
             return
         }
 
@@ -1095,10 +1744,30 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         index: UInt32,
         id: UInt32
     ) -> Int16 {
-        guard port == 0, device & 0xFF == LibretroABI.joypadDevice, index == 0 else {
+        guard port == 0 else {
             return 0
         }
-        return inputState.value(for: id)
+
+        switch device & 0xFF {
+        case LibretroABI.joypadDevice:
+            return index == 0 ? inputState.value(for: id) : 0
+        case LibretroABI.analogDevice:
+            return inputState.analogValue(index: index, id: id)
+        case LibretroABI.pointerDevice:
+            return index == 0 ? inputState.pointerValue(for: id) : 0
+        default:
+            return 0
+        }
+    }
+
+    func currentHardwareFramebuffer() -> UInt {
+        environment?.currentHardwareFramebuffer() ?? 0
+    }
+
+    func hardwareProcAddress(
+        _ name: UnsafePointer<CChar>?
+    ) -> RetroHardwareProc? {
+        environment?.hardwareProcAddress(name)
     }
 
     private func runLoop() {
@@ -1106,11 +1775,23 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         var initialized = false
         var loaded = false
         var failed = false
+        var rewindBuffer = LibretroRewindBuffer(
+            byteLimit: Self.rewindByteLimit,
+            entryLimit: Self.rewindEntryLimit
+        )
+        var rewindIsSupported = true
+        var nextRewindCapture = 0.0
 
         defer {
             if loaded, let core {
-                persistSaveMemory(from: core)
+                environment?.makeHardwareContextCurrent()
+                if persistSaveMemory(from: core) {
+                    emit(.saveMemoryPersisted)
+                }
+                environment?.destroyHardwareRenderer()
                 core.unloadGame()
+            } else {
+                environment?.destroyHardwareRenderer()
             }
             if initialized {
                 core?.deinitialize()
@@ -1132,7 +1813,8 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
 
         do {
             try prepareDirectories()
-            let installation = try LibretroInstallation.bundled()
+            let installation =
+                try installationOverride ?? LibretroInstallation.bundled()
             let (manifestCore, binaryURL) = try installation.core(id: request.coreID)
 
             guard LibretroCallbackRouter.shared.install(self) else {
@@ -1158,6 +1840,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             )
             loaded = true
 
+            guard runtimeEnvironment.activateHardwareRenderer() else {
+                throw LibretroRuntimeError.couldNotInitializeHardwareContext
+            }
             let avInfo = try loadedCore.avInfo()
             try audioOutput.configure(sampleRate: avInfo.sampleRate)
             restoreSaveMemory(into: loadedCore)
@@ -1172,15 +1857,32 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             var nextFrame = ProcessInfo.processInfo.systemUptime
 
             while !stopRequested {
-                processCommands(using: loadedCore)
+                let didRewind = processCommands(
+                    using: loadedCore,
+                    rewindBuffer: &rewindBuffer,
+                    rewindIsSupported: &rewindIsSupported,
+                    nextRewindCapture: &nextRewindCapture
+                )
 
                 if paused {
+                    if didRewind {
+                        runtimeEnvironment.makeHardwareContextCurrent()
+                        loadedCore.run()
+                        audioOutput.flush()
+                    }
                     Thread.sleep(forTimeInterval: 0.01)
                     nextFrame = ProcessInfo.processInfo.systemUptime
                     continue
                 }
 
+                runtimeEnvironment.makeHardwareContextCurrent()
                 loadedCore.run()
+                captureRewindStateIfNeeded(
+                    using: loadedCore,
+                    rewindBuffer: &rewindBuffer,
+                    rewindIsSupported: &rewindIsSupported,
+                    nextRewindCapture: &nextRewindCapture
+                )
                 if runtimeEnvironment.requestedShutdown {
                     stop()
                 }
@@ -1219,17 +1921,27 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         return isPaused
     }
 
-    private func processCommands(using core: LibretroCore) {
+    private func processCommands(
+        using core: LibretroCore,
+        rewindBuffer: inout LibretroRewindBuffer,
+        rewindIsSupported: inout Bool,
+        nextRewindCapture: inout TimeInterval
+    ) -> Bool {
         controlLock.lock()
         let pending = commands
         commands.removeAll()
         controlLock.unlock()
 
+        var didRewind = false
         for command in pending {
             do {
                 switch command {
                 case .reset:
                     core.reset()
+                    rewindBuffer.removeAll()
+                    rewindIsSupported = true
+                    nextRewindCapture = 0
+                    emit(.rewindAvailabilityChanged(false))
                 case .saveQuickState:
                     let data = try core.saveState()
                     try data.write(to: quickStateURL, options: .atomic)
@@ -1240,11 +1952,67 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     }
                     let data = try Data(contentsOf: quickStateURL)
                     try core.loadState(data)
+                    rewindBuffer.removeAll()
+                    rewindIsSupported = true
+                    nextRewindCapture = 0
+                    audioOutput.flush()
+                    emit(.rewindAvailabilityChanged(false))
                     emit(.quickStateLoaded)
+                case .rewind:
+                    guard let state = rewindBuffer.popLast() else {
+                        emit(.rewindAvailabilityChanged(false))
+                        continue
+                    }
+                    try core.loadState(state)
+                    audioOutput.flush()
+                    nextRewindCapture =
+                        ProcessInfo.processInfo.systemUptime
+                        + Self.rewindCaptureInterval
+                    didRewind = true
+                    emit(.rewound(canContinue: !rewindBuffer.isEmpty))
                 }
             } catch {
                 emit(.notice(error.localizedDescription))
             }
+        }
+        return didRewind
+    }
+
+    private func captureRewindStateIfNeeded(
+        using core: LibretroCore,
+        rewindBuffer: inout LibretroRewindBuffer,
+        rewindIsSupported: inout Bool,
+        nextRewindCapture: inout TimeInterval
+    ) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard rewindIsSupported, now >= nextRewindCapture else {
+            return
+        }
+        nextRewindCapture = now + Self.rewindCaptureInterval
+
+        do {
+            let wasEmpty = rewindBuffer.isEmpty
+            let state = try core.saveState()
+            guard rewindBuffer.append(state) else {
+                rewindIsSupported = false
+                emit(.rewindAvailabilityChanged(false))
+                emit(
+                    .notice(
+                        "Rewind is unavailable because this core’s state exceeds the 128 MB history limit."
+                    )
+                )
+                return
+            }
+            if wasEmpty {
+                emit(.rewindAvailabilityChanged(true))
+            }
+        } catch {
+            rewindIsSupported = false
+            rewindBuffer.removeAll()
+            emit(.rewindAvailabilityChanged(false))
+            OpenVaultLog.libretro.info(
+                "Rewind is unavailable for this core: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -1259,20 +2027,28 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         data.copyBytes(to: destination.assumingMemoryBound(to: UInt8.self), count: size)
     }
 
-    private func persistSaveMemory(from core: LibretroCore) {
+    private func persistSaveMemory(from core: LibretroCore) -> Bool {
         guard let (source, size) = core.saveMemory() else {
-            return
+            return false
         }
         let data = Data(bytes: source, count: size)
         do {
             try data.write(to: saveMemoryURL, options: .atomic)
+            return true
         } catch {
             emit(.notice("OpenVault could not save battery-backed memory: \(error.localizedDescription)"))
+            return false
         }
     }
 
     private func prepareDirectories() throws {
-        for directory in [paths.system, paths.saves, paths.states, paths.assets] {
+        for directory in [
+            paths.system,
+            paths.saves,
+            paths.states,
+            paths.assets,
+            saveMemoryURL.deletingLastPathComponent(),
+        ] {
             try FileManager.default.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true
@@ -1303,9 +2079,17 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             .appending(path: "Libretro", directoryHint: .isDirectory)
             .appending(path: safeCoreID, directoryHint: .isDirectory)
             .appending(path: contentKey, directoryHint: .isDirectory)
+        let bundledSystemDirectory = Bundle.main.resourceURL?
+            .appending(path: "Libretro", directoryHint: .isDirectory)
+            .appending(path: "System", directoryHint: .isDirectory)
+        let readableBundledSystemDirectory = bundledSystemDirectory.flatMap {
+            FileManager.default.fileExists(atPath: $0.path) ? $0 : nil
+        }
 
         return Paths(
-            system: root.appending(path: "System", directoryHint: .isDirectory),
+            system: request.systemDirectory
+                ?? readableBundledSystemDirectory
+                ?? root.appending(path: "System", directoryHint: .isDirectory),
             saves: root.appending(path: "Saves", directoryHint: .isDirectory),
             states: root.appending(path: "States", directoryHint: .isDirectory),
             assets: root.appending(path: "Assets", directoryHint: .isDirectory)

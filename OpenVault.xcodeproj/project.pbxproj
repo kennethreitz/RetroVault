@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A70000000000000000000001 /* LibretroLogShim.c in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000001 /* LibretroLogShim.c */; };
+		A60000000000000000000001 /* LiquidGlass.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60000000000000000000001 /* LiquidGlass.swift */; };
 		A50000000000000000000002 /* LogViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000002 /* LogViewerView.swift */; };
 		A50000000000000000000001 /* OpenVaultDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000001 /* OpenVaultDiagnostics.swift */; };
 		A30000000000000000000001 /* LibretroCoreManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000001 /* LibretroCoreManifest.swift */; };
@@ -64,6 +66,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B70000000000000000000001 /* LibretroLogShim.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; path = LibretroLogShim.c; sourceTree = "<group>"; };
+		B60000000000000000000001 /* LiquidGlass.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiquidGlass.swift; sourceTree = "<group>"; };
 		B50000000000000000000002 /* LogViewerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LogViewerView.swift; sourceTree = "<group>"; };
 		B50000000000000000000001 /* OpenVaultDiagnostics.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OpenVaultDiagnostics.swift; sourceTree = "<group>"; };
 		B30000000000000000000001 /* LibretroCoreManifest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroCoreManifest.swift; sourceTree = "<group>"; };
@@ -264,10 +268,21 @@
 		C50000000000000000000001 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				C70000000000000000000001 /* LibretroLogShim */,
+				B60000000000000000000001 /* LiquidGlass.swift */,
 				B50000000000000000000001 /* OpenVaultDiagnostics.swift */,
 			);
 			name = Shared;
 			path = Shared;
+			sourceTree = "<group>";
+		};
+		C70000000000000000000001 /* LibretroLogShim */ = {
+			isa = PBXGroup;
+			children = (
+				B70000000000000000000001 /* LibretroLogShim.c */,
+			);
+			name = LibretroLogShim;
+			path = LibretroLogShim;
 			sourceTree = "<group>";
 		};
 		80D45A942B1E824181497BDD = {
@@ -487,6 +502,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A70000000000000000000001 /* LibretroLogShim.c in Sources */,
 				7FB6894CA3D75799680F2756 /* AppEnvironment.swift in Sources */,
 				FDD0BB6FEFC2631F2868A349 /* AppModel.swift in Sources */,
 				7E431AEE25FC06574419D9BD /* OpenVaultApp.swift in Sources */,
@@ -521,6 +537,7 @@
 				A40000000000000000000002 /* GameArchiveExtractor.swift in Sources */,
 				C482072FDFB5DCB0FF807D6C /* LibraryService.swift in Sources */,
 				DABBCD69D1B0CDEE8B5BB01F /* ServerConnectionService.swift in Sources */,
+				A60000000000000000000001 /* LiquidGlass.swift in Sources */,
 				A50000000000000000000001 /* OpenVaultDiagnostics.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

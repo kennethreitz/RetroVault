@@ -150,6 +150,38 @@ actor SwiftDataLibraryCache: LibraryCaching {
         try context.save()
     }
 
+    func removeGames(withIDs gameIDs: Set<Int>, for serverURL: ServerURL) throws {
+        guard !gameIDs.isEmpty else {
+            return
+        }
+
+        let context = try modelContext()
+        let serverKey = key(for: serverURL)
+        var snapshotDescriptor = FetchDescriptor<CachedLibrarySnapshotRecord>(
+            predicate: #Predicate { $0.serverKey == serverKey }
+        )
+        snapshotDescriptor.fetchLimit = 1
+
+        if let snapshotRecord = try context.fetch(snapshotDescriptor).first,
+           let snapshot = try? JSONDecoder().decode(
+               LibrarySnapshot.self,
+               from: snapshotRecord.payload
+           ) {
+            let updatedSnapshot = snapshot.removingGames(withIDs: gameIDs)
+            snapshotRecord.payload = try JSONEncoder().encode(updatedSnapshot)
+        }
+
+        let detailsDescriptor = FetchDescriptor<CachedGameDetailsRecord>(
+            predicate: #Predicate { $0.serverKey == serverKey }
+        )
+        for record in try context.fetch(detailsDescriptor)
+        where gameIDs.contains(record.gameID) {
+            context.delete(record)
+        }
+
+        try context.save()
+    }
+
     func removeAll() throws {
         let context = try modelContext()
         try context.delete(model: CachedLibrarySnapshotRecord.self)

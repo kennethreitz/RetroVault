@@ -41,15 +41,112 @@ protocol RomMClient: Sendable {
     at serverURL: ServerURL,
     token: ClientToken
   ) async throws -> RomMDownload
+  func downloadGame(
+    for gameID: Int,
+    fileName: String,
+    at serverURL: ServerURL,
+    token: ClientToken,
+    onProgress: @escaping @Sendable (RomMDownloadProgress) -> Void
+  ) async throws -> RomMDownload
+  func firmware(
+    for platformID: Int,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> [RomMFirmware]
+  func downloadFirmware(
+    _ firmware: RomMFirmware,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> RomMDownload
+  func downloadSave(
+    _ save: GameSaveDataItem,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> RomMDownload
+  func uploadSave(
+    _ data: Data,
+    fileName: String,
+    for gameID: Int,
+    emulator: String,
+    slot: String,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> GameSaveDataItem
+  func deleteGames(
+    withIDs gameIDs: [Int],
+    deletingFiles: Bool,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> GameDeletionResult
 }
 
 extension RomMClient {
+  func downloadGame(
+    for gameID: Int,
+    fileName: String,
+    at serverURL: ServerURL,
+    token: ClientToken,
+    onProgress: @escaping @Sendable (RomMDownloadProgress) -> Void
+  ) async throws -> RomMDownload {
+    try await downloadGame(
+      for: gameID,
+      fileName: fileName,
+      at: serverURL,
+      token: token
+    )
+  }
+
+  func firmware(
+    for platformID: Int,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> [RomMFirmware] {
+    []
+  }
+
+  func downloadFirmware(
+    _ firmware: RomMFirmware,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> RomMDownload {
+    throw RomMAPIError.invalidResponse
+  }
+
   func gameIDsWithSaveData(
     _ kind: GameSaveDataKind,
     at serverURL: ServerURL,
     token: ClientToken
   ) async throws -> Set<Int> {
     []
+  }
+
+  func deleteGames(
+    withIDs gameIDs: [Int],
+    deletingFiles: Bool,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> GameDeletionResult {
+    throw RomMAPIError.invalidResponse
+  }
+
+  func downloadSave(
+    _ save: GameSaveDataItem,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> RomMDownload {
+    throw RomMAPIError.invalidResponse
+  }
+
+  func uploadSave(
+    _ data: Data,
+    fileName: String,
+    for gameID: Int,
+    emulator: String,
+    slot: String,
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) async throws -> GameSaveDataItem {
+    throw RomMAPIError.invalidResponse
   }
 }
 
@@ -59,4 +156,30 @@ extension RomMClient {
 struct RomMDownload: Sendable {
   let temporaryFileURL: URL
   let suggestedFileName: String
+}
+
+/// Byte progress for a ROM streamed from RomM.
+struct RomMDownloadProgress: Equatable, Sendable {
+  let bytesReceived: Int64
+  let totalBytesExpected: Int64?
+
+  var fractionCompleted: Double? {
+    guard let totalBytesExpected, totalBytesExpected > 0 else {
+      return nil
+    }
+    return min(
+      max(Double(bytesReceived) / Double(totalBytesExpected), 0),
+      1
+    )
+  }
+}
+
+/// A system-level firmware file managed by RomM.
+struct RomMFirmware: Codable, Hashable, Identifiable, Sendable {
+  let id: Int
+  let fileName: String
+  let fileSizeBytes: Int64
+  let sha1Hash: String?
+  let isVerified: Bool
+  let isMissingFromFileSystem: Bool
 }

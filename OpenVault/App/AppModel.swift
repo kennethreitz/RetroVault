@@ -18,6 +18,10 @@ final class AppModel {
     private(set) var isConnecting = false
     var connectionError: String?
 
+    var libraryService: any LibraryServing {
+        environment.library
+    }
+
     init(environment: AppEnvironment) {
         self.environment = environment
     }
@@ -89,7 +93,8 @@ final class AppModel {
     private func showLibrary(_ session: ServerSession) {
         libraryModel = LibraryModel(
             session: session,
-            service: environment.library
+            service: environment.library,
+            artworkCache: environment.artworkCache
         )
         destination = .library(session)
     }
