@@ -23,6 +23,7 @@ struct LibretroRunRequest: Codable, Hashable, Sendable {
     let systemDirectory: URL?
     let saveSync: CartridgeSaveSyncConfiguration?
     let playerOrigin: LibretroPlayerOrigin?
+    let skipsQuickStateRestore: Bool?
 
     init(
         title: String,
@@ -30,7 +31,8 @@ struct LibretroRunRequest: Codable, Hashable, Sendable {
         contentURL: URL?,
         systemDirectory: URL? = nil,
         saveSync: CartridgeSaveSyncConfiguration? = nil,
-        playerOrigin: LibretroPlayerOrigin? = nil
+        playerOrigin: LibretroPlayerOrigin? = nil,
+        skipsQuickStateRestore: Bool? = nil
     ) {
         self.title = title
         self.coreID = coreID
@@ -38,6 +40,23 @@ struct LibretroRunRequest: Codable, Hashable, Sendable {
         self.systemDirectory = systemDirectory
         self.saveSync = saveSync
         self.playerOrigin = playerOrigin
+        self.skipsQuickStateRestore = skipsQuickStateRestore
+    }
+
+    var restoresQuickStateOnLaunch: Bool {
+        skipsQuickStateRestore != true
+    }
+
+    func startingFresh() -> Self {
+        Self(
+            title: title,
+            coreID: coreID,
+            contentURL: contentURL,
+            systemDirectory: systemDirectory,
+            saveSync: saveSync,
+            playerOrigin: playerOrigin,
+            skipsQuickStateRestore: true
+        )
     }
 
     func launched(from origin: LibretroPlayerOrigin) -> Self {
@@ -47,7 +66,8 @@ struct LibretroRunRequest: Codable, Hashable, Sendable {
             contentURL: contentURL,
             systemDirectory: systemDirectory,
             saveSync: saveSync,
-            playerOrigin: origin
+            playerOrigin: origin,
+            skipsQuickStateRestore: skipsQuickStateRestore
         )
     }
 
@@ -1951,9 +1971,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             try audioOutput.configure(sampleRate: avInfo.sampleRate)
             restoreSaveMemory(into: loadedCore)
             runtimeEnvironment.makeHardwareContextCurrent()
-            let quickStateRestore = restoreQuickStateIfAvailable(
-                into: loadedCore
-            )
+            let quickStateRestore =
+                request.restoresQuickStateOnLaunch
+                ? restoreQuickStateIfAvailable(into: loadedCore)
+                : .notFound
             emit(
                 .running(
                     coreName: "\(manifestCore.displayName) · \(systemInfo.name) \(systemInfo.version)",

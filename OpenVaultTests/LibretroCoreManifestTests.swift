@@ -494,9 +494,15 @@ struct LibretroCoreManifestTests {
         let bigPictureRequest = legacyRequest.launched(from: .bigPicture)
 
         #expect(legacyRequest.playerOrigin == nil)
+        #expect(legacyRequest.restoresQuickStateOnLaunch)
         #expect(bigPictureRequest.playerOrigin == .bigPicture)
+        #expect(bigPictureRequest.restoresQuickStateOnLaunch)
         #expect(bigPictureRequest.title == legacyRequest.title)
         #expect(bigPictureRequest.coreID == legacyRequest.coreID)
+
+        let freshRequest = bigPictureRequest.startingFresh()
+        #expect(!freshRequest.restoresQuickStateOnLaunch)
+        #expect(freshRequest.playerOrigin == .bigPicture)
     }
 
     @MainActor

@@ -226,7 +226,8 @@ enum ServerConfiguration: Sendable {
   player window, atomically replace the local quick state before stopping the
   core. Play automatically restores that state after the core and game are
   initialized but before gameplay begins. An incompatible state falls back to
-  a clean boot and is reported in the log. The explicit Stop button
+  a clean boot and is reported in the log. Play from Beginning skips the
+  automatic restore without deleting the quick state. The explicit Stop button
   intentionally bypasses automatic state capture.
 
 ## Game details

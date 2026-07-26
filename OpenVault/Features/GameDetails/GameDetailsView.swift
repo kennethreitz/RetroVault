@@ -353,11 +353,14 @@ struct GameDetailsView: View {
             .shadow(color: .black.opacity(0.28), radius: 22, y: 12)
 
             if let core = model.playbackCore {
-                Button {
-                    Task {
-                        if let request = await model.prepareToPlay(details) {
-                            openWindow(value: request)
-                        }
+                Menu {
+                    Button {
+                        beginPlayback(details, fromBeginning: true)
+                    } label: {
+                        Label(
+                            "Play from Beginning",
+                            systemImage: "forward.end.fill"
+                        )
                     }
                 } label: {
                     Group {
@@ -373,6 +376,8 @@ struct GameDetailsView: View {
                     }
                     .font(.headline)
                     .frame(maxWidth: .infinity)
+                } primaryAction: {
+                    beginPlayback(details)
                 }
                 .buttonStyle(.glassProminent)
                 .controlSize(.large)
@@ -404,6 +409,20 @@ struct GameDetailsView: View {
             }
         }
         .frame(width: 260)
+    }
+
+    private func beginPlayback(
+        _ details: GameDetails,
+        fromBeginning: Bool = false
+    ) {
+        Task {
+            guard let request = await model.prepareToPlay(details) else {
+                return
+            }
+            openWindow(
+                value: fromBeginning ? request.startingFresh() : request
+            )
+        }
     }
 
     private func gameHeader(_ details: GameDetails) -> some View {

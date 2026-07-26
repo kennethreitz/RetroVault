@@ -2725,6 +2725,27 @@ private struct LibraryGridView: View {
                   !model.downloadedGameIDs.contains($0.id)
                 }
 
+                if selectedGames.count == 1, let selectedGame = selectedGames.first,
+                  isPlayable(selectedGame)
+                {
+                  Button {
+                    play(selectedGame)
+                  } label: {
+                    Label("Play", systemImage: "play.fill")
+                  }
+
+                  Button {
+                    play(selectedGame, fromBeginning: true)
+                  } label: {
+                    Label(
+                      "Play from Beginning",
+                      systemImage: "forward.end.fill"
+                    )
+                  }
+
+                  Divider()
+                }
+
                 if !gamesToDownload.isEmpty {
                   Button {
                     requestGameDownload(gamesToDownload)
@@ -2896,7 +2917,10 @@ private struct LibraryGridView: View {
     )
   }
 
-  private func play(_ game: GameSummary) {
+  private func play(
+    _ game: GameSummary,
+    fromBeginning: Bool = false
+  ) {
     guard preparingGameID == nil, isPlayable(game) else {
       return
     }
@@ -2943,7 +2967,9 @@ private struct LibraryGridView: View {
         return
       }
 
-      openWindow(value: request)
+      openWindow(
+        value: fromBeginning ? request.startingFresh() : request
+      )
     }
   }
 
