@@ -103,6 +103,27 @@ enum ArtworkSort: String, CaseIterable, Identifiable, Sendable {
   }
 }
 
+private enum LibraryGamePlayability {
+  private static let bundledLibretroManifest =
+    try? LibretroInstallation.bundled().manifest
+
+  static func isPlayable(
+    _ game: GameSummary,
+    downloadedGameIDs: Set<Int>
+  ) -> Bool {
+    guard
+      game.isMissingFromFileSystem != true
+        || downloadedGameIDs.contains(game.id)
+    else {
+      return false
+    }
+
+    return bundledLibretroManifest?
+      .supportsSystem(named: game.systemName)
+      ?? false
+  }
+}
+
 private struct ArtworkFilterApplicationKey: Hashable {
   let presentation: LibraryPresentation
   let hidesGamesWithoutArtwork: Bool
@@ -1309,9 +1330,6 @@ private struct VirtualCollectionCard: View {
 }
 
 private struct LibraryTableView: View {
-  private static let bundledLibretroManifest =
-    try? LibretroInstallation.bundled().manifest
-
   let model: LibraryModel
   let automaticallyFocusesContent: Bool
   let setHidesGamesWithoutArtwork: (Bool) -> Void
@@ -1439,16 +1457,10 @@ private struct LibraryTableView: View {
   }
 
   private func isPlayable(_ game: GameSummary) -> Bool {
-    guard
-      game.isMissingFromFileSystem != true
-        || model.downloadedGameIDs.contains(game.id)
-    else {
-      return false
-    }
-
-    return Self.bundledLibretroManifest?
-      .supportsSystem(named: game.systemName)
-      ?? false
+    LibraryGamePlayability.isPlayable(
+      game,
+      downloadedGameIDs: model.downloadedGameIDs
+    )
   }
 
   private var libraryTable: some View {
@@ -2435,6 +2447,8 @@ private struct LibraryBrowserPane: View {
 }
 
 private struct LibraryGridView: View {
+  @Environment(\.openWindow) private var openWindow
+
   let model: LibraryModel
   let sort: ArtworkSort
   let automaticallyFocusesContent: Bool
@@ -2450,6 +2464,8 @@ private struct LibraryGridView: View {
   @State private var sortedGames: [GameSummary] = []
   @State private var isSorting = true
   @State private var sortingRequestID = UUID()
+  @State private var preparingGameID: Int?
+  @State private var playbackAlert: LibraryAlert?
   @FocusState private var hasGridFocus: Bool
 
   private let columns = [
@@ -2521,40 +2537,21 @@ private struct LibraryGridView: View {
         ScrollView {
           LazyVGrid(columns: columns, alignment: .leading, spacing: 26) {
             ForEach(sortedGames) { game in
-              Button {
-                handleGameClick(game)
-              } label: {
-                GameCard(
-                  game: game,
-                  session: model.session,
-                  service: model.service
-                )
-                .padding(5)
-                .background {
-                  if selectedGameIDs.contains(game.id) {
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                      .fill(.tint.opacity(0.14))
-                  }
+              ArtworkGameItem(
+                game: game,
+                session: model.session,
+                service: model.service,
+                isSelected: selectedGameIDs.contains(game.id),
+                isPlayable: isPlayable(game),
+                isPreparingToPlay: preparingGameID == game.id,
+                isPlaybackBusy: preparingGameID != nil,
+                openGame: {
+                  handleGameClick(game)
+                },
+                playGame: {
+                  play(game)
                 }
-                .overlay {
-                  if selectedGameIDs.contains(game.id) {
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                      .stroke(.tint, lineWidth: 2)
-                  }
-                }
-                .overlay(alignment: .topTrailing) {
-                  if selectedGameIDs.contains(game.id) {
-                    Image(systemName: "checkmark.circle.fill")
-                      .font(.title2)
-                      .symbolRenderingMode(.palette)
-                      .foregroundStyle(.white, .tint)
-                      .background(.black.opacity(0.25), in: Circle())
-                      .padding(12)
-                  }
-                }
-              }
-              .buttonStyle(.plain)
-              .help("Click to open; Command-click or Shift-click to select")
+              )
               .contextMenu {
                 let selectedGames = contextGames(for: game)
                 let downloadedGames = selectedGames.filter {
@@ -2687,6 +2684,13 @@ private struct LibraryGridView: View {
     .onChange(of: model.hidesGamesWithoutArtwork) { _, _ in
       selectedGameIDs.formIntersection(model.displayedGames.lazy.map(\.id))
     }
+    .alert(item: $playbackAlert) { alert in
+      Alert(
+        title: Text(alert.title),
+        message: Text(alert.message),
+        dismissButton: .default(Text("OK"))
+      )
+    }
     .overlay(alignment: .topTrailing) {
       if !model.displayedGames.isEmpty {
         if selectedGameIDs.isEmpty {
@@ -2718,6 +2722,64 @@ private struct LibraryGridView: View {
           .padding(.trailing, 14)
         }
       }
+    }
+  }
+
+  private func isPlayable(_ game: GameSummary) -> Bool {
+    LibraryGamePlayability.isPlayable(
+      game,
+      downloadedGameIDs: model.downloadedGameIDs
+    )
+  }
+
+  private func play(_ game: GameSummary) {
+    guard preparingGameID == nil, isPlayable(game) else {
+      return
+    }
+
+    preparingGameID = game.id
+    Task {
+      defer {
+        preparingGameID = nil
+      }
+
+      let detailsModel = GameDetailsModel(
+        game: game,
+        session: model.session,
+        service: model.service
+      )
+      await detailsModel.load()
+
+      guard let details = detailsModel.details else {
+        playbackAlert = LibraryAlert(
+          title: "Couldn’t Prepare Game",
+          message:
+            detailsModel.errorMessage
+            ?? "OpenVault couldn’t load the game’s playback information."
+        )
+        return
+      }
+
+      guard detailsModel.playbackCore != nil else {
+        playbackAlert = LibraryAlert(
+          title: "Game Isn’t Playable",
+          message:
+            "The bundled core for \(game.systemName) doesn’t support this game file."
+        )
+        return
+      }
+
+      guard let request = await detailsModel.prepareToPlay(details) else {
+        playbackAlert = LibraryAlert(
+          title: "Couldn’t Start Game",
+          message:
+            detailsModel.playbackErrorMessage
+            ?? "OpenVault couldn’t prepare this game for playback."
+        )
+        return
+      }
+
+      openWindow(value: request)
     }
   }
 
@@ -2930,6 +2992,114 @@ private struct LibraryArtworkRowsKey: Hashable {
   let hidesGamesWithoutArtwork: Bool
   let downloadedGameIDs: Set<Int>
   let sort: ArtworkSort
+}
+
+private struct ArtworkGameItem: View {
+  let game: GameSummary
+  let session: ServerSession
+  let service: any LibraryServing
+  let isSelected: Bool
+  let isPlayable: Bool
+  let isPreparingToPlay: Bool
+  let isPlaybackBusy: Bool
+  let openGame: () -> Void
+  let playGame: () -> Void
+
+  @State private var isHovered = false
+
+  var body: some View {
+    ZStack(alignment: .top) {
+      Button(action: openGame) {
+        GameCard(
+          game: game,
+          session: session,
+          service: service
+        )
+        .padding(5)
+      }
+      .buttonStyle(.plain)
+
+      if isPlayable, isHovered || isPreparingToPlay {
+        VStack(spacing: 0) {
+          ZStack {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+              .fill(.black.opacity(0.14))
+              .allowsHitTesting(false)
+
+            Button(action: playGame) {
+              Group {
+                if isPreparingToPlay {
+                  ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+                } else {
+                  Image(systemName: "play.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .offset(x: 1)
+                }
+              }
+              .foregroundStyle(.white)
+              .frame(width: 46, height: 46)
+              .background(.black.opacity(0.52), in: Circle())
+              .overlay {
+                Circle()
+                  .stroke(.white.opacity(0.28), lineWidth: 0.75)
+              }
+              .shadow(color: .black.opacity(0.34), radius: 10, y: 4)
+            }
+            .buttonStyle(.plain)
+            .disabled(isPlaybackBusy && !isPreparingToPlay)
+            .help(
+              isPreparingToPlay
+                ? "Preparing \(game.name)…"
+                : "Play \(game.name)"
+            )
+            .accessibilityLabel(
+              isPreparingToPlay
+                ? "Preparing \(game.name)"
+                : "Play \(game.name)"
+            )
+          }
+          .aspectRatio(3 / 4, contentMode: .fit)
+
+          Spacer(minLength: 0)
+        }
+        .padding(5)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+      }
+    }
+    .background {
+      if isSelected {
+        RoundedRectangle(cornerRadius: 13, style: .continuous)
+          .fill(.tint.opacity(0.14))
+      }
+    }
+    .overlay {
+      if isSelected {
+        RoundedRectangle(cornerRadius: 13, style: .continuous)
+          .stroke(.tint, lineWidth: 2)
+          .allowsHitTesting(false)
+      }
+    }
+    .overlay(alignment: .topTrailing) {
+      if isSelected {
+        Image(systemName: "checkmark.circle.fill")
+          .font(.title2)
+          .symbolRenderingMode(.palette)
+          .foregroundStyle(.white, .tint)
+          .background(.black.opacity(0.25), in: Circle())
+          .padding(12)
+          .allowsHitTesting(false)
+      }
+    }
+    .onHover { isHovered in
+      withAnimation(.easeOut(duration: 0.14)) {
+        self.isHovered = isHovered
+      }
+    }
+    .help("Click to open; Command-click or Shift-click to select")
+  }
 }
 
 private struct GameCard: View {

@@ -397,6 +397,9 @@ enum ServerConfiguration: Sendable {
   cannot be hidden. Its leading edge reserves a compact play glyph for games
   that can be opened by a bundled core; unsupported or unavailable games keep
   the same text alignment without showing the glyph.
+- Playable Artwork cards reveal a restrained direct-play control over the cover
+  on pointer hover. Preparing a game keeps that control visible as progress,
+  while clicking elsewhere on the card continues to open game details.
 - Native SwiftUI table column customization supplies the header context menu,
   column reordering, resizing, and persisted visibility. Optional columns
   include status, completion, rating, difficulty, region, file size, artwork,
