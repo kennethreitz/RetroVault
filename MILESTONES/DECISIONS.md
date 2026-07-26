@@ -197,7 +197,7 @@ enum ServerConfiguration: Sendable {
   desktop library selection or search. Cached artwork and metadata continue to
   work when RomM is unavailable.
 - Keyboard, mouse, and extended game controllers share one navigation model.
-  D-pad or left stick moves with hold-to-repeat, A opens or plays, B moves
+  D-pad or left stick moves with hold-to-repeat, B opens or plays, A moves
   back or exits, and the shoulder buttons page through long lists. OpenVault
   reads every connected extended or compact controller rather than binding
   navigation to the first device returned by the system.

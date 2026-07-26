@@ -192,7 +192,7 @@ struct BigPictureView: View {
           .font(.system(size: 42, weight: .light))
         Text("NO GAMES")
           .font(.system(size: 24, weight: .black, design: .rounded))
-        Text("Press B or Escape to go back.")
+        Text("Press A or Escape to go back.")
           .foregroundStyle(.white.opacity(0.55))
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -317,9 +317,9 @@ struct BigPictureView: View {
   private var footer: some View {
     HStack {
       if page == .home {
-        actionHint(key: "ESC", label: "EXIT")
+        actionHint(key: "A", label: "EXIT")
       } else {
-        actionHint(key: "B", label: "BACK")
+        actionHint(key: "A", label: "BACK")
       }
 
       Spacer()
@@ -336,7 +336,7 @@ struct BigPictureView: View {
           actionHint(key: "L/R", label: "PAGE")
         }
         actionHint(
-          key: "A",
+          key: "B",
           label: page.isGameList ? "PLAY" : "OPEN"
         )
       }
@@ -395,7 +395,7 @@ struct BigPictureView: View {
         .frame(width: 360)
       }
 
-      actionHint(key: "B", label: "CANCEL")
+      actionHint(key: "A", label: "CANCEL")
     }
     .padding(42)
     .frame(minWidth: 520)
@@ -422,8 +422,8 @@ struct BigPictureView: View {
         .frame(maxWidth: 460)
 
       HStack(spacing: 18) {
-        actionHint(key: "B", label: "BACK")
-        actionHint(key: "A", label: "TRY AGAIN")
+        actionHint(key: "A", label: "BACK")
+        actionHint(key: "B", label: "TRY AGAIN")
       }
     }
     .padding(42)
@@ -862,6 +862,10 @@ struct BigPictureControllerState: Equatable, Sendable {
 
     for controller in controllers {
       if let gamepad = controller.extendedGamepad {
+        let faceButtons = Self.extendedFaceButtonActions(
+          buttonAPressed: gamepad.buttonA.isPressed,
+          buttonBPressed: gamepad.buttonB.isPressed
+        )
         state.up =
           state.up
           || gamepad.dpad.up.isPressed
@@ -878,10 +882,10 @@ struct BigPictureControllerState: Equatable, Sendable {
           state.right
           || gamepad.dpad.right.isPressed
           || gamepad.leftThumbstick.xAxis.value > 0.72
-        state.activate = state.activate || gamepad.buttonA.isPressed
+        state.activate = state.activate || faceButtons.activate
         state.back =
           state.back
-          || gamepad.buttonB.isPressed
+          || faceButtons.back
           || gamepad.buttonMenu.isPressed
         state.pageUp =
           state.pageUp || gamepad.leftShoulder.isPressed
@@ -897,6 +901,16 @@ struct BigPictureControllerState: Equatable, Sendable {
       }
     }
     return state
+  }
+
+  static func extendedFaceButtonActions(
+    buttonAPressed: Bool,
+    buttonBPressed: Bool
+  ) -> (activate: Bool, back: Bool) {
+    (
+      activate: buttonBPressed,
+      back: buttonAPressed
+    )
   }
 }
 

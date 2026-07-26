@@ -227,6 +227,23 @@ struct BigPictureCatalogTests {
     #expect(pageDown == .pageDown)
   }
 
+  @Test("Maps Xbox B to select and Xbox A to back")
+  func mapsXboxFaceButtons() {
+    let xboxA = BigPictureControllerState.extendedFaceButtonActions(
+      buttonAPressed: true,
+      buttonBPressed: false
+    )
+    let xboxB = BigPictureControllerState.extendedFaceButtonActions(
+      buttonAPressed: false,
+      buttonBPressed: true
+    )
+
+    #expect(xboxA.back)
+    #expect(!xboxA.activate)
+    #expect(xboxB.activate)
+    #expect(!xboxB.back)
+  }
+
   @Test("Keeps Big Picture selection at list boundaries")
   func clampsBigPictureSelection() {
     #expect(
