@@ -211,6 +211,9 @@ enum ServerConfiguration: Sendable {
 
 - A game card pushes a full-page destination inside the detail column's native
   `NavigationStack`; it does not open a sheet or a separate window.
+- Game-detail foreground content consumes only the portion of a window safe
+  area that its `NavigationSplitView` container has not already accounted for.
+  This prevents sidebar and titlebar insets from being applied twice.
 - The native details screen follows RomM 5.0's information hierarchy: a fixed
   cover column, title and activity header, and Overview, Files, Media, and
   Metadata tabs. On wide windows only the active tab panel scrolls; narrow

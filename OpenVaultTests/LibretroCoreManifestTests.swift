@@ -536,7 +536,7 @@ struct GameDetailsLayoutTests {
     @Test("Keeps foreground content inside the split-view safe area")
     func respectsSidebarSafeArea() {
         let viewport = GameDetailsViewport(
-            containerSize: CGSize(width: 1_500, height: 900),
+            containerFrame: CGRect(x: 0, y: 0, width: 1_500, height: 900),
             safeAreaInsets: SwiftUI.EdgeInsets(
                 top: 18,
                 leading: 300,
@@ -549,10 +549,26 @@ struct GameDetailsLayoutTests {
         #expect(viewport.size == CGSize(width: 1_180, height: 870))
     }
 
+    @Test("Does not apply an already consumed split-view offset twice")
+    func doesNotDuplicateConsumedInsets() {
+        let viewport = GameDetailsViewport(
+            containerFrame: CGRect(x: 300, y: 18, width: 1_180, height: 870),
+            safeAreaInsets: SwiftUI.EdgeInsets(
+                top: 18,
+                leading: 300,
+                bottom: 12,
+                trailing: 20
+            )
+        )
+
+        #expect(viewport.origin == .zero)
+        #expect(viewport.size == CGSize(width: 1_160, height: 858))
+    }
+
     @Test("Clamps a fully occluded viewport to zero")
     func clampsFullyOccludedViewport() {
         let viewport = GameDetailsViewport(
-            containerSize: CGSize(width: 250, height: 100),
+            containerFrame: CGRect(x: 0, y: 0, width: 250, height: 100),
             safeAreaInsets: SwiftUI.EdgeInsets(
                 top: 60,
                 leading: 180,

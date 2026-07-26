@@ -105,21 +105,30 @@ struct GameDetailsViewport: Equatable {
     let origin: CGPoint
     let size: CGSize
 
-    init(containerSize: CGSize, safeAreaInsets: EdgeInsets) {
+    init(containerFrame: CGRect, safeAreaInsets: EdgeInsets) {
+        let leadingInset = max(
+            safeAreaInsets.leading - max(containerFrame.minX, 0),
+            0
+        )
+        let topInset = max(
+            safeAreaInsets.top - max(containerFrame.minY, 0),
+            0
+        )
+
         origin = CGPoint(
-            x: safeAreaInsets.leading,
-            y: safeAreaInsets.top
+            x: leadingInset,
+            y: topInset
         )
         size = CGSize(
             width: max(
-                containerSize.width
-                    - safeAreaInsets.leading
+                containerFrame.width
+                    - leadingInset
                     - safeAreaInsets.trailing,
                 0
             ),
             height: max(
-                containerSize.height
-                    - safeAreaInsets.top
+                containerFrame.height
+                    - topInset
                     - safeAreaInsets.bottom,
                 0
             )
@@ -228,7 +237,7 @@ struct GameDetailsView: View {
     private func detailsContent(_ details: GameDetails) -> some View {
         GeometryReader { geometry in
             let viewport = GameDetailsViewport(
-                containerSize: geometry.size,
+                containerFrame: geometry.frame(in: .global),
                 safeAreaInsets: geometry.safeAreaInsets
             )
 
