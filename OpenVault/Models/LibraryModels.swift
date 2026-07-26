@@ -361,6 +361,7 @@ struct GameExportResult: Equatable, Sendable {
 enum LibraryFilter: Equatable, Sendable {
   case allGames
   case system(Int)
+  case systems(Set<Int>)
   case collection(LibraryCollection.ID)
 }
 
@@ -390,6 +391,8 @@ struct LibrarySnapshot: Codable, Equatable, Sendable {
       scopedGames = games
     case .system(let systemID):
       scopedGames = games.filter { $0.systemID == systemID }
+    case .systems(let systemIDs):
+      scopedGames = games.filter { systemIDs.contains($0.systemID) }
     case .collection(let collectionID):
       let memberIDs = Set(
         collectionMemberships

@@ -467,7 +467,7 @@ struct LibraryView: View {
   var body: some View {
     NavigationSplitView {
       VStack(spacing: 0) {
-        List(selection: selectionBinding) {
+        List(selection: sidebarSelectionBinding) {
           Label("All Games", systemImage: "rectangle.stack")
             .badge(model.allGameCount)
             .tag(LibrarySelection.allGames)
@@ -613,7 +613,7 @@ struct LibraryView: View {
               controllerRouter: controllerRouter,
               focusSidebar: focusSidebar
             ) { collection in
-              selectionBinding.wrappedValue = .collection(collection.id)
+              selectSidebarDestination(.collection(collection.id))
             }
           } else {
             switch currentPresentation {
@@ -925,7 +925,7 @@ struct LibraryView: View {
     }
 
     return switch model.selection {
-    case .system, .collection:
+    case .system, .systems, .collection:
       true
     case .allGames, .downloaded, .virtualCollections:
       false
@@ -940,7 +940,7 @@ struct LibraryView: View {
       collectionPresentation
     case .virtualCollections:
       .artwork
-    case .system:
+    case .system, .systems:
       systemPresentation
     case .collection:
       collectionPresentation
@@ -958,7 +958,7 @@ struct LibraryView: View {
           collectionPresentation = newValue
         case .virtualCollections:
           break
-        case .system:
+        case .system, .systems:
           systemPresentation = newValue
         case .collection:
           collectionPresentation = newValue
@@ -1200,25 +1200,85 @@ struct LibraryView: View {
     )
   }
 
-  private var selectionBinding: Binding<LibrarySelection> {
+  private var sidebarSelectionBinding: Binding<Set<LibrarySelection>> {
     Binding(
-      get: { model.selection },
-      set: { selection in
-        guard model.selection != selection else {
-          return
-        }
-
-        if model.selection == .virtualCollections
-          || selection == .virtualCollections
-        {
-          searchText = ""
-        }
-        model.selection = selection
-        Task {
-          await model.reloadGames()
-        }
+      get: {
+        sidebarSelectionTags(for: model.selection)
+      },
+      set: { selections in
+        applySidebarSelections(selections)
       }
     )
+  }
+
+  private func sidebarSelectionTags(
+    for selection: LibrarySelection
+  ) -> Set<LibrarySelection> {
+    switch selection {
+    case .systems(let systemIDs):
+      Set(systemIDs.map(LibrarySelection.system))
+    default:
+      [selection]
+    }
+  }
+
+  private func applySidebarSelections(
+    _ selections: Set<LibrarySelection>
+  ) {
+    let previousSelections = sidebarSelectionTags(for: model.selection)
+    let systemIDs = Set(selections.compactMap { selection in
+      if case .system(let systemID) = selection {
+        return systemID
+      }
+      return nil
+    })
+
+    if selections.count == systemIDs.count {
+      switch systemIDs.count {
+      case 0:
+        selectSidebarDestination(.allGames)
+      case 1:
+        if let systemID = systemIDs.first {
+          selectSidebarDestination(.system(systemID))
+        }
+      default:
+        selectSidebarDestination(.systems(systemIDs))
+      }
+      return
+    }
+
+    // Collections and special destinations stay single-select even though the
+    // systems list supports native Command-click and Shift-click selection.
+    if let newlySelected = selections.subtracting(previousSelections).first {
+      selectSidebarDestination(newlySelected)
+    } else if let nonSystemSelection = selections.first(where: {
+      if case .system = $0 {
+        return false
+      }
+      return true
+    }) {
+      selectSidebarDestination(nonSystemSelection)
+    } else {
+      selectSidebarDestination(.allGames)
+    }
+  }
+
+  private func selectSidebarDestination(
+    _ selection: LibrarySelection
+  ) {
+    guard model.selection != selection else {
+      return
+    }
+
+    if model.selection == .virtualCollections
+      || selection == .virtualCollections
+    {
+      searchText = ""
+    }
+    model.selection = selection
+    Task {
+      await model.reloadGames()
+    }
   }
 
   private func requestGameDeletion(_ games: [GameSummary]) {
@@ -1543,9 +1603,12 @@ struct LibraryView: View {
       return
     }
 
+    let selectedIndices = sidebarSelectionTags(for: model.selection)
+      .compactMap { selections.firstIndex(of: $0) }
     let currentIndex =
-      selections.firstIndex(of: model.selection)
-      ?? (offset > 0 ? -1 : selections.count)
+      offset > 0
+      ? (selectedIndices.max() ?? -1)
+      : (selectedIndices.min() ?? selections.count)
     let destinationIndex = min(
       max(currentIndex + offset, 0),
       selections.count - 1
@@ -1554,7 +1617,7 @@ struct LibraryView: View {
     guard destination != model.selection else {
       return
     }
-    selectionBinding.wrappedValue = destination
+    selectSidebarDestination(destination)
   }
 
   private func pollControllers() async {

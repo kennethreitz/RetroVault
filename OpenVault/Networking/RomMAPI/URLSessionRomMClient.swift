@@ -324,6 +324,12 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
       break
     case .system(let id):
       queryItems.append(URLQueryItem(name: "platform_ids", value: String(id)))
+    case .systems(let ids):
+      queryItems.append(
+        contentsOf: ids.sorted().map {
+          URLQueryItem(name: "platform_ids", value: String($0))
+        }
+      )
     case .collection(.regular(let id)):
       queryItems.append(URLQueryItem(name: "collection_id", value: String(id)))
     case .collection(.smart(let id)):

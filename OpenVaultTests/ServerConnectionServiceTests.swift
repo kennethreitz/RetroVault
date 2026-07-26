@@ -213,6 +213,11 @@ struct LibraryTests {
         #expect(model.allGameCount == 61)
         #expect(model.totalGameCount == 61)
 
+        model.selection = .systems([1, 2])
+        await model.reloadGames()
+        #expect(model.games.count == 61)
+        #expect(model.title == "Game Boy + Super Nintendo")
+
         model.selection = .system(2)
         await model.reloadGames()
         #expect(model.games.allSatisfy { $0.systemID == 2 })
@@ -1525,6 +1530,8 @@ private actor MockLibraryService: LibraryServing {
             filteredGames = allGames
         case let .system(id):
             filteredGames = allGames.filter { $0.systemID == id }
+        case let .systems(ids):
+            filteredGames = allGames.filter { ids.contains($0.systemID) }
         case .collection:
             filteredGames = Array(allGames.prefix(5))
         }

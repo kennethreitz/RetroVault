@@ -279,6 +279,11 @@ struct RomMAPIClientTests {
         )
         #expect(
           components.queryItems?.contains(
+            URLQueryItem(name: "platform_ids", value: "3")
+          ) == true
+        )
+        #expect(
+          components.queryItems?.contains(
             URLQueryItem(name: "search_term", value: "Chrono")
           ) == true
         )
@@ -379,7 +384,7 @@ struct RomMAPIClientTests {
     let page = try await client.games(
       at: serverURL,
       token: token,
-      matching: .system(2),
+      matching: .systems([2, 3]),
       searchTerm: "Chrono",
       offset: 0,
       limit: 60

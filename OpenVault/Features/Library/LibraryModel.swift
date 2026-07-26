@@ -7,6 +7,7 @@ enum LibrarySelection: Hashable {
   case downloaded
   case virtualCollections
   case system(Int)
+  case systems(Set<Int>)
   case collection(LibraryCollection.ID)
 
   var filter: LibraryFilter {
@@ -19,6 +20,8 @@ enum LibrarySelection: Hashable {
       .allGames
     case .system(let id):
       .system(id)
+    case .systems(let ids):
+      .systems(ids)
     case .collection(let id):
       .collection(id)
     }
@@ -98,15 +101,29 @@ final class LibraryModel {
   var title: String {
     switch selection {
     case .allGames:
-      "All Games"
+      return "All Games"
     case .downloaded:
-      "Downloaded"
+      return "Downloaded"
     case .virtualCollections:
-      "Virtual Collections"
+      return "Virtual Collections"
     case .system(let id):
-      systems.first(where: { $0.id == id })?.name ?? "System"
+      return systems.first(where: { $0.id == id })?.name ?? "System"
+    case .systems(let ids):
+      if ids.count == 2 {
+        let names = systems
+          .filter { ids.contains($0.id) }
+          .map(\.name)
+          .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        if names.count == 2 {
+          return names.joined(separator: " + ")
+        } else {
+          return "2 Systems"
+        }
+      } else {
+        return "\(ids.count.formatted()) Systems"
+      }
     case .collection(let id):
-      collections.first(where: { $0.id == id })?.name ?? "Collection"
+      return collections.first(where: { $0.id == id })?.name ?? "Collection"
     }
   }
 
@@ -122,10 +139,12 @@ final class LibraryModel {
   }
 
   var prioritizesFavoritesInCurrentView: Bool {
-    if case .system = selection {
+    switch selection {
+    case .system, .systems:
       return true
+    case .allGames, .downloaded, .virtualCollections, .collection:
+      return false
     }
-    return false
   }
 
   var favoriteCollectionID: Int? {
@@ -1296,9 +1315,15 @@ final class LibraryModel {
       break
     case .system(let id) where systems.contains(where: { $0.id == id }):
       break
+    case .systems(let ids)
+      where !ids.isEmpty
+        && ids.allSatisfy({ id in
+          systems.contains(where: { $0.id == id })
+        }):
+      break
     case .collection(let id) where collections.contains(where: { $0.id == id }):
       break
-    case .virtualCollections, .system, .collection:
+    case .virtualCollections, .system, .systems, .collection:
       selection = .allGames
     }
   }

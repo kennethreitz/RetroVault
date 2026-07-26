@@ -757,6 +757,58 @@ struct BigPictureCatalogTests {
 
 @Suite("Offline library cache")
 struct LibraryCacheTests {
+  @Test("Filters a library snapshot to the union of selected systems")
+  func filtersMultipleSystems() {
+    let games = [
+      GameSummary(
+        id: 1,
+        name: "Game Boy Game",
+        systemID: 1,
+        systemName: "Game Boy",
+        coverURL: nil
+      ),
+      GameSummary(
+        id: 2,
+        name: "NES Game",
+        systemID: 2,
+        systemName: "Nintendo Entertainment System",
+        coverURL: nil
+      ),
+      GameSummary(
+        id: 3,
+        name: "SNES Game",
+        systemID: 3,
+        systemName: "Super Nintendo",
+        coverURL: nil
+      ),
+    ]
+    let snapshot = LibrarySnapshot(
+      synchronizedAt: Date(timeIntervalSince1970: 1_000),
+      systems: [
+        LibrarySystem(id: 1, name: "Game Boy", gameCount: 1),
+        LibrarySystem(
+          id: 2,
+          name: "Nintendo Entertainment System",
+          gameCount: 1
+        ),
+        LibrarySystem(id: 3, name: "Super Nintendo", gameCount: 1),
+      ],
+      collections: [],
+      games: games,
+      collectionMemberships: []
+    )
+
+    let page = snapshot.page(
+      matching: .systems([1, 3]),
+      searchTerm: nil,
+      offset: 0,
+      limit: 60
+    )
+
+    #expect(page.games.map(\.id) == [1, 3])
+    #expect(page.total == 2)
+  }
+
   @Test("Persists a server-scoped snapshot and full game details")
   func persistsSnapshotAndDetails() async throws {
     let cache = SwiftDataLibraryCache(isStoredInMemoryOnly: true)
@@ -1261,7 +1313,7 @@ private struct SynchronizationRomMClient: RomMClient {
   ) async throws -> GamePage {
     let filtered: [GameSummary]
     switch filter {
-    case .allGames, .system:
+    case .allGames, .system, .systems:
       filtered = allGames
     case .collection:
       filtered = [allGames[0], allGames[2]]
