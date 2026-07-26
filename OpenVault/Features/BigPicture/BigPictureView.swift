@@ -1331,36 +1331,52 @@ private struct BigPictureWindowProbe: NSViewRepresentable {
 
   func updateNSView(_ nsView: BigPictureProbeView, context: Context) {
     nsView.didMoveToWindow = didMoveToWindow
+    nsView.requestFullScreenIfNeeded()
   }
 }
 
 @MainActor
 private final class BigPictureProbeView: NSView {
   var didMoveToWindow: (@MainActor (NSWindow?) -> Void)?
-  private var requestedFullScreen = false
+  private weak var observedWindow: NSWindow?
+  private var fullScreenRequest: Task<Void, Never>?
 
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
     didMoveToWindow?(window)
     guard let window else {
+      stopObservingWindow()
       return
     }
 
+    observe(window)
     window.backgroundColor = .black
     configureFullScreen(for: window)
     window.titleVisibility = .hidden
     window.titlebarAppearsTransparent = true
     window.toolbar?.isVisible = false
+    requestFullScreenIfNeeded()
+  }
 
-    guard !requestedFullScreen else {
+  func requestFullScreenIfNeeded() {
+    guard
+      let window,
+      window.isVisible,
+      !window.styleMask.contains(.fullScreen),
+      fullScreenRequest == nil
+    else {
       return
     }
-    requestedFullScreen = true
 
-    Task { @MainActor [weak window] in
+    fullScreenRequest = Task { @MainActor [weak self, weak window] in
+      defer {
+        self?.fullScreenRequest = nil
+      }
       try? await Task.sleep(for: .milliseconds(120))
       guard
+        !Task.isCancelled,
         let window,
+        window.isVisible,
         !window.styleMask.contains(.fullScreen)
       else {
         return
@@ -1368,6 +1384,43 @@ private final class BigPictureProbeView: NSView {
       configureFullScreen(for: window)
       window.toggleFullScreen(nil)
     }
+  }
+
+  deinit {
+    NotificationCenter.default.removeObserver(self)
+  }
+
+  private func observe(_ window: NSWindow) {
+    guard observedWindow !== window else {
+      return
+    }
+
+    stopObservingWindow()
+    observedWindow = window
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(windowDidBecomeKey(_:)),
+      name: NSWindow.didBecomeKeyNotification,
+      object: window
+    )
+  }
+
+  private func stopObservingWindow() {
+    fullScreenRequest?.cancel()
+    fullScreenRequest = nil
+    if let observedWindow {
+      NotificationCenter.default.removeObserver(
+        self,
+        name: NSWindow.didBecomeKeyNotification,
+        object: observedWindow
+      )
+    }
+    observedWindow = nil
+  }
+
+  @objc
+  private func windowDidBecomeKey(_ notification: Notification) {
+    requestFullScreenIfNeeded()
   }
 }
 
