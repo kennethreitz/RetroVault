@@ -222,6 +222,10 @@ enum ServerConfiguration: Sendable {
   same Big Picture page and selection. Local save memory is persisted and RomM
   synchronization begins before the library returns. Desktop-launched players
   retain their separate-window and native fullscreen Escape behavior.
+- Implicit player exits, including Escape, Start + Select, and closing the
+  player window, atomically replace the local quick state before stopping the
+  core. The explicit Stop button intentionally bypasses this automatic state
+  capture.
 
 ## Game details
 

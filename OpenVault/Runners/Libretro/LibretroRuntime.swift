@@ -361,6 +361,15 @@ private extension UInt16 {
     }
 }
 
+enum LibretroExitMode: Equatable, Sendable {
+    case automatic
+    case explicitStop
+
+    var createsResumeState: Bool {
+        self == .automatic
+    }
+}
+
 @MainActor
 @Observable
 final class LibretroSession {
@@ -481,10 +490,18 @@ final class LibretroSession {
         input.releaseKeyboard()
     }
 
-    func exitPlayer() {
+    func exitPlayer(mode: LibretroExitMode = .automatic) {
+        guard !shouldClosePlayer else {
+            return
+        }
         shouldClosePlayer = true
-        message = "Closing game…"
-        stop()
+        if mode.createsResumeState, case .running = phase {
+            message = "Saving resume state…"
+            engine.saveQuickStateAndStop()
+        } else {
+            message = "Closing game…"
+            stop()
+        }
     }
 
     var isReadyToClosePlayer: Bool {
@@ -1656,6 +1673,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
     private enum Command {
         case reset
         case saveQuickState
+        case saveQuickStateAndStop
         case loadQuickState
         case rewind
     }
@@ -1747,6 +1765,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         enqueue(.saveQuickState)
     }
 
+    func saveQuickStateAndStop() {
+        enqueue(.saveQuickStateAndStop)
+    }
+
     func loadQuickState() {
         enqueue(.loadQuickState)
     }
@@ -1817,7 +1839,6 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         inputState.pollController()
         if inputState.consumeExitRequest() {
             emit(.controllerExitRequested)
-            stop()
         }
     }
 
@@ -2026,9 +2047,12 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     nextRewindCapture = 0
                     emit(.rewindAvailabilityChanged(false))
                 case .saveQuickState:
-                    let data = try core.saveState()
-                    try data.write(to: quickStateURL, options: .atomic)
-                    emit(.quickStateSaved)
+                    try persistQuickState(using: core)
+                case .saveQuickStateAndStop:
+                    defer {
+                        stop()
+                    }
+                    try persistQuickState(using: core)
                 case .loadQuickState:
                     guard FileManager.default.fileExists(atPath: quickStateURL.path) else {
                         throw LibretroRuntimeError.stateUnavailable
@@ -2059,6 +2083,12 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             }
         }
         return didRewind
+    }
+
+    private func persistQuickState(using core: LibretroCore) throws {
+        let data = try core.saveState()
+        try data.write(to: quickStateURL, options: .atomic)
+        emit(.quickStateSaved)
     }
 
     private func captureRewindStateIfNeeded(

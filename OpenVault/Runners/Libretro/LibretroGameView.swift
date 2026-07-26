@@ -95,7 +95,11 @@ struct LibretroGameView: View {
             session.start()
         }
         .onDisappear {
-            session.stop()
+            if session.shouldClosePlayer {
+                session.stop()
+            } else {
+                session.exitPlayer()
+            }
         }
         .onExitCommand {
             if session.request.playerOrigin == .bigPicture {
@@ -206,7 +210,7 @@ struct LibretroGameView: View {
                     if onCloseRequested == nil {
                         session.stop()
                     } else {
-                        session.exitPlayer()
+                        session.exitPlayer(mode: .explicitStop)
                     }
                 } label: {
                     Label("Stop", systemImage: "stop.fill")

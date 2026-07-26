@@ -508,6 +508,8 @@ struct LibretroCoreManifestTests {
 
         #expect(session.shouldClosePlayer)
         #expect(session.isReadyToClosePlayer)
+        #expect(LibretroExitMode.automatic.createsResumeState)
+        #expect(!LibretroExitMode.explicitStop.createsResumeState)
     }
 
     private func containsVisiblePixels(_ frame: LibretroVideoFrame) -> Bool {
