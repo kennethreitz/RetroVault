@@ -444,6 +444,13 @@ struct BigPictureCatalogTests {
       for: BigPictureControllerState(isConnected: true, startsGame: true),
       at: 20.2
     )
+    let options = navigation.command(
+      for: BigPictureControllerState(
+        isConnected: true,
+        opensGameOptions: true
+      ),
+      at: 20.25
+    )
     let back = navigation.command(
       for: BigPictureControllerState(isConnected: true, back: true),
       at: 20.3
@@ -468,6 +475,7 @@ struct BigPictureCatalogTests {
     #expect(activate == .activate)
     #expect(heldActivate == nil)
     #expect(start == .launchGame)
+    #expect(options == .openGameOptions)
     #expect(back == .back)
     #expect(pageUp == .pageUp)
     #expect(pageDown == .pageDown)
@@ -582,6 +590,14 @@ struct BigPictureCatalogTests {
     #expect(switchBack.systemImage == "b.circle")
     #expect(fallback.label == "B")
     #expect(fallback.systemImage == nil)
+
+    let switchOptions = BigPictureControllerState.buttonPrompt(
+      localizedName: "X Button",
+      systemImage: "x.circle",
+      fallbackLabel: "X"
+    )
+    #expect(switchOptions.label == "X")
+    #expect(switchOptions.systemImage == "x.circle")
   }
 
   @Test("Maps Backspace to Big Picture back navigation")

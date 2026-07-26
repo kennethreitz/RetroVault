@@ -31,7 +31,12 @@ struct BigPictureView: View {
   @State private var isLoadingGameDetails = false
   @State private var playbackErrorMessage: String?
   @State private var requestedGame: GameSummary?
+  @State private var requestedGameStartsFresh = false
   @State private var activePlayerRequest: LibretroRunRequest?
+  @State private var optionsGame: GameSummary?
+  @State private var selectedGameOptionIndex = 0
+  @State private var actionProgressTitle: String?
+  @State private var actionNotice: BigPictureActionNotice?
   @Namespace private var selectionHighlight
   @FocusState private var hasInterfaceFocus: Bool
 
@@ -95,6 +100,12 @@ struct BigPictureView: View {
         preparationOverlay
       } else if let playbackErrorMessage {
         errorOverlay(playbackErrorMessage)
+      } else if let actionProgressTitle {
+        actionProgressOverlay(actionProgressTitle)
+      } else if let optionsGame {
+        gameOptionsOverlay(optionsGame)
+      } else if let actionNotice {
+        actionNoticeOverlay(actionNotice)
       }
     }
     .foregroundStyle(.white)
@@ -132,6 +143,10 @@ struct BigPictureView: View {
     }
     .onKeyPress(.delete) {
       handleKeyboardKey(.delete)
+    }
+    .onKeyPress("x") {
+      handleNavigationInput(.openGameOptions)
+      return .handled
     }
     .onKeyPress(.escape) {
       handleEscape()
@@ -406,6 +421,13 @@ struct BigPictureView: View {
         if rows.count > pageSelectionStride {
           actionHint(key: "←/→", label: "PAGE")
         }
+        if page.isGameList {
+          actionHint(
+            key: controllerState.optionsButtonPrompt.label,
+            systemImage: controllerState.optionsButtonPrompt.systemImage,
+            label: "OPTIONS"
+          )
+        }
         actionHint(
           key: controllerState.activateButtonPrompt.label,
           systemImage: controllerState.activateButtonPrompt.systemImage,
@@ -529,6 +551,150 @@ struct BigPictureView: View {
     .shadow(color: .black.opacity(0.8), radius: 50)
   }
 
+  private func gameOptionsOverlay(_ game: GameSummary) -> some View {
+    let options = gameOptions(for: game)
+
+    return VStack(alignment: .leading, spacing: 18) {
+      VStack(alignment: .leading, spacing: 5) {
+        Text("GAME OPTIONS")
+          .font(.system(size: 13, weight: .black, design: .rounded))
+          .tracking(2)
+          .foregroundStyle(.white.opacity(0.52))
+        Text(game.name)
+          .font(.system(size: 27, weight: .black, design: .rounded))
+          .lineLimit(2)
+      }
+
+      VStack(spacing: 5) {
+        ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
+          Button {
+            selectedGameOptionIndex = index
+            perform(option.action, for: game)
+          } label: {
+            HStack(spacing: 13) {
+              Image(systemName: option.systemImage)
+                .frame(width: 24)
+              Text(option.title)
+              Spacer()
+            }
+            .font(.system(size: 19, weight: .bold, design: .rounded))
+            .foregroundStyle(
+              index == selectedGameOptionIndex ? .black : .white
+            )
+            .padding(.horizontal, 17)
+            .frame(height: 48)
+            .background {
+              if index == selectedGameOptionIndex {
+                Capsule().fill(.white)
+              }
+            }
+            .contentShape(Capsule())
+          }
+          .buttonStyle(.plain)
+          .disabled(!option.isEnabled)
+          .opacity(option.isEnabled ? 1 : 0.34)
+          .onContinuousHover { phase in
+            if case .active = phase,
+              option.isEnabled,
+              inputPriority.acceptsPointerHover(
+                at: NSEvent.mouseLocation
+              )
+            {
+              selectedGameOptionIndex = index
+            }
+          }
+        }
+      }
+
+      HStack(spacing: 12) {
+        actionHint(
+          key: controllerState.activateButtonPrompt.label,
+          systemImage: controllerState.activateButtonPrompt.systemImage,
+          label: "SELECT"
+        )
+        actionHint(
+          key: controllerState.backButtonPrompt.label,
+          systemImage: controllerState.backButtonPrompt.systemImage,
+          label: "BACK"
+        )
+      }
+    }
+    .padding(30)
+    .frame(width: 540)
+    .background(.black.opacity(0.97), in: RoundedRectangle(cornerRadius: 28))
+    .overlay {
+      RoundedRectangle(cornerRadius: 28)
+        .stroke(.white.opacity(0.2), lineWidth: 1)
+    }
+    .shadow(color: .black.opacity(0.85), radius: 55)
+  }
+
+  private func actionNoticeOverlay(
+    _ notice: BigPictureActionNotice
+  ) -> some View {
+    VStack(spacing: 18) {
+      Image(systemName: notice.systemImage)
+        .font(.system(size: 38, weight: .light))
+
+      Text(notice.title.uppercased())
+        .font(.system(size: 24, weight: .black, design: .rounded))
+
+      Text(notice.message)
+        .font(.system(size: 16, weight: .medium, design: .rounded))
+        .foregroundStyle(.white.opacity(0.66))
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 460)
+
+      actionHint(
+        key: controllerState.activateButtonPrompt.label,
+        systemImage: controllerState.activateButtonPrompt.systemImage,
+        label: "OK"
+      )
+    }
+    .padding(38)
+    .frame(minWidth: 500)
+    .background(.black.opacity(0.97), in: RoundedRectangle(cornerRadius: 28))
+    .overlay {
+      RoundedRectangle(cornerRadius: 28)
+        .stroke(.white.opacity(0.2), lineWidth: 1)
+    }
+    .shadow(color: .black.opacity(0.85), radius: 55)
+  }
+
+  private func actionProgressOverlay(_ title: String) -> some View {
+    VStack(spacing: 20) {
+      ProgressView()
+        .controlSize(.large)
+        .tint(.white)
+
+      Text(title.uppercased())
+        .font(.system(size: 22, weight: .black, design: .rounded))
+
+      if let fraction = model.downloadProgress?
+        .currentTransferProgress?
+        .fractionCompleted
+      {
+        ProgressView(value: fraction)
+          .progressViewStyle(.linear)
+          .tint(.white)
+          .frame(width: 320)
+
+        Text("\(Int(fraction * 100))%")
+          .font(.system(size: 14, weight: .bold, design: .rounded))
+          .foregroundStyle(.white.opacity(0.58))
+          .monospacedDigit()
+      }
+    }
+    .padding(38)
+    .frame(minWidth: 460)
+    .background(.black.opacity(0.97), in: RoundedRectangle(cornerRadius: 28))
+    .overlay {
+      RoundedRectangle(cornerRadius: 28)
+        .stroke(.white.opacity(0.2), lineWidth: 1)
+    }
+    .shadow(color: .black.opacity(0.85), radius: 55)
+  }
+
   private func makeRows(
     for page: BigPicturePage,
     catalog: BigPictureCatalog
@@ -608,6 +774,61 @@ struct BigPictureView: View {
     return nil
   }
 
+  private func gameOptions(
+    for game: GameSummary
+  ) -> [BigPictureGameOption] {
+    let isFavorite = model.favoriteGameIDs.contains(game.id)
+    let isDownloaded = model.downloadedGameIDs.contains(game.id)
+
+    return [
+      BigPictureGameOption(
+        action: .play,
+        title: "Play",
+        systemImage: "play.fill"
+      ),
+      BigPictureGameOption(
+        action: .playFromBeginning,
+        title: "Play from Beginning",
+        systemImage: "forward.end.fill"
+      ),
+      BigPictureGameOption(
+        action: .setFavorite(!isFavorite),
+        title:
+          isFavorite
+          ? "Remove from Favorites"
+          : "Add to Favorites",
+        systemImage: isFavorite ? "star.slash" : "star",
+        isEnabled:
+          model.favoriteCollectionID != nil
+          && !model.isUpdatingFavorites
+          && !model.isShowingStaleData
+      ),
+      BigPictureGameOption(
+        action: .setDownloaded(!isDownloaded),
+        title: isDownloaded ? "Remove Download" : "Download",
+        systemImage:
+          isDownloaded
+          ? "trash"
+          : "arrow.down.circle",
+        isEnabled:
+          !model.isDownloadingGames
+          && !model.isRemovingDownloads
+          && (isDownloaded || game.isMissingFromFileSystem != true)
+      ),
+      BigPictureGameOption(
+        action: .export,
+        title: "Export",
+        systemImage: "square.and.arrow.up",
+        isEnabled:
+          !model.isExportingGames
+          && (
+            game.isMissingFromFileSystem != true
+              || isDownloaded
+          )
+      ),
+    ]
+  }
+
   private var pageTitle: String {
     switch page {
     case .home:
@@ -651,6 +872,7 @@ struct BigPictureView: View {
     BigPictureCatalogKey(
       synchronizedAt: model.lastSuccessfulSync,
       downloadedGameIDs: model.downloadedGameIDs,
+      favoriteGameIDs: model.favoriteGameIDs,
       hidesBIOSGames: model.hidesBIOSGames
     )
   }
@@ -690,16 +912,50 @@ struct BigPictureView: View {
       return
     }
 
+    if actionProgressTitle != nil {
+      return
+    }
+
+    if actionNotice != nil {
+      switch command {
+      case .activate, .launchGame, .back, .openGameOptions:
+        actionNotice = nil
+      case .up, .down, .pageUp, .pageDown, .exit:
+        break
+      }
+      return
+    }
+
+    if let optionsGame {
+      switch command {
+      case .up:
+        moveGameOptionSelection(by: -1, for: optionsGame)
+      case .down:
+        moveGameOptionSelection(by: 1, for: optionsGame)
+      case .activate, .launchGame:
+        activateSelectedGameOption(for: optionsGame)
+      case .back, .openGameOptions:
+        self.optionsGame = nil
+      case .pageUp, .pageDown, .exit:
+        break
+      }
+      return
+    }
+
     if playbackErrorMessage != nil {
       switch command {
       case .activate:
         playbackErrorMessage = nil
         if let requestedGame {
-          play(requestedGame)
+          play(
+            requestedGame,
+            fromBeginning: requestedGameStartsFresh
+          )
         }
       case .back:
         playbackErrorMessage = nil
-      case .up, .down, .pageUp, .pageDown, .launchGame, .exit:
+      case .up, .down, .pageUp, .pageDown, .launchGame,
+        .openGameOptions, .exit:
         break
       }
       return
@@ -731,6 +987,8 @@ struct BigPictureView: View {
       activate(rows[selectedIndex])
     case .launchGame:
       launchSelectedGame()
+    case .openGameOptions:
+      presentSelectedGameOptions()
     case .back:
       navigateBack()
     case .exit:
@@ -795,6 +1053,172 @@ struct BigPictureView: View {
     play(game)
   }
 
+  private func presentSelectedGameOptions() {
+    guard let selectedGame else {
+      return
+    }
+    let options = gameOptions(for: selectedGame)
+    optionsGame = selectedGame
+    selectedGameOptionIndex =
+      options.firstIndex(where: \.isEnabled) ?? 0
+  }
+
+  private func moveGameOptionSelection(
+    by offset: Int,
+    for game: GameSummary
+  ) {
+    let options = gameOptions(for: game)
+    guard !options.isEmpty, offset != 0 else {
+      return
+    }
+
+    var index = selectedGameOptionIndex
+    while true {
+      let candidate = index + (offset > 0 ? 1 : -1)
+      guard options.indices.contains(candidate) else {
+        return
+      }
+      index = candidate
+      if options[index].isEnabled {
+        selectedGameOptionIndex = index
+        return
+      }
+    }
+  }
+
+  private func activateSelectedGameOption(for game: GameSummary) {
+    let options = gameOptions(for: game)
+    guard options.indices.contains(selectedGameOptionIndex) else {
+      return
+    }
+    let option = options[selectedGameOptionIndex]
+    guard option.isEnabled else {
+      return
+    }
+    perform(option.action, for: game)
+  }
+
+  private func perform(
+    _ action: BigPictureGameOption.Action,
+    for game: GameSummary
+  ) {
+    optionsGame = nil
+
+    switch action {
+    case .play:
+      play(game)
+    case .playFromBeginning:
+      play(game, fromBeginning: true)
+    case .setFavorite(let isFavorite):
+      updateFavorite(isFavorite, for: game)
+    case .setDownloaded(let isDownloaded):
+      if isDownloaded {
+        download(game)
+      } else {
+        removeDownload(for: game)
+      }
+    case .export:
+      export(game)
+    }
+  }
+
+  private func updateFavorite(
+    _ isFavorite: Bool,
+    for game: GameSummary
+  ) {
+    actionProgressTitle = "Updating Favorites"
+    Task {
+      defer {
+        actionProgressTitle = nil
+      }
+      do {
+        try await model.setFavorite(isFavorite, for: [game])
+      } catch is CancellationError {
+        return
+      } catch {
+        actionNotice = BigPictureActionNotice(
+          title:
+            isFavorite
+            ? "Couldn’t Add Favorite"
+            : "Couldn’t Remove Favorite",
+          message: error.localizedDescription,
+          systemImage: "exclamationmark.triangle"
+        )
+      }
+    }
+  }
+
+  private func download(_ game: GameSummary) {
+    actionProgressTitle = "Downloading Game"
+    Task {
+      defer {
+        actionProgressTitle = nil
+      }
+      let result = await model.downloadGames([game])
+      guard !result.completedWithoutErrors else {
+        return
+      }
+      actionNotice = operationFailureNotice(
+        title: "Couldn’t Download Game",
+        errors: result.errors
+      )
+    }
+  }
+
+  private func removeDownload(for game: GameSummary) {
+    actionProgressTitle = "Removing Download"
+    Task {
+      defer {
+        actionProgressTitle = nil
+      }
+      let result = await model.removeDownloads([game])
+      guard !result.completedWithoutErrors else {
+        return
+      }
+      actionNotice = operationFailureNotice(
+        title: "Couldn’t Remove Download",
+        errors: result.errors
+      )
+    }
+  }
+
+  private func export(_ game: GameSummary) {
+    actionProgressTitle = "Exporting Game"
+    Task {
+      defer {
+        actionProgressTitle = nil
+      }
+      let result = await model.exportGames([game])
+      if result.completedWithoutErrors,
+        let exportedURL = result.exportedFileURLs.first
+      {
+        actionNotice = BigPictureActionNotice(
+          title: "Game Exported",
+          message: "Saved \(exportedURL.lastPathComponent) to Downloads.",
+          systemImage: "checkmark.circle"
+        )
+      } else {
+        actionNotice = operationFailureNotice(
+          title: "Couldn’t Export Game",
+          errors: result.errors
+        )
+      }
+    }
+  }
+
+  private func operationFailureNotice(
+    title: String,
+    errors: [String]
+  ) -> BigPictureActionNotice {
+    BigPictureActionNotice(
+      title: title,
+      message:
+        errors.first
+        ?? "OpenVault couldn’t complete this action.",
+      systemImage: "exclamationmark.triangle"
+    )
+  }
+
   private func navigateBack() {
     guard let previous = history.popLast() else {
       return
@@ -840,12 +1264,16 @@ struct BigPictureView: View {
     )
   }
 
-  private func play(_ game: GameSummary) {
+  private func play(
+    _ game: GameSummary,
+    fromBeginning: Bool = false
+  ) {
     guard playbackTask == nil else {
       return
     }
 
     requestedGame = game
+    requestedGameStartsFresh = fromBeginning
     playbackErrorMessage = nil
     let detailsModel = GameDetailsModel(
       game: game,
@@ -883,7 +1311,9 @@ struct BigPictureView: View {
       }
 
       await model.reloadDownloadedGames()
-      activePlayerRequest = request.launched(from: .bigPicture)
+      activePlayerRequest =
+        (fromBeginning ? request.startingFresh() : request)
+        .launched(from: .bigPicture)
       finishPlaybackPreparation()
     }
   }
@@ -909,6 +1339,7 @@ struct BigPictureView: View {
     isLoadingGameDetails = false
     if !keepingError {
       requestedGame = nil
+      requestedGameStartsFresh = false
     }
   }
 
@@ -987,6 +1418,7 @@ private struct BigPictureHistoryEntry {
 private struct BigPictureCatalogKey: Hashable {
   let synchronizedAt: Date?
   let downloadedGameIDs: Set<Int>
+  let favoriteGameIDs: Set<Int>
   let hidesBIOSGames: Bool
 }
 
@@ -997,6 +1429,7 @@ enum BigPictureCommand: Equatable, Sendable {
   case pageDown
   case activate
   case launchGame
+  case openGameOptions
   case back
   case exit
 }
@@ -1034,6 +1467,31 @@ private struct BigPictureRow: Identifiable {
   let action: Action
 }
 
+private struct BigPictureGameOption: Identifiable {
+  enum Action: Hashable {
+    case play
+    case playFromBeginning
+    case setFavorite(Bool)
+    case setDownloaded(Bool)
+    case export
+  }
+
+  var id: Action {
+    action
+  }
+
+  let action: Action
+  let title: String
+  let systemImage: String
+  var isEnabled = true
+}
+
+private struct BigPictureActionNotice {
+  let title: String
+  let message: String
+  let systemImage: String
+}
+
 extension BigPictureScope {
   fileprivate var isSystem: Bool {
     if case .system = self {
@@ -1051,6 +1509,7 @@ struct BigPictureControllerState: Equatable, Sendable {
   var right = false
   var activate = false
   var startsGame = false
+  var opensGameOptions = false
   var back = false
   var exitsBigPicture = false
   var opensBigPicture = false
@@ -1058,6 +1517,7 @@ struct BigPictureControllerState: Equatable, Sendable {
   var pageDown = false
   var activateButtonPrompt = BigPictureControllerPrompt(label: "B")
   var backButtonPrompt = BigPictureControllerPrompt(label: "A")
+  var optionsButtonPrompt = BigPictureControllerPrompt(label: "X")
   var exitButtonPrompt = BigPictureControllerPrompt(label: "SELECT")
 
   static var current: Self {
@@ -1084,6 +1544,11 @@ struct BigPictureControllerState: Equatable, Sendable {
         localizedName: backButton.localizedName,
         systemImage: backButton.sfSymbolsName,
         fallbackLabel: layout == .nintendo ? "B" : "A"
+      )
+      state.optionsButtonPrompt = buttonPrompt(
+        localizedName: gamepad.buttonX.localizedName,
+        systemImage: gamepad.buttonX.sfSymbolsName,
+        fallbackLabel: "X"
       )
       state.exitButtonPrompt = buttonPrompt(
         localizedName: gamepad.buttonOptions?.localizedName,
@@ -1124,6 +1589,8 @@ struct BigPictureControllerState: Equatable, Sendable {
           || gamepad.dpad.right.isPressed
           || gamepad.leftThumbstick.xAxis.value > 0.72
         state.activate = state.activate || faceButtons.activate
+        state.opensGameOptions =
+          state.opensGameOptions || gamepad.buttonX.isPressed
         state.startsGame =
           state.startsGame || auxiliaryButtons.startsGame
         state.exitsBigPicture =
@@ -1265,6 +1732,9 @@ struct BigPictureControllerNavigation: Sendable {
     }
     if state.back, !previousState.back {
       return .back
+    }
+    if state.opensGameOptions, !previousState.opensGameOptions {
+      return .openGameOptions
     }
     if state.startsGame, !previousState.startsGame {
       return .launchGame
