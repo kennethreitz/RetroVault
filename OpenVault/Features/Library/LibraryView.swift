@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 @preconcurrency import GameController
 import SwiftUI
 
@@ -17,9 +18,13 @@ enum LibraryControllerCommand: Equatable, Sendable {
   case focusContent
 }
 
-struct LibraryControllerEvent: Equatable, Sendable {
-  let sequence: UInt64
-  let command: LibraryControllerCommand
+@MainActor
+final class LibraryControllerRouter {
+  let commands = PassthroughSubject<LibraryControllerCommand, Never>()
+
+  func send(_ command: LibraryControllerCommand) {
+    commands.send(command)
+  }
 }
 
 struct LibraryControllerNavigation: Sendable {
@@ -372,8 +377,7 @@ struct LibraryView: View {
   @FocusState private var hasSidebarFocus: Bool
   @State private var libraryWindow: NSWindow?
   @State private var controllerNavigation = LibraryControllerNavigation()
-  @State private var controllerEvent: LibraryControllerEvent?
-  @State private var controllerEventSequence: UInt64 = 0
+  @State private var controllerRouter = LibraryControllerRouter()
 
   var body: some View {
     NavigationSplitView {
@@ -521,7 +525,7 @@ struct LibraryView: View {
               previewGames: model.collectionPreviewGames,
               session: model.session,
               service: model.service,
-              controllerEvent: controllerEvent,
+              controllerRouter: controllerRouter,
               focusSidebar: focusSidebar
             ) { collection in
               selectionBinding.wrappedValue = .collection(collection.id)
@@ -538,7 +542,7 @@ struct LibraryView: View {
                 requestGameDownloadRemoval: requestGameDownloadRemoval,
                 requestGameExport: requestGameExport,
                 requestGameDeletion: requestGameDeletion,
-                controllerEvent: controllerEvent,
+                controllerRouter: controllerRouter,
                 focusSidebar: focusSidebar
               )
             case .artwork:
@@ -552,7 +556,7 @@ struct LibraryView: View {
                 requestGameDownloadRemoval: requestGameDownloadRemoval,
                 requestGameExport: requestGameExport,
                 requestGameDeletion: requestGameDeletion,
-                controllerEvent: controllerEvent,
+                controllerRouter: controllerRouter,
                 focusSidebar: focusSidebar
               )
             }
@@ -1429,11 +1433,7 @@ struct LibraryView: View {
   }
 
   private func emitControllerEvent(_ command: LibraryControllerCommand) {
-    controllerEventSequence &+= 1
-    controllerEvent = LibraryControllerEvent(
-      sequence: controllerEventSequence,
-      command: command
-    )
+    controllerRouter.send(command)
   }
 
   private func handleControllerCommand(_ command: LibraryControllerCommand) {
@@ -1638,7 +1638,7 @@ private struct VirtualCollectionGalleryView: View {
   let previewGames: [LibraryCollection.ID: [GameSummary]]
   let session: ServerSession
   let service: any LibraryServing
-  let controllerEvent: LibraryControllerEvent?
+  let controllerRouter: LibraryControllerRouter
   let focusSidebar: () -> Void
   let openCollection: (LibraryCollection) -> Void
 
@@ -1705,11 +1705,8 @@ private struct VirtualCollectionGalleryView: View {
         .padding(.trailing, 18)
         .allowsHitTesting(false)
       }
-      .onChange(of: controllerEvent) { _, event in
-        guard let event else {
-          return
-        }
-        handleControllerCommand(event.command)
+      .onReceive(controllerRouter.commands) { command in
+        handleControllerCommand(command)
       }
       .onChange(of: collections.map(\.id)) { _, _ in
         selectedIndex = min(
@@ -2013,7 +2010,7 @@ private struct LibraryTableView: View {
   let requestGameDownloadRemoval: ([GameSummary]) -> Void
   let requestGameExport: ([GameSummary]) -> Void
   let requestGameDeletion: ([GameSummary]) -> Void
-  let controllerEvent: LibraryControllerEvent?
+  let controllerRouter: LibraryControllerRouter
   let focusSidebar: () -> Void
 
   @State private var sortOrder = [
@@ -2133,17 +2130,14 @@ private struct LibraryTableView: View {
         await rebuildSortedGames()
       }
     }
-    .onChange(of: controllerEvent) { _, event in
-      guard let event else {
-        return
-      }
+    .onReceive(controllerRouter.commands) { command in
       if gameToOpen != nil {
-        if event.command == .back {
+        if command == .back {
           gameToOpen = nil
         }
         return
       }
-      handleControllerCommand(event.command)
+      handleControllerCommand(command)
     }
   }
 
@@ -3288,7 +3282,7 @@ private struct LibraryGridView: View {
   let requestGameDownloadRemoval: ([GameSummary]) -> Void
   let requestGameExport: ([GameSummary]) -> Void
   let requestGameDeletion: ([GameSummary]) -> Void
-  let controllerEvent: LibraryControllerEvent?
+  let controllerRouter: LibraryControllerRouter
   let focusSidebar: () -> Void
 
   @State private var selectedGameIDs: Set<Int> = []
@@ -3487,17 +3481,14 @@ private struct LibraryGridView: View {
     .onChange(of: model.hidesGamesWithoutArtwork) { _, _ in
       selectedGameIDs.formIntersection(model.displayedGames.lazy.map(\.id))
     }
-    .onChange(of: controllerEvent) { _, event in
-      guard let event else {
-        return
-      }
+    .onReceive(controllerRouter.commands) { command in
       if gameToOpen != nil {
-        if event.command == .back {
+        if command == .back {
           gameToOpen = nil
         }
         return
       }
-      handleControllerCommand(event.command)
+      handleControllerCommand(command)
     }
     .alert(item: $playbackAlert) { alert in
       Alert(
