@@ -1,6 +1,5 @@
 import Foundation
 import Metal
-import SwiftUI
 import Testing
 @testable import OpenVault
 
@@ -683,55 +682,5 @@ struct LibretroCoreManifestTests {
             }
             return false
         }
-    }
-}
-
-@Suite("Game details layout")
-struct GameDetailsLayoutTests {
-    @Test("Keeps foreground content inside the split-view safe area")
-    func respectsSidebarSafeArea() {
-        let viewport = GameDetailsViewport(
-            containerFrame: CGRect(x: 0, y: 0, width: 1_500, height: 900),
-            safeAreaInsets: SwiftUI.EdgeInsets(
-                top: 18,
-                leading: 300,
-                bottom: 12,
-                trailing: 20
-            )
-        )
-
-        #expect(viewport.origin == CGPoint(x: 300, y: 18))
-        #expect(viewport.size == CGSize(width: 1_180, height: 870))
-    }
-
-    @Test("Does not apply an already consumed split-view offset twice")
-    func doesNotDuplicateConsumedInsets() {
-        let viewport = GameDetailsViewport(
-            containerFrame: CGRect(x: 300, y: 18, width: 1_180, height: 870),
-            safeAreaInsets: SwiftUI.EdgeInsets(
-                top: 18,
-                leading: 300,
-                bottom: 12,
-                trailing: 20
-            )
-        )
-
-        #expect(viewport.origin == .zero)
-        #expect(viewport.size == CGSize(width: 1_160, height: 858))
-    }
-
-    @Test("Clamps a fully occluded viewport to zero")
-    func clampsFullyOccludedViewport() {
-        let viewport = GameDetailsViewport(
-            containerFrame: CGRect(x: 0, y: 0, width: 250, height: 100),
-            safeAreaInsets: SwiftUI.EdgeInsets(
-                top: 60,
-                leading: 180,
-                bottom: 60,
-                trailing: 180
-            )
-        )
-
-        #expect(viewport.size == .zero)
     }
 }

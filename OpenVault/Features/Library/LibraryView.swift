@@ -279,6 +279,58 @@ private struct LibraryAlert: Identifiable {
   var fileURLs: [URL] = []
 }
 
+private enum LibraryPlaybackPreparation {
+  case ready(LibretroRunRequest)
+  case failed(LibraryAlert)
+
+  @MainActor
+  static func prepare(
+    _ game: GameSummary,
+    model: LibraryModel
+  ) async -> Self {
+    let detailsModel = GameDetailsModel(
+      game: game,
+      session: model.session,
+      service: model.service
+    )
+    await detailsModel.load()
+
+    guard let details = detailsModel.details else {
+      return .failed(
+        LibraryAlert(
+          title: "Couldn’t Prepare Game",
+          message:
+            detailsModel.errorMessage
+            ?? "OpenVault couldn’t load the game’s playback information."
+        )
+      )
+    }
+
+    guard detailsModel.playbackCore != nil else {
+      return .failed(
+        LibraryAlert(
+          title: "Game Isn’t Playable",
+          message:
+            "The bundled core for \(game.systemName) doesn’t support this game file."
+        )
+      )
+    }
+
+    guard let request = await detailsModel.prepareToPlay(details) else {
+      return .failed(
+        LibraryAlert(
+          title: "Couldn’t Start Game",
+          message:
+            detailsModel.playbackErrorMessage
+            ?? "OpenVault couldn’t prepare this game for playback."
+        )
+      )
+    }
+
+    return .ready(request)
+  }
+}
+
 private enum LibraryBrowserColumn: String, CaseIterable, Identifiable {
   case system
   case genre
@@ -577,15 +629,6 @@ struct LibraryView: View {
             ? "Search Collections"
             : "Search Games"
         )
-        .navigationDestination(for: GameSummary.self) { game in
-          GameDetailsView(
-            game: game,
-            session: model.session,
-            service: model.service,
-            controllerRouter: controllerRouter
-          )
-          .id(game.id)
-        }
         .toolbar {
           if model.selection != .virtualCollections {
             ToolbarItem {
@@ -2014,6 +2057,7 @@ private struct LibraryGameSelectionContextMenu<PrimaryActions: View>: View {
 }
 
 private struct LibraryTableView: View {
+  @Environment(\.openWindow) private var openWindow
   @Environment(\.accessibilityReduceMotion) private var reducesMotion
 
   let model: LibraryModel
@@ -2035,7 +2079,8 @@ private struct LibraryTableView: View {
   @State private var sortingRequestID = UUID()
   @State private var tableIdentity = UUID()
   @State private var selectedGameIDs: Set<Int> = []
-  @State private var gameToOpen: GameSummary?
+  @State private var preparingGameID: Int?
+  @State private var playbackAlert: LibraryAlert?
   @State private var hasPreparedRows = false
   @State private var controllerTableScrollTargetID: Int?
   @State private var controllerBrowserColumnIndex: Int?
@@ -2124,15 +2169,6 @@ private struct LibraryTableView: View {
     .task(id: tableRowsKey) {
       await rebuildSortedGames()
     }
-    .navigationDestination(item: $gameToOpen) { game in
-      GameDetailsView(
-        game: game,
-        session: model.session,
-        service: model.service,
-        controllerRouter: controllerRouter
-      )
-      .id(game.id)
-    }
     .onChange(of: model.selection) { _, _ in
       clearBrowserFilters()
       selectedGameIDs.removeAll()
@@ -2146,13 +2182,14 @@ private struct LibraryTableView: View {
       }
     }
     .onReceive(controllerRouter.commands) { command in
-      if gameToOpen != nil {
-        if command == .back {
-          gameToOpen = nil
-        }
-        return
-      }
       handleControllerCommand(command)
+    }
+    .alert(item: $playbackAlert) { alert in
+      Alert(
+        title: Text(alert.title),
+        message: Text(alert.message),
+        dismissButton: .default(Text("OK"))
+      )
     }
   }
 
@@ -2181,31 +2218,46 @@ private struct LibraryTableView: View {
       columnCustomization: $columnCustomization
     ) {
       TableColumn("Game", value: \.name) { game in
-        Button {
-          openGame(game)
-        } label: {
-          HStack(spacing: 7) {
-            Image(systemName: "play.fill")
-              .font(.system(size: 8, weight: .bold))
-              .foregroundStyle(.secondary)
-              .frame(width: 10)
-              .opacity(isPlayable(game) ? 1 : 0)
-              .accessibilityHidden(true)
-
-            Text(game.name)
-              .lineLimit(1)
-
-            if model.prioritizesFavoritesInCurrentView,
-              model.favoriteGameIDs.contains(game.id)
-            {
-              Image(systemName: "star.fill")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.yellow)
-                .accessibilityLabel("Favorite")
+        HStack(spacing: 7) {
+          Button {
+            play(game)
+          } label: {
+            Group {
+              if preparingGameID == game.id {
+                ProgressView()
+                  .controlSize(.mini)
+              } else {
+                Image(systemName: "play.fill")
+                  .font(.system(size: 8, weight: .bold))
+                  .foregroundStyle(.secondary)
+              }
             }
+            .frame(width: 10)
+          }
+          .buttonStyle(.plain)
+          .disabled(
+            !isPlayable(game)
+              || (preparingGameID != nil && preparingGameID != game.id)
+          )
+          .opacity(isPlayable(game) ? 1 : 0)
+          .accessibilityLabel("Play \(game.name)")
+
+          Text(game.name)
+            .lineLimit(1)
+
+          if model.prioritizesFavoritesInCurrentView,
+            model.favoriteGameIDs.contains(game.id)
+          {
+            Image(systemName: "star.fill")
+              .font(.system(size: 9, weight: .semibold))
+              .foregroundStyle(.yellow)
+              .accessibilityLabel("Favorite")
           }
         }
-        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+          play(game)
+        }
       }
       .width(min: 220, ideal: 380)
       .customizationID("game")
@@ -2335,7 +2387,27 @@ private struct LibraryTableView: View {
         requestGameExport: requestGameExport,
         requestGameDeletion: requestGameDeletion
       ) {
-        EmptyView()
+        if selectedGames.count == 1,
+          let selectedGame = selectedGames.first,
+          isPlayable(selectedGame)
+        {
+          Button {
+            play(selectedGame)
+          } label: {
+            Label("Play", systemImage: "play.fill")
+          }
+
+          Button {
+            play(selectedGame, fromBeginning: true)
+          } label: {
+            Label(
+              "Play from Beginning",
+              systemImage: "forward.end.fill"
+            )
+          }
+
+          Divider()
+        }
       }
     }
     .focused($hasTableFocus)
@@ -2372,11 +2444,28 @@ private struct LibraryTableView: View {
     .id(tableIdentity)
   }
 
-  private func openGame(_ game: GameSummary) {
-    hasTableFocus = false
-    Task { @MainActor in
-      await Task.yield()
-      gameToOpen = game
+  private func play(
+    _ game: GameSummary,
+    fromBeginning: Bool = false
+  ) {
+    guard preparingGameID == nil, isPlayable(game) else {
+      return
+    }
+
+    preparingGameID = game.id
+    Task {
+      defer {
+        preparingGameID = nil
+      }
+
+      switch await LibraryPlaybackPreparation.prepare(game, model: model) {
+      case let .ready(request):
+        openWindow(
+          value: fromBeginning ? request.startingFresh() : request
+        )
+      case let .failed(alert):
+        playbackAlert = alert
+      }
     }
   }
 
@@ -2424,7 +2513,7 @@ private struct LibraryTableView: View {
         selectTableGameIfNeeded()
         return
       }
-      openGame(game)
+      play(game)
     case .left:
       if let controllerBrowserColumnIndex,
         controllerBrowserColumnIndex > 0
@@ -3307,7 +3396,6 @@ private struct LibraryGridView: View {
 
   @State private var selectedGameIDs: Set<Int> = []
   @State private var selectionAnchorID: Int?
-  @State private var gameToOpen: GameSummary?
   @State private var sortedGames: [GameSummary] = []
   @State private var isSorting = true
   @State private var sortingRequestID = UUID()
@@ -3400,7 +3488,7 @@ private struct LibraryGridView: View {
                 isPlaybackBusy: preparingGameID != nil,
                 selectionNamespace: selectionHighlight,
                 animatesMovingSelection: selectedGameIDs.count == 1,
-                openGame: {
+                selectGame: {
                   handleGameClick(game)
                 },
                 playGame: {
@@ -3484,15 +3572,6 @@ private struct LibraryGridView: View {
         }
       }
     }
-    .navigationDestination(item: $gameToOpen) { game in
-      GameDetailsView(
-        game: game,
-        session: model.session,
-        service: model.service,
-        controllerRouter: controllerRouter
-      )
-      .id(game.id)
-    }
     .task(id: artworkRowsKey) {
       await rebuildSortedGames()
     }
@@ -3506,12 +3585,6 @@ private struct LibraryGridView: View {
       selectedGameIDs.formIntersection(model.displayedGames.lazy.map(\.id))
     }
     .onReceive(controllerRouter.commands) { command in
-      if gameToOpen != nil {
-        if command == .back {
-          gameToOpen = nil
-        }
-        return
-      }
       handleControllerCommand(command)
     }
     .alert(item: $playbackAlert) { alert in
@@ -3576,45 +3649,14 @@ private struct LibraryGridView: View {
         preparingGameID = nil
       }
 
-      let detailsModel = GameDetailsModel(
-        game: game,
-        session: model.session,
-        service: model.service
-      )
-      await detailsModel.load()
-
-      guard let details = detailsModel.details else {
-        playbackAlert = LibraryAlert(
-          title: "Couldn’t Prepare Game",
-          message:
-            detailsModel.errorMessage
-            ?? "OpenVault couldn’t load the game’s playback information."
+      switch await LibraryPlaybackPreparation.prepare(game, model: model) {
+      case let .ready(request):
+        openWindow(
+          value: fromBeginning ? request.startingFresh() : request
         )
-        return
+      case let .failed(alert):
+        playbackAlert = alert
       }
-
-      guard detailsModel.playbackCore != nil else {
-        playbackAlert = LibraryAlert(
-          title: "Game Isn’t Playable",
-          message:
-            "The bundled core for \(game.systemName) doesn’t support this game file."
-        )
-        return
-      }
-
-      guard let request = await detailsModel.prepareToPlay(details) else {
-        playbackAlert = LibraryAlert(
-          title: "Couldn’t Start Game",
-          message:
-            detailsModel.playbackErrorMessage
-            ?? "OpenVault couldn’t prepare this game for playback."
-        )
-        return
-      }
-
-      openWindow(
-        value: fromBeginning ? request.startingFresh() : request
-      )
     }
   }
 
@@ -3640,11 +3682,13 @@ private struct LibraryGridView: View {
       return
     }
 
-    hasGridFocus = false
-    Task { @MainActor in
-      await Task.yield()
-      gameToOpen = game
+    withAnimation(
+      reducesMotion ? nil : .snappy(duration: 0.16, extraBounce: 0)
+    ) {
+      selectedGameIDs = [game.id]
+      selectionAnchorID = game.id
     }
+    hasGridFocus = true
   }
 
   private func handleControllerCommand(
@@ -3679,7 +3723,7 @@ private struct LibraryGridView: View {
         selectGridGameIfNeeded()
         return
       }
-      handleGameClick(game)
+      play(game)
     case .back:
       hasGridFocus = false
       focusSidebar()
@@ -3950,14 +3994,14 @@ private struct ArtworkGameItem: View {
   let isPlaybackBusy: Bool
   let selectionNamespace: Namespace.ID
   let animatesMovingSelection: Bool
-  let openGame: () -> Void
+  let selectGame: () -> Void
   let playGame: () -> Void
 
   @State private var isHovered = false
 
   var body: some View {
     ZStack(alignment: .top) {
-      Button(action: openGame) {
+      Button(action: selectGame) {
         GameCard(
           game: game,
           session: session,
@@ -3967,6 +4011,15 @@ private struct ArtworkGameItem: View {
         .padding(5)
       }
       .buttonStyle(.plain)
+      .simultaneousGesture(
+        TapGesture(count: 2)
+          .onEnded {
+            guard isPlayable, !isPlaybackBusy else {
+              return
+            }
+            playGame()
+          }
+      )
 
       if isPlayable, isHovered || isPreparingToPlay {
         VStack(spacing: 0) {
