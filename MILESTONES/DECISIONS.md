@@ -210,11 +210,12 @@ enum ServerConfiguration: Sendable {
 - Starting a game reuses the production details, download, firmware, save-sync,
   and Libretro preparation pipeline. Large uncached ROMs show byte and
   percentage progress rather than an indefinite Preparing state.
-- A player launched from Big Picture treats Escape, the standard window-close
-  shortcut, and Start + Select as a clean return to the still-open Big Picture
-  library. Local save memory is persisted and RomM synchronization begins
-  before the player window closes. Desktop-launched players retain the native
-  fullscreen Escape behavior.
+- A player launched from Big Picture replaces the library inside the existing
+  full-screen Big Picture window instead of opening another window. Escape, the
+  standard window-close shortcut, Stop, and Start + Select cleanly return to the
+  same Big Picture page and selection. Local save memory is persisted and RomM
+  synchronization begins before the library returns. Desktop-launched players
+  retain their separate-window and native fullscreen Escape behavior.
 
 ## Game details
 

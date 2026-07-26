@@ -13,7 +13,6 @@ struct BigPictureView: View {
   @Bindable var model: LibraryModel
 
   @Environment(\.dismissWindow) private var dismissWindow
-  @Environment(\.openWindow) private var openWindow
 
   @State private var catalog = BigPictureCatalog.empty
   @State private var rows: [BigPictureRow] = []
@@ -30,9 +29,43 @@ struct BigPictureView: View {
   @State private var isLoadingGameDetails = false
   @State private var playbackErrorMessage: String?
   @State private var requestedGame: GameSummary?
+  @State private var activePlayerRequest: LibretroRunRequest?
   @FocusState private var hasInterfaceFocus: Bool
 
   var body: some View {
+    ZStack {
+      if let activePlayerRequest {
+        LibretroGameView(
+          request: activePlayerRequest,
+          service: model.service,
+          onCloseRequested: returnToBigPicture
+        )
+        .id(activePlayerRequest)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else {
+        libraryInterface
+      }
+    }
+    .background {
+      BigPictureWindowProbe { window in
+        bigPictureWindow = window
+      }
+    }
+    .task {
+      await model.load()
+    }
+    .task(id: catalogKey) {
+      await rebuildCatalog()
+    }
+    .task {
+      await pollControllers()
+    }
+    .onDisappear {
+      playbackTask?.cancel()
+    }
+  }
+
+  private var libraryInterface: some View {
     ZStack {
       Color.black
         .ignoresSafeArea()
@@ -89,23 +122,6 @@ struct BigPictureView: View {
     .onKeyPress(.escape) {
       handleEscape()
       return .handled
-    }
-    .background {
-      BigPictureWindowProbe { window in
-        bigPictureWindow = window
-      }
-    }
-    .task {
-      await model.load()
-    }
-    .task(id: catalogKey) {
-      await rebuildCatalog()
-    }
-    .task {
-      await pollControllers()
-    }
-    .onDisappear {
-      playbackTask?.cancel()
     }
   }
 
@@ -742,8 +758,22 @@ struct BigPictureView: View {
       }
 
       await model.reloadDownloadedGames()
-      openWindow(value: request.launched(from: .bigPicture))
+      activePlayerRequest = request.launched(from: .bigPicture)
       finishPlaybackPreparation()
+    }
+  }
+
+  private func returnToBigPicture() {
+    guard activePlayerRequest != nil else {
+      return
+    }
+    activePlayerRequest = nil
+    controllerNavigation.synchronize(with: .current)
+
+    Task { @MainActor in
+      await Task.yield()
+      hasInterfaceFocus = true
+      bigPictureWindow?.makeKeyAndOrderFront(nil)
     }
   }
 
@@ -791,7 +821,10 @@ struct BigPictureView: View {
     while !Task.isCancelled {
       let currentState = BigPictureControllerState.current
       controllerState = currentState
-      guard NSApplication.shared.keyWindow === bigPictureWindow else {
+      guard
+        activePlayerRequest == nil,
+        NSApplication.shared.keyWindow === bigPictureWindow
+      else {
         controllerNavigation.synchronize(with: currentState)
         try? await Task.sleep(for: .milliseconds(30))
         continue

@@ -6,11 +6,14 @@ struct LibretroGameView: View {
     @State private var session: LibretroSession
     @State private var playerWindow: NSWindow?
     @State private var isFullScreen = false
+    private let onCloseRequested: (@MainActor () -> Void)?
 
     init(
         request: LibretroRunRequest,
-        service: any LibraryServing
+        service: any LibraryServing,
+        onCloseRequested: (@MainActor () -> Void)? = nil
     ) {
+        self.onCloseRequested = onCloseRequested
         _session = State(
             initialValue: LibretroSession(request: request) { configuration in
                 try await service.syncCartridgeSaveAfterPlay(configuration)
@@ -107,7 +110,7 @@ struct LibretroGameView: View {
             guard shouldClosePlayer, session.isReadyToClosePlayer else {
                 return
             }
-            playerWindow?.performClose(nil)
+            closePlayer()
         }
         .onChange(of: session.phase) { _, phase in
             guard
@@ -117,7 +120,17 @@ struct LibretroGameView: View {
             else {
                 return
             }
-            playerWindow?.performClose(nil)
+            closePlayer()
+        }
+        .onKeyPress("w", phases: .down) { keyPress in
+            guard
+                onCloseRequested != nil,
+                keyPress.modifiers.contains(.command)
+            else {
+                return .ignored
+            }
+            session.exitPlayer()
+            return .handled
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -190,7 +203,11 @@ struct LibretroGameView: View {
                 .keyboardShortcut("f", modifiers: [.control, .command])
 
                 Button(role: .destructive) {
-                    session.stop()
+                    if onCloseRequested == nil {
+                        session.stop()
+                    } else {
+                        session.exitPlayer()
+                    }
                 } label: {
                     Label("Stop", systemImage: "stop.fill")
                 }
@@ -272,6 +289,14 @@ struct LibretroGameView: View {
             return true
         }
         return false
+    }
+
+    private func closePlayer() {
+        if let onCloseRequested {
+            onCloseRequested()
+        } else {
+            playerWindow?.performClose(nil)
+        }
     }
 }
 
