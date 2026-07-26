@@ -161,6 +161,15 @@ private enum LibraryBrowserColumn: String, CaseIterable, Identifiable {
     }
   }
 
+  var systemImage: String? {
+    switch self {
+    case .downloaded:
+      "icloud.and.arrow.down"
+    default:
+      nil
+    }
+  }
+
   var allLabel: String {
     switch self {
     case .system:
@@ -1349,7 +1358,7 @@ private struct LibraryTableView: View {
   @AppStorage(LibraryPreferenceKey.showsSaveDataBrowser)
   private var showsSaveDataBrowser = false
   @AppStorage(LibraryPreferenceKey.showsDownloadedBrowser)
-  private var showsDownloadedBrowser = false
+  private var showsDownloadedBrowser = true
   @AppStorage(LibraryPreferenceKey.showsArtworkBrowser)
   private var showsArtworkBrowser = false
   @AppStorage(LibraryPreferenceKey.browserOrder)
@@ -1744,6 +1753,7 @@ private struct LibraryTableView: View {
     LibraryBrowserPane(
       column: column,
       title: column.title,
+      systemImage: column.systemImage,
       allLabel: column.allLabel,
       allCount: gamesMatching(excluding: column).count,
       options: browserOptions(for: column),
@@ -1958,11 +1968,13 @@ private struct LibraryTableView: View {
       return [
         LibraryBrowserOption(
           value: "Downloaded",
-          count: games.count { model.downloadedGameIDs.contains($0.id) }
+          count: games.count { model.downloadedGameIDs.contains($0.id) },
+          systemImage: "checkmark.icloud"
         ),
         LibraryBrowserOption(
           value: "Not Downloaded",
-          count: games.count { !model.downloadedGameIDs.contains($0.id) }
+          count: games.count { !model.downloadedGameIDs.contains($0.id) },
+          systemImage: "icloud.and.arrow.down"
         ),
       ]
       .filter { $0.count > 0 }
@@ -2000,7 +2012,9 @@ private struct LibraryTableView: View {
 
     return
       counts
-      .map(LibraryBrowserOption.init(value:count:))
+      .map { value, count in
+        LibraryBrowserOption(value: value, count: count)
+      }
       .sorted {
         $0.value.localizedStandardCompare($1.value) == .orderedAscending
       }
@@ -2275,11 +2289,13 @@ private struct LibraryBrowserOption: Identifiable {
 
   let value: String
   let count: Int
+  var systemImage: String? = nil
 }
 
 private struct LibraryBrowserPane: View {
   let column: LibraryBrowserColumn
   let title: String
+  let systemImage: String?
   let allLabel: String
   let allCount: Int
   let options: [LibraryBrowserOption]
@@ -2294,6 +2310,12 @@ private struct LibraryBrowserPane: View {
         Image(systemName: "line.3.horizontal")
           .font(.caption2)
           .foregroundStyle(.tertiary)
+
+        if let systemImage {
+          Image(systemName: systemImage)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
 
         Text(title.uppercased())
           .font(.caption2)
@@ -2318,6 +2340,7 @@ private struct LibraryBrowserPane: View {
           browserRow(
             label: allLabel,
             count: allCount,
+            systemImage: systemImage,
             isSelected: selection == nil
           ) {
             selection = nil
@@ -2327,6 +2350,7 @@ private struct LibraryBrowserPane: View {
             browserRow(
               label: option.value,
               count: option.count,
+              systemImage: option.systemImage,
               isSelected: selection == option.value
             ) {
               selection = option.value
@@ -2365,11 +2389,20 @@ private struct LibraryBrowserPane: View {
   private func browserRow(
     label: String,
     count: Int,
+    systemImage: String?,
     isSelected: Bool,
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
       HStack(spacing: 8) {
+        if let systemImage {
+          Image(systemName: systemImage)
+            .foregroundStyle(
+              isSelected ? Color.white : Color.secondary
+            )
+            .frame(width: 16)
+        }
+
         Text(label)
           .lineLimit(1)
 

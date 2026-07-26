@@ -394,7 +394,8 @@ enum ServerConfiguration: Sendable {
   identification, missing-file status, and update date.
 - The List column browser supports a persisted Downloaded column alongside
   system and metadata filters. It can restrict the current list to games that
-  are or are not available locally.
+  are or are not available locally. Downloaded is visible by default and uses
+  iTunes-style cloud download status iconography.
 - List and Artwork context menus expose the same transfer actions. Download
   adds one or more ROMs to OpenVault's durable local library and immediately
   updates Downloaded membership. For locally available games that action

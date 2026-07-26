@@ -68,7 +68,8 @@ Keychain storage remains required before a release build ships.
 - One or more selected games can be exported to macOS Downloads without
   overwriting existing files. Exporting does not change Downloaded membership.
 - Downloaded status is available as a persisted List column-browser filter and
-  includes managed downloads and games retained by the playback cache.
+  includes managed downloads and games retained by the playback cache. The
+  filter is visible by default and uses cloud download status iconography.
 - One or more selected games can be removed from RomM through a destructive
   context-menu action with explicit confirmation. Server-file deletion is a
   separate opt-in choice.
