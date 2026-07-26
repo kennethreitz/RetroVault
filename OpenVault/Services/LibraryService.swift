@@ -70,11 +70,6 @@ protocol LibraryServing: Sendable {
   func syncCartridgeSaveAfterPlay(
     _ configuration: CartridgeSaveSyncConfiguration
   ) async throws -> CartridgeSaveSyncOutcome
-  func artworkRequests(
-    for games: [GameSummary],
-    in session: ServerSession
-  ) async throws -> [URLRequest]
-  func artworkRequest(for game: GameSummary, in session: ServerSession) async throws -> URLRequest?
   func resourceRequest(for url: URL?, in session: ServerSession) async throws -> URLRequest?
 }
 
@@ -170,19 +165,6 @@ extension LibraryServing {
     .unchanged
   }
 
-  func artworkRequests(
-    for games: [GameSummary],
-    in session: ServerSession
-  ) async throws -> [URLRequest] {
-    var requests: [URLRequest] = []
-    requests.reserveCapacity(games.count)
-    for game in games {
-      if let request = try await artworkRequest(for: game, in: session) {
-        requests.append(request)
-      }
-    }
-    return requests
-  }
 }
 
 actor RomMLibraryService: LibraryServing {
@@ -1277,46 +1259,6 @@ actor RomMLibraryService: LibraryServing {
       "Uploaded cartridge save \(uploadedSave.id, privacy: .public) for game \(configuration.gameID, privacy: .public)"
     )
     return .uploaded
-  }
-
-  func artworkRequest(for game: GameSummary, in session: ServerSession) async throws -> URLRequest?
-  {
-    try await resourceRequest(for: game.coverURL, in: session)
-  }
-
-  func artworkRequests(
-    for games: [GameSummary],
-    in session: ServerSession
-  ) async throws -> [URLRequest] {
-    var seenURLs: Set<URL> = []
-    let urls = games.compactMap(\.coverURL).filter {
-      seenURLs.insert($0).inserted
-    }
-    guard !urls.isEmpty else {
-      return []
-    }
-
-    let hasSameOriginArtwork = urls.contains {
-      session.serverURL.hasSameOrigin(as: $0)
-    }
-    let token: ClientToken? =
-      if hasSameOriginArtwork {
-        try await authenticationToken()
-      } else {
-        nil
-      }
-
-    return urls.map { url in
-      var request = URLRequest(url: url)
-      request.setValue("image/*", forHTTPHeaderField: "Accept")
-      if session.serverURL.hasSameOrigin(as: url), let token {
-        request.setValue(
-          "Bearer \(token.rawValue)",
-          forHTTPHeaderField: "Authorization"
-        )
-      }
-      return request
-    }
   }
 
   func resourceRequest(for url: URL?, in session: ServerSession) async throws -> URLRequest? {

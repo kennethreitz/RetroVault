@@ -895,10 +895,6 @@ private actor OfflineLibraryService: LibraryServing {
     downloadedIDs
   }
 
-  func artworkRequest(for game: GameSummary, in session: ServerSession) -> URLRequest? {
-    nil
-  }
-
   func resourceRequest(for url: URL?, in session: ServerSession) -> URLRequest? {
     nil
   }

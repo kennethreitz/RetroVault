@@ -85,9 +85,9 @@ Keychain storage remains required before a release build ships.
 - BIOS and firmware entries conventionally named with a leading `[BIOS]` marker
   are hidden by default through a persisted library filter, but can be revealed
   from the filter checklist without requiring RomM to be online.
-- Artwork loading is cancellable. A successful metadata sync starts a
-  resumable, low-priority prefetch of every missing cover into a bounded 10 GB
-  disk cache without blocking library interaction.
+- Artwork loading is cancellable. Library and collection views fetch the
+  canonical cover they display on demand into a bounded 10 GB disk cache;
+  metadata synchronization does not prefetch the complete library.
 - Authentication, permission, decoding, and transport errors produce distinct,
   actionable messages.
 - Network and persistence implementations can be replaced by test doubles at
