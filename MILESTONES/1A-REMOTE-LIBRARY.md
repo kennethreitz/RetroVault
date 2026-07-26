@@ -30,17 +30,20 @@ Keychain storage remains required before a release build ships.
 - Sandboxed credential storage for development, with Keychain migration
   required before release
 - Platforms and paginated library metadata
-- Read-only user-created and smart collections
+- Read-only user-created, smart, and automatic virtual collections
+- Built-in Downloaded collection for local ROM availability
 - DTO-to-domain mapping
 - SwiftData metadata cache
 - Background refresh and reconciliation
 - Offline library browsing
+- Cache-first game details with a summary fallback for unvisited games
 - Offline metadata search
 - Bounded artwork disk cache
 - Native library grid
 - Game selection and an initial details presentation
 - Editable per-user game progress, rating, difficulty, status, and activity flags
-- Authenticated, user-initiated download of a selected game to macOS Downloads
+- Authenticated, user-initiated download into OpenVault's managed local library
+- Explicit export of selected games to macOS Downloads
 - Loading, empty, offline, stale, permission, and failure states
 - Request, decoding, mapping, repository, cache, and feature-state tests
 
@@ -49,6 +52,9 @@ Keychain storage remains required before a release build ships.
 - A fresh installation can connect using a valid pairing code without storing
   the user's account password.
 - The initial sidebar presents All Games, Systems, and Collections from RomM.
+- Automatic virtual collections remain collapsed by default, can be expanded
+  as a separate sidebar group, and remain navigable from the cached library
+  while RomM is unavailable.
 - Selecting a game opens a full-page native details view with its artwork,
   description, normalized metadata, user state, files, hashes, related-content
   counts, and screenshots.
@@ -57,8 +63,15 @@ Keychain storage remains required before a release build ships.
   available.
 - Completion, rating, difficulty, play status, backlog, now-playing, and hidden
   state can be edited in the details view and are persisted to RomM.
-- A selected game can be streamed from RomM to macOS Downloads without loading
-  the complete ROM into memory or overwriting an existing file.
+- One or more selected games can be downloaded into OpenVault's managed local
+  library without loading complete ROMs into memory.
+- One or more selected games can be exported to macOS Downloads without
+  overwriting existing files. Exporting does not change Downloaded membership.
+- Downloaded status is available as a persisted List column-browser filter and
+  includes managed downloads and games retained by the playback cache.
+- One or more selected games can be removed from RomM through a destructive
+  context-menu action with explicit confirmation. Server-file deletion is a
+  separate opt-in choice.
 - OpenVault relaunches into the cached library without waiting for the network.
 - A successful refresh updates changed games and removes games no longer
   returned by RomM.
@@ -69,9 +82,11 @@ Keychain storage remains required before a release build ships.
 - Search works while disconnected.
 - Large libraries load incrementally without blocking the main actor.
 - BIOS and firmware entries conventionally named with a leading `[BIOS]` marker
-  do not appear as playable games or block incremental loading.
-- Artwork loading is cancellable and does not cause unbounded memory or disk
-  growth.
+  are hidden by default through a persisted library filter, but can be revealed
+  from the filter checklist without requiring RomM to be online.
+- Artwork loading is cancellable. A successful metadata sync starts a
+  resumable, low-priority prefetch of every missing cover into a bounded 10 GB
+  disk cache without blocking library interaction.
 - Authentication, permission, decoding, and transport errors produce distinct,
   actionable messages.
 - Network and persistence implementations can be replaced by test doubles at
@@ -85,9 +100,9 @@ Keychain storage remains required before a release build ships.
 - Username/password and OIDC login unless needed as a narrowly scoped fallback
 - Game launching
 - Emulator runners
-- Automatic or bulk ROM downloads and managed offline ROM binary storage
+- Automatic or bulk ROM downloads
 - Save and state synchronization
-- Collections editing and other RomM mutations
+- Collections editing and RomM mutations other than confirmed game deletion
 - Plugin APIs
 
 ## Completion boundary

@@ -115,6 +115,10 @@ Whether that means launching an external emulator, using a libretro core, or dow
 * Native emulator launching
 * Native bundled Libretro runtime
 * Game Boy and Game Boy Color through Gambatte
+* NES through Nestopia UE
+* SNES through bsnes-mercury Balanced
+* GameCube through Dolphin
+* PSP through PPSSPP
 
 ### macOS
 
@@ -218,7 +222,7 @@ Official signed and notarized builds help fund development.
 
 ### Future
 
-* Additional reviewed Libretro cores
+* Additional reviewed Libretro cores and systems
 * Cloud save providers
 * Companion iPhone and iPad apps
 * Apple TV support
@@ -263,10 +267,10 @@ source tree is also described by `Package.swift` for command-line builds and
 tests.
 
 The project currently has two application dependencies: Nuke's core image
-pipeline and ZIPFoundation for safe, single-member extraction of archived
-game content. The Libretro frontend uses Apple frameworks and a small
-Swift-owned C ABI bridge rather than a frontend package. All dependencies are
-managed with Swift Package Manager.
+pipeline and ZIPFoundation for safe extraction of archived game content. The
+Libretro frontend uses Apple frameworks and a small Swift-owned C ABI bridge
+rather than a frontend package. All dependencies are managed with Swift
+Package Manager.
 
 The bundled Libretro pipeline is intentionally separate from ordinary
 development builds. Its manifest, validation command, and build instructions
@@ -274,12 +278,27 @@ live in [`Libretro/`](Libretro/README.md). Run
 `Scripts/build-libretro-cores.sh` to produce reviewed ARM64 core artifacts
 before making a Release build.
 
-The first user-facing core is Gambatte for Game Boy and Game Boy Color. A
-content-free 2048 core remains available from Settings as a frontend smoke
-test. Compatible RomM games expose Play in their details header; OpenVault
-keeps downloaded ROMs in a disposable 20 GB runtime cache rather than
-importing them into another library. ZIP-wrapped games are supported when the
-archive contains a file type declared by the selected core.
+The reviewed user-facing core catalog supports Game Boy, Game Boy Color, Game
+Boy Advance, NES, SNES, Master System, Game Gear, SG-1000, Atari 2600, Atari
+5200, Atari 7800, Nintendo 64, Arcade, Virtual Boy, Neo Geo Pocket and Pocket
+Color, WonderSwan and WonderSwan Color, Pokémon Mini, PlayStation, Nintendo
+DS, PC Engine / TurboGrafx-16, SuperGrafx, CHD-based PC Engine CD /
+TurboGrafx-CD, Genesis / Mega Drive, Sega CD / Mega CD, Sega 32X, DOS,
+Arduboy, Pico-8, GameCube, Wii, and PSP. A content-free 2048 core remains
+available from Settings as a frontend smoke test.
+
+Compatible RomM games expose Play in their details header. Play-on-demand
+copies use a disposable 20 GB runtime cache, while an explicit Download keeps
+a managed local copy in OpenVault. Export writes a shareable copy to Downloads
+without changing the Downloaded collection. ZIP-wrapped games are supported
+when the archive contains a file type declared by the selected core. Disc sets
+use their cue sheet and preserve its companion tracks in the same extraction
+directory.
+
+Firmware is a RomM system-level resource. OpenVault requests it by platform
+through the authenticated firmware API, validates it, and keeps a
+server-scoped local copy for offline playback. Firmware is not bundled in the
+application and is not inferred from `[BIOS]` games.
 
 ---
 

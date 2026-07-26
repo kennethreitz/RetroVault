@@ -120,9 +120,10 @@ enum ServerConfiguration: Sendable {
   preferences.
 - OpenVault requests only the scopes required by the features it implements.
 - The library requires `me.read`, `platforms.read`, `roms.read`,
-  `collections.read`, and `roms.user.write`. The write scope is limited to
-  personal game state such as completion, rating, difficulty, play status,
-  backlog, now-playing, and hidden flags.
+  `roms.write`, `collections.read`, `roms.user.write`, `assets.read`, and
+  `assets.write`. `roms.user.write` covers personal state such as completion
+  and rating; `roms.write` is required for explicitly confirmed game deletion;
+  the asset scopes download and upload cartridge saves.
 - OpenVault should explain missing-scope failures rather than presenting a
   generic networking error.
 - OIDC is an extension point, not an initial deliverable.
@@ -130,16 +131,19 @@ enum ServerConfiguration: Sendable {
 ## Library navigation
 
 - The primary library uses a native `NavigationSplitView`.
-- The initial sidebar contains All Games, Systems, and Collections.
+- The sidebar contains All Games, Collections, and Systems.
 - "Systems" is the user-facing name for RomM platforms.
 - Systems with games are shown directly. Empty systems are collapsed under an
   Empty Systems disclosure at the bottom of the Systems section so future
   upload targets remain reachable without cluttering everyday browsing.
-- User-created and smart RomM collections are presented together as read-only
-  navigation destinations.
-- RomM virtual collections span generated genres, franchises, modes, and other
-  filters; they are deferred to a dedicated filtering experience rather than
-  flooding the primary sidebar.
+- User-created RomM collections are read-only navigation destinations. Smart
+  collections use a collapsible subgroup whose expanded state is remembered.
+- RomM's automatically generated virtual collections are synchronized with
+  their complete membership and cached for offline navigation. They use a
+  separate, collapsed-by-default subgroup whose expanded state is remembered.
+- Downloaded is a built-in, server-scoped local collection. It includes ROMs
+  that exist in OpenVault's durable managed ROM library or disposable playback
+  cache. External exports do not affect Downloaded membership.
 - Every destination filters one shared, incrementally paginated cover grid.
 - The standard macOS toolbar search field filters the active destination through
   RomM's server-side search, so results cover the full remote library rather
@@ -147,21 +151,29 @@ enum ServerConfiguration: Sendable {
 - A Search All Systems checkbox appears for scoped searches and can temporarily
   lift the active system or collection filter without changing the sidebar
   selection.
-- Firmware records whose metadata name or filename begins with `[BIOS]` are not
-  presented as games. OpenVault asks RomM to exclude the `BIOS` tag so totals
-  and pagination remain server-authoritative, then applies the same
-  case-insensitive prefix rule locally as a defensive fallback.
-- A library filter can hide games that do not expose artwork. This is applied to
-  the incrementally loaded results because RomM 5.0 does not expose a dedicated
-  has-artwork query filter. While the filter is active, OpenVault also inspects
+- Game records whose metadata name or filename begins with `[BIOS]` are
+  retained in the offline metadata snapshot but hidden by default. A persisted
+  `Hide [BIOS] Games` library filter can reveal them without another network
+  request. Detection uses the same case-insensitive prefix rule regardless of
+  how RomM tags the game. These are separate from RomM's system-level firmware
+  records used by emulator cores.
+- The artwork gallery can hide games that do not expose artwork. The preference
+  does not affect List view. While the gallery filter is active, OpenVault also inspects
   and caches each populated system's games, hiding a system from the primary
   list only after confirming it has no artwork. Empty systems remain available
   in their disclosure as future upload targets. The user's filter choice is
   persisted as a non-secret application preference and restored on launch.
 - Cover cards keep a consistent footprint while fitting the complete source
   image, preserving unusually wide or tall artwork without distortion.
-- Collection editing, smart-filter creation, and other RomM mutations remain
-  outside the first slice.
+- List view supports native multiple selection. A contextual Delete from RomM
+  action always presents a confirmation sheet naming the selected games.
+  Database-only removal is the default; permanent deletion of the corresponding
+  ROM files is a separate unchecked option with a stronger warning.
+- After RomM confirms a complete bulk deletion, OpenVault removes the games
+  from its local snapshot and cached details. Partial results trigger a server
+  reconciliation and present RomM's errors.
+- Collection editing, smart-filter creation, and other unimplemented RomM
+  mutations remain outside the current slice.
 
 ## Game details
 
@@ -186,11 +198,12 @@ enum ServerConfiguration: Sendable {
   States sections. OpenVault presents the server-provided filename, emulator,
   slot, size, path, timestamps, availability, and state screenshot when
   present.
-- The details header offers an authenticated, user-initiated ROM download.
-  OpenVault streams RomM's single-file or multipart ZIP response to macOS
-  Downloads, preserves the server-provided name, and adds a numeric suffix
-  instead of overwriting an existing file. This is an explicit export, not a
-  managed library or offline ROM cache.
+- The details header offers separate Download and Export actions. Download adds
+  the ROM to OpenVault's server-scoped managed local library in Application
+  Support. Export writes a shareable copy to macOS Downloads, preserves the
+  server-provided name, and adds a numeric suffix instead of overwriting an
+  existing file. Export can reuse a managed or playback-cached copy offline and
+  never changes Downloaded membership.
 - Personal completion, rating, difficulty, play status, backlog, now-playing,
   and hidden values are editable through compact native controls. Changes are
   optimistic, written to RomM through its per-user ROM properties endpoint, and
@@ -229,10 +242,17 @@ enum ServerConfiguration: Sendable {
 - Search operates against cached metadata and remains available offline.
 - Full details are cached after a game has been viewed, allowing those details
   to reopen offline without turning the cache into a second source of truth.
-- Artwork uses a 512 MB bounded disk cache separate from SwiftData.
-- The initial offline promise covers all synchronized metadata and previously
-  downloaded artwork.
-- Offline ROM binary caching is not part of the first milestone.
+- Every synchronized game can open offline. Games without a previously cached
+  full-detail response render a summary-only detail page from the library
+  snapshot and clearly identify it as a cached summary.
+- Artwork uses a 10 GB bounded disk cache separate from SwiftData. After a
+  successful metadata synchronization, OpenVault prefetches every missing cover
+  at low priority with limited concurrency and reports progress in the sidebar.
+  Cached entries are skipped, so interrupted prefetching resumes naturally.
+- The offline promise covers all synchronized metadata and all artwork after
+  the background artwork pass has completed.
+- Managed downloads and play-on-demand cache entries can launch and export
+  offline while their local files remain available.
 - The local cache is replaceable and never becomes a second source of truth.
 - Explicitly disconnecting the server clears its metadata cache along with the
   stored configuration and client token.
@@ -241,8 +261,8 @@ enum ServerConfiguration: Sendable {
   the prior cache on failure. Purge Local Cache & Resync first removes
   OpenVault's disposable metadata, viewed-game details, and artwork caches,
   then rebuilds them from RomM after explicit confirmation. Neither action
-  deletes exported ROMs, saves, or playback data, and neither initiates a RomM
-  server scan.
+  deletes managed or exported ROMs, saves, or playback data, and neither
+  initiates a RomM server scan.
 
 ## Managed local RomM
 
@@ -286,8 +306,12 @@ enum ServerConfiguration: Sendable {
   have been reviewed.
 - Bundling a core does not bundle firmware, BIOS files, games, or other
   copyrighted content. OpenVault obtains game content from the user's RomM
-  library and identifies missing firmware requirements without supplying that
-  firmware.
+  library and obtains firmware from RomM's system-level firmware API using the
+  paired token's `firmware.read` scope.
+- Firmware is selected by RomM platform and exact manifest filename, verified
+  against RomM's SHA-1 and manifest-declared hashes, and cached in Application
+  Support under server and platform identities. A verified cached copy can be
+  reused offline. Firmware is not inferred from `[BIOS]` game rows.
 - Library validation remains enabled. OpenVault will not weaken the hardened
   runtime merely to support third-party or unsigned core binaries.
 - The frontend bridge is implemented in Swift against Libretro API version 1.
@@ -296,19 +320,31 @@ enum ServerConfiguration: Sendable {
 - One serial runtime queue owns one active core session. A global callback
   router is acceptable only while the product supports exactly one active
   session.
-- Software frames are presented with Metal/Core Image, audio uses
-  `AVAudioEngine`, and input maps one keyboard or `GameController` to RetroPad
-  port 0.
-- Gambatte is the first user-facing core and supports Game Boy and Game Boy
-  Color. The 2048 core remains a content-free pipeline and runtime test.
+- Software frames are presented by a dedicated Metal pipeline with explicit
+  nearest-neighbor sampling and integer scaling whenever the source fits.
+  Hardware-rendered cores receive an OpenGL 4.1 context and feed their
+  completed frames into that same Metal presentation path. No Core Image
+  resampling is used. Audio uses `AVAudioEngine`, and input maps one keyboard
+  or `GameController` to the digital and analog controls on RetroPad port 0.
+- The reviewed catalog supports Game Boy, Game Boy Color, Game Boy Advance,
+  NES, SNES, Master System, Game Gear, SG-1000, Atari 2600, Atari 7800,
+  Virtual Boy, Neo Geo Pocket and Pocket Color, WonderSwan and WonderSwan
+  Color, Pokémon Mini, PlayStation, Nintendo DS, PC Engine / TurboGrafx-16,
+  SuperGrafx, CHD-based PC Engine CD / TurboGrafx-CD, GameCube, and PSP. The
+  2048 core remains a content-free pipeline and runtime test.
 - Runtime ROMs use a disposable 20 GB cache keyed by server, game, and content
   version. A cache hit can launch offline; a cache miss still requires RomM.
-- ZIP-wrapped games use ZIPFoundation 0.9.20. OpenVault selects one regular
-  archive member whose extension is declared by the chosen core, extracts it
-  inside the disposable runtime cache, and never materializes archive paths,
-  symbolic links, metadata entries, or unrelated files.
-- Local save RAM and quick states are isolated per core and game. Automatic
-  upload or replacement of RomM save data remains deferred.
+- ZIP-wrapped games use ZIPFoundation 0.9.20. OpenVault selects a regular
+  archive member whose extension is declared by the chosen core. A selected
+  CUE or M3U descriptor brings along safe regular-file companions from the same
+  archive directory; other archive paths, symbolic links, metadata entries,
+  and unrelated files are never materialized.
+- Local save RAM and quick states are isolated per core and game. Changed
+  cartridge save memory is uploaded as a new RomM save revision when a session
+  ends; existing server revisions are never overwritten. Every launch performs
+  a fresh RomM game-details request before core startup so a newer remote
+  cartridge save can be reconciled. Offline launches immediately retain the
+  local save, and unsynchronized local data is never overwritten.
 
 ## Library presentation
 
@@ -321,6 +357,16 @@ enum ServerConfiguration: Sendable {
   column reordering, resizing, and persisted visibility. Optional columns
   include status, completion, rating, difficulty, region, file size, artwork,
   identification, missing-file status, and update date.
+- The List column browser supports a persisted Downloaded column alongside
+  system and metadata filters. It can restrict the current list to games that
+  are or are not available locally.
+- List and Artwork context menus expose the same transfer actions. Download
+  adds one or more ROMs to OpenVault's durable local library and immediately
+  updates Downloaded membership. For locally available games that action
+  becomes Remove Download, which deletes both durable and playback-cache ROM
+  copies while leaving the RomM game, metadata, saves, and exported files
+  untouched. Export writes collision-safe copies to the user's Downloads
+  folder without changing local-library membership.
 - Save and state checkmarks are synchronized as server-filtered ID sets during
   the normal library refresh. OpenVault does not issue a detail request for
   every game.
@@ -377,7 +423,7 @@ The following are intentionally outside milestone 1A and remain deferred unless
 assigned to a later milestone:
 
 - External emulator runners
-- Automatic or bulk ROM downloads outside the bounded on-demand runtime cache
+- Automatic or bulk ROM downloads outside explicit user actions
 - Save and state synchronization
 - OIDC
 - Multiple servers
