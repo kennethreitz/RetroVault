@@ -1294,6 +1294,18 @@ struct BigPictureView: View {
     isLoadingGameDetails = true
 
     playbackTask = Task {
+      switch await model.prioritizeDownloadForPlayback(game) {
+      case .noActiveQueue, .downloaded:
+        break
+      case .failed(let message):
+        playbackErrorMessage = message
+        finishPlaybackPreparation(keepingError: true)
+        return
+      case .cancelled:
+        finishPlaybackPreparation()
+        return
+      }
+
       await detailsModel.load()
       guard !Task.isCancelled else {
         finishPlaybackPreparation()

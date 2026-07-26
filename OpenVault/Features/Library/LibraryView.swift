@@ -300,12 +300,27 @@ private struct LibraryAlert: Identifiable {
 private enum LibraryPlaybackPreparation {
   case ready(LibretroRunRequest)
   case failed(LibraryAlert)
+  case cancelled
 
   @MainActor
   static func prepare(
     _ game: GameSummary,
     model: LibraryModel
   ) async -> Self {
+    switch await model.prioritizeDownloadForPlayback(game) {
+    case .noActiveQueue, .downloaded:
+      break
+    case .failed(let message):
+      return .failed(
+        LibraryAlert(
+          title: "Couldn’t Download Game",
+          message: message
+        )
+      )
+    case .cancelled:
+      return .cancelled
+    }
+
     let detailsModel = GameDetailsModel(
       game: game,
       session: model.session,
@@ -2486,6 +2501,8 @@ private struct LibraryTableView: View {
         )
       case let .failed(alert):
         playbackAlert = alert
+      case .cancelled:
+        break
       }
     }
   }
@@ -3692,6 +3709,8 @@ private struct LibraryGridView: View {
         )
       case let .failed(alert):
         playbackAlert = alert
+      case .cancelled:
+        break
       }
     }
   }

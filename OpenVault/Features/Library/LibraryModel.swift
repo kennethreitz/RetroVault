@@ -77,6 +77,11 @@ final class LibraryModel {
   private var artworkInspectionID = UUID()
   private var artworkCachingTask: Task<Void, Never>?
   private var downloadOperationID = UUID()
+  private var pendingDownloads: [GameSummary] = []
+  private var pendingDownloadGameIDs: Set<Int> = []
+  private var currentDownloadGameID: Int?
+  private var prioritizedDownloadWaiters:
+    [Int: [UUID: CheckedContinuation<PrioritizedGameDownloadResult, Never>]] = [:]
   private var snapshot: LibrarySnapshot?
   private let artworkCache: any ArtworkCaching
 
@@ -619,6 +624,9 @@ final class LibraryModel {
     isDownloadingGames = true
     let currentDownloadOperationID = UUID()
     downloadOperationID = currentDownloadOperationID
+    pendingDownloads = uniqueGames
+    pendingDownloadGameIDs = Set(uniqueGames.map(\.id))
+    currentDownloadGameID = nil
     downloadProgress = LibraryDownloadProgress(
       processedGameCount: 0,
       totalGameCount: uniqueGames.count,
@@ -631,20 +639,30 @@ final class LibraryModel {
       if downloadOperationID == currentDownloadOperationID {
         isDownloadingGames = false
         downloadProgress = nil
+        pendingDownloads = []
+        pendingDownloadGameIDs = []
+        currentDownloadGameID = nil
+        finishAllPrioritizedDownloadWaiters(with: .cancelled)
       }
     }
 
     var downloadedGameIDs: [Int] = []
     var errors: [String] = []
 
-    for (index, game) in uniqueGames.enumerated() {
+    while !pendingDownloads.isEmpty {
       guard !Task.isCancelled else {
         break
       }
 
+      let game = pendingDownloads.removeFirst()
+      pendingDownloadGameIDs.remove(game.id)
+      currentDownloadGameID = game.id
+      let processedGameCount = downloadProgress?.processedGameCount ?? 0
       downloadProgress = LibraryDownloadProgress(
-        processedGameCount: index,
-        totalGameCount: uniqueGames.count,
+        processedGameCount: processedGameCount,
+        totalGameCount:
+          downloadProgress?.totalGameCount
+          ?? (processedGameCount + pendingDownloads.count + 1),
         currentGameID: game.id,
         currentGameName: game.name,
         currentTransferProgress: nil,
@@ -652,9 +670,14 @@ final class LibraryModel {
       )
 
       if game.isMissingFromFileSystem == true {
-        errors.append("\(game.name): RomM reports that its ROM file is missing.")
+        let message = "RomM reports that its ROM file is missing."
+        errors.append("\(game.name): \(message)")
+        finishPrioritizedDownloadWaiters(
+          forGameID: game.id,
+          with: .failed(message)
+        )
         completeDownloadItem(
-          processedGameCount: index + 1,
+          processedGameCount: processedGameCount + 1,
           failedGameCount: errors.count,
           operationID: currentDownloadOperationID
         )
@@ -677,25 +700,129 @@ final class LibraryModel {
           }
         )
         downloadedGameIDs.append(game.id)
+        self.downloadedGameIDs.insert(game.id)
+        managedDownloadedGameIDs.insert(game.id)
+        finishPrioritizedDownloadWaiters(
+          forGameID: game.id,
+          with: .downloaded
+        )
       } catch is CancellationError {
+        finishPrioritizedDownloadWaiters(
+          forGameID: game.id,
+          with: .cancelled
+        )
         break
       } catch {
         errors.append("\(game.name): \(error.localizedDescription)")
+        finishPrioritizedDownloadWaiters(
+          forGameID: game.id,
+          with: .failed(error.localizedDescription)
+        )
       }
 
       completeDownloadItem(
-        processedGameCount: index + 1,
+        processedGameCount: processedGameCount + 1,
         failedGameCount: errors.count,
         operationID: currentDownloadOperationID
       )
+      currentDownloadGameID = nil
     }
 
+    currentDownloadGameID = nil
+    isDownloadingGames = false
     await reloadDownloadedGames()
     return GameDownloadResult(
       downloadedGameIDs: downloadedGameIDs,
       failedItemCount: errors.count,
       errors: errors
     )
+  }
+
+  /// Promotes a non-local game to the next position in an active bulk download
+  /// and waits for that transfer before playback preparation continues.
+  func prioritizeDownloadForPlayback(
+    _ game: GameSummary
+  ) async -> PrioritizedGameDownloadResult {
+    guard !managedDownloadedGameIDs.contains(game.id) else {
+      return .downloaded
+    }
+    guard isDownloadingGames else {
+      return .noActiveQueue
+    }
+
+    if currentDownloadGameID != game.id {
+      if let index = pendingDownloads.firstIndex(where: { $0.id == game.id }) {
+        let queuedGame = pendingDownloads.remove(at: index)
+        pendingDownloads.insert(queuedGame, at: 0)
+      } else if !pendingDownloadGameIDs.contains(game.id) {
+        pendingDownloads.insert(game, at: 0)
+        pendingDownloadGameIDs.insert(game.id)
+        if var progress = downloadProgress {
+          progress.totalGameCount += 1
+          downloadProgress = progress
+        }
+      }
+      OpenVaultLog.library.notice(
+        "Prioritized game \(game.id, privacy: .public) for playback in the active download queue"
+      )
+    }
+
+    let waiterID = UUID()
+    return await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        if Task.isCancelled {
+          continuation.resume(returning: .cancelled)
+          return
+        }
+        prioritizedDownloadWaiters[game.id, default: [:]][waiterID] =
+          continuation
+      }
+    } onCancel: {
+      Task { @MainActor [weak self] in
+        self?.cancelPrioritizedDownloadWaiter(
+          forGameID: game.id,
+          waiterID: waiterID
+        )
+      }
+    }
+  }
+
+  private func finishPrioritizedDownloadWaiters(
+    forGameID gameID: Int,
+    with result: PrioritizedGameDownloadResult
+  ) {
+    let waiters = prioritizedDownloadWaiters.removeValue(forKey: gameID) ?? [:]
+    for continuation in waiters.values {
+      continuation.resume(returning: result)
+    }
+  }
+
+  private func finishAllPrioritizedDownloadWaiters(
+    with result: PrioritizedGameDownloadResult
+  ) {
+    let waiters = prioritizedDownloadWaiters
+    prioritizedDownloadWaiters = [:]
+    for gameWaiters in waiters.values {
+      for continuation in gameWaiters.values {
+        continuation.resume(returning: result)
+      }
+    }
+  }
+
+  private func cancelPrioritizedDownloadWaiter(
+    forGameID gameID: Int,
+    waiterID: UUID
+  ) {
+    guard
+      let continuation =
+        prioritizedDownloadWaiters[gameID]?.removeValue(forKey: waiterID)
+    else {
+      return
+    }
+    if prioritizedDownloadWaiters[gameID]?.isEmpty == true {
+      prioritizedDownloadWaiters[gameID] = nil
+    }
+    continuation.resume(returning: .cancelled)
   }
 
   private func apply(

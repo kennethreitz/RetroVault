@@ -315,6 +315,44 @@ struct LibraryTests {
     }
 
     @MainActor
+    @Test("Promotes a launched game to the front of an active download queue")
+    func prioritizesLaunchedGameDownload() async throws {
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let service = MockLibraryService(blockedDownloadID: 1)
+        let model = LibraryModel(session: session, service: service)
+        await model.load()
+        let firstGame = try #require(model.games.first { $0.id == 1 })
+        let secondGame = try #require(model.games.first { $0.id == 2 })
+        let launchedGame = try #require(model.games.first { $0.id == 3 })
+
+        let bulkDownload = Task { @MainActor in
+            await model.downloadGames([
+                firstGame,
+                secondGame,
+            ])
+        }
+        await service.waitUntilDownloadStarts(gameID: firstGame.id)
+
+        let prioritizedDownload = Task { @MainActor in
+            await model.prioritizeDownloadForPlayback(launchedGame)
+        }
+        await Task.yield()
+        await Task.yield()
+        #expect(model.downloadProgress?.totalGameCount == 3)
+        await service.resumeBlockedDownload()
+
+        #expect(await prioritizedDownload.value == .downloaded)
+        #expect((await bulkDownload.value).completedWithoutErrors)
+        #expect(
+            await service.recordedDownloadOrder()
+                == [firstGame.id, launchedGame.id, secondGame.id]
+        )
+    }
+
+    @MainActor
     @Test("Purges the local cache before rebuilding the library")
     func purgesAndResynchronizes() async throws {
         let session = ServerSession(
@@ -1382,15 +1420,22 @@ private actor MockLibraryService: LibraryServing {
 
     private let allGames: [GameSummary]
     private let rejectsMetadataUpdates: Bool
+    private let blockedDownloadID: Int?
     private var localCachePurgeCount = 0
     private var downloadedIDs: Set<Int> = []
+    private var downloadOrder: [Int] = []
+    private var downloadStartWaiters:
+        [Int: [CheckedContinuation<Void, Never>]] = [:]
+    private var blockedDownloadContinuation: CheckedContinuation<Void, Never>?
 
     init(
         allGames: [GameSummary]? = nil,
-        rejectsMetadataUpdates: Bool = false
+        rejectsMetadataUpdates: Bool = false,
+        blockedDownloadID: Int? = nil
     ) {
         self.allGames = allGames ?? Self.defaultGames
         self.rejectsMetadataUpdates = rejectsMetadataUpdates
+        self.blockedDownloadID = blockedDownloadID
     }
 
     func cachedSnapshot(in session: ServerSession) -> LibrarySnapshot? {
@@ -1523,9 +1568,40 @@ private actor MockLibraryService: LibraryServing {
         return updated
     }
 
-    func downloadGame(_ game: GameDetails, in session: ServerSession) -> URL {
+    func downloadGame(
+        _ game: GameDetails,
+        in session: ServerSession
+    ) async -> URL {
+        downloadOrder.append(game.id)
+        let waiters = downloadStartWaiters.removeValue(forKey: game.id) ?? []
+        for waiter in waiters {
+            waiter.resume()
+        }
+        if game.id == blockedDownloadID {
+            await withCheckedContinuation {
+                blockedDownloadContinuation = $0
+            }
+        }
         downloadedIDs.insert(game.id)
         return FileManager.default.temporaryDirectory.appending(path: game.fileName)
+    }
+
+    func waitUntilDownloadStarts(gameID: Int) async {
+        guard !downloadOrder.contains(gameID) else {
+            return
+        }
+        await withCheckedContinuation {
+            downloadStartWaiters[gameID, default: []].append($0)
+        }
+    }
+
+    func resumeBlockedDownload() {
+        blockedDownloadContinuation?.resume()
+        blockedDownloadContinuation = nil
+    }
+
+    func recordedDownloadOrder() -> [Int] {
+        downloadOrder
     }
 
     func removeDownloadedGame(withID gameID: Int, in session: ServerSession) {

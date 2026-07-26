@@ -280,10 +280,22 @@ struct GameDownloadResult: Equatable, Sendable {
   }
 }
 
+/// Result of moving a game to the front of an active managed-download queue.
+enum PrioritizedGameDownloadResult: Equatable, Sendable {
+  /// No bulk download was active, so normal playback preparation should proceed.
+  case noActiveQueue
+  /// The game was already local or finished downloading from the active queue.
+  case downloaded
+  /// The queued download failed before playback could begin.
+  case failed(String)
+  /// Playback preparation was cancelled while waiting for the queued download.
+  case cancelled
+}
+
 /// Aggregate progress for an explicit multi-game download operation.
 struct LibraryDownloadProgress: Equatable, Sendable {
   var processedGameCount: Int
-  let totalGameCount: Int
+  var totalGameCount: Int
   var currentGameID: Int?
   var currentGameName: String?
   var currentTransferProgress: RomMDownloadProgress?
