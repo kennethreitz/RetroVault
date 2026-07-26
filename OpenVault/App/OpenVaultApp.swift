@@ -1,7 +1,33 @@
+import AppKit
 import SwiftUI
+
+@MainActor
+private final class OpenVaultApplicationDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard
+            let iconURL = Bundle.main.url(
+                forResource: "AppIcon",
+                withExtension: "icns"
+            ),
+            let icon = NSImage(contentsOf: iconURL)
+        else {
+            OpenVaultLog.application.error(
+                "Could not load the bundled application icon."
+            )
+            return
+        }
+
+        NSApplication.shared.applicationIconImage = icon
+        OpenVaultLog.application.debug(
+            "Applied the bundled application icon."
+        )
+    }
+}
 
 @main
 struct OpenVaultApp: App {
+    @NSApplicationDelegateAdaptor(OpenVaultApplicationDelegate.self)
+    private var applicationDelegate
     @State private var model = AppModel(environment: .live())
 
     var body: some Scene {

@@ -26,6 +26,9 @@ entitlements, and public APIs.
 - Initial distribution will be a directly downloaded, signed, and notarized
   application.
 - Mac App Store distribution is not an initial target.
+- The application icon is compiled from `AppIcon.appiconset` and applied from
+  the bundled `AppIcon.icns` at launch so Xcode Debug runs cannot fall back to
+  a stale LaunchServices icon.
 
 ## Application structure
 
