@@ -1,6 +1,10 @@
 import AppKit
 import SwiftUI
 
+enum LibraryCoordinateSpace {
+  static let name = "OpenVault.Library"
+}
+
 private enum LibraryPreferenceKey {
   static let hidesBIOSGames = "library.hides-bios-games.v1"
   static let hidesGamesWithoutArtwork = "library.hides-games-without-artwork"
@@ -584,6 +588,7 @@ struct LibraryView: View {
         }
       }
     }
+    .coordinateSpace(name: LibraryCoordinateSpace.name)
     .task {
       await model.load()
     }
@@ -1510,6 +1515,7 @@ private struct LibraryTableView: View {
   @State private var sortingRequestID = UUID()
   @State private var tableIdentity = UUID()
   @State private var selectedGameIDs: Set<Int> = []
+  @State private var gameToOpen: GameSummary?
   @State private var hasPreparedRows = false
   @FocusState private var hasTableFocus: Bool
   @AppStorage(LibraryPreferenceKey.tableColumns)
@@ -1596,6 +1602,14 @@ private struct LibraryTableView: View {
     .task(id: tableRowsKey) {
       await rebuildSortedGames()
     }
+    .navigationDestination(item: $gameToOpen) { game in
+      GameDetailsView(
+        game: game,
+        session: model.session,
+        service: model.service
+      )
+      .id(game.id)
+    }
     .onChange(of: model.selection) { _, _ in
       clearBrowserFilters()
       selectedGameIDs.removeAll()
@@ -1635,7 +1649,9 @@ private struct LibraryTableView: View {
       columnCustomization: $columnCustomization
     ) {
       TableColumn("Game", value: \.name) { game in
-        NavigationLink(value: game) {
+        Button {
+          openGame(game)
+        } label: {
           HStack(spacing: 7) {
             Image(systemName: "play.fill")
               .font(.system(size: 8, weight: .bold))
@@ -1874,6 +1890,14 @@ private struct LibraryTableView: View {
       }
     }
     .id(tableIdentity)
+  }
+
+  private func openGame(_ game: GameSummary) {
+    hasTableFocus = false
+    Task { @MainActor in
+      await Task.yield()
+      gameToOpen = game
+    }
   }
 
   private var columnBrowser: some View {
@@ -2995,7 +3019,11 @@ private struct LibraryGridView: View {
       return
     }
 
-    gameToOpen = game
+    hasGridFocus = false
+    Task { @MainActor in
+      await Task.yield()
+      gameToOpen = game
+    }
   }
 
   private func selectRange(from anchorID: Int, through gameID: Int) {

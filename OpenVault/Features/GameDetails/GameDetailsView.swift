@@ -237,7 +237,9 @@ struct GameDetailsView: View {
     private func detailsContent(_ details: GameDetails) -> some View {
         GeometryReader { geometry in
             let viewport = GameDetailsViewport(
-                containerFrame: geometry.frame(in: .global),
+                containerFrame: geometry.frame(
+                    in: .named(LibraryCoordinateSpace.name)
+                ),
                 safeAreaInsets: geometry.safeAreaInsets
             )
 
@@ -281,65 +283,91 @@ struct GameDetailsView: View {
         _ details: GameDetails,
         viewportHeight: CGFloat
     ) -> some View {
-        ScrollView(.vertical) {
-            HStack(alignment: .top, spacing: 46) {
-                coverColumn(details)
-                    .padding(.top, 36)
+        let topAnchor = "game-details-\(details.id)-top"
 
-                VStack(alignment: .leading, spacing: 0) {
-                    gameHeader(details)
-                        .padding(.top, 22)
+        return ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                VStack(spacing: 0) {
+                    Color.clear
+                        .frame(height: 0)
+                        .id(topAnchor)
 
-                    GameDetailsTabBar(
-                        selection: $selectedTab,
-                        fileCount: details.files.count,
-                        saveDataCount: details.saves.count + details.states.count
-                    )
-                    .padding(.top, 18)
+                    HStack(alignment: .top, spacing: 46) {
+                        coverColumn(details)
+                            .padding(.top, 36)
 
-                    Divider()
-                        .padding(.top, 10)
+                        VStack(alignment: .leading, spacing: 0) {
+                            gameHeader(details)
+                                .padding(.top, 22)
 
-                    tabContent(details)
-                        .padding(.top, 24)
-                        .padding(.bottom, 48)
-                        .padding(.trailing, 8)
+                            GameDetailsTabBar(
+                                selection: $selectedTab,
+                                fileCount: details.files.count,
+                                saveDataCount: details.saves.count + details.states.count
+                            )
+                            .padding(.top, 18)
+
+                            Divider()
+                                .padding(.top, 10)
+
+                            tabContent(details)
+                                .padding(.top, 24)
+                                .padding(.bottom, 48)
+                                .padding(.trailing, 8)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
+                    .padding(.horizontal, 34)
+                    .frame(maxWidth: 1_360, alignment: .top)
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .padding(.horizontal, 34)
-            .frame(maxWidth: 1_360, alignment: .top)
-            .frame(maxWidth: .infinity, alignment: .top)
+            .frame(height: viewportHeight)
+            .scrollIndicators(.visible)
+            .task(id: details.id) {
+                await Task.yield()
+                proxy.scrollTo(topAnchor, anchor: .top)
+            }
         }
-        .frame(height: viewportHeight)
-        .scrollIndicators(.visible)
-        .id(details.id)
     }
 
     private func compactLayout(_ details: GameDetails) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                coverColumn(details)
+        let topAnchor = "game-details-\(details.id)-top"
+
+        return ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    Color.clear
+                        .frame(height: 0)
+                        .id(topAnchor)
+
+                    VStack(alignment: .leading, spacing: 22) {
+                        coverColumn(details)
+                            .frame(maxWidth: .infinity)
+
+                        gameHeader(details)
+
+                        GameDetailsTabBar(
+                            selection: $selectedTab,
+                            fileCount: details.files.count,
+                            saveDataCount: details.saves.count + details.states.count
+                        )
+
+                        Divider()
+
+                        tabContent(details)
+                            .padding(.bottom, 28)
+                    }
+                    .padding(24)
+                    .frame(maxWidth: 760)
                     .frame(maxWidth: .infinity)
-
-                gameHeader(details)
-
-                GameDetailsTabBar(
-                    selection: $selectedTab,
-                    fileCount: details.files.count,
-                    saveDataCount: details.saves.count + details.states.count
-                )
-
-                Divider()
-
-                tabContent(details)
-                    .padding(.bottom, 28)
+                }
             }
-            .padding(24)
-            .frame(maxWidth: 760)
-            .frame(maxWidth: .infinity)
+            .task(id: details.id) {
+                await Task.yield()
+                proxy.scrollTo(topAnchor, anchor: .top)
+            }
         }
-        .id(details.id)
     }
 
     private func coverColumn(_ details: GameDetails) -> some View {
