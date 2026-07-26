@@ -722,6 +722,17 @@ struct LibraryView: View {
         sidebarSyncButton
       }
       .sidebarStatusStyle()
+    } else if model.isCachingArtwork {
+      HStack(spacing: 7) {
+        ProgressView()
+          .controlSize(.small)
+        Text(artworkCachingLabel)
+          .lineLimit(1)
+        Spacer(minLength: 0)
+        sidebarSyncButton
+      }
+      .sidebarStatusStyle()
+      .help("Caching all library covers locally for offline browsing.")
     } else if let refreshErrorMessage = model.refreshErrorMessage {
       HStack(spacing: 7) {
         Image(
@@ -776,6 +787,14 @@ struct LibraryView: View {
     .disabled(model.isLoading || model.isSynchronizing)
     .help("Sync Library with RomM")
     .accessibilityLabel("Sync Library")
+  }
+
+  private var artworkCachingLabel: String {
+    guard model.artworkCacheTotalCount > 0 else {
+      return "Caching Artwork"
+    }
+    return "Artwork \(model.cachedArtworkCount.formatted()) of "
+      + model.artworkCacheTotalCount.formatted()
   }
 
   private var synchronizationLabel: String {

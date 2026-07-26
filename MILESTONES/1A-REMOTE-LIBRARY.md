@@ -85,9 +85,10 @@ Keychain storage remains required before a release build ships.
 - BIOS and firmware entries conventionally named with a leading `[BIOS]` marker
   are hidden by default through a persisted library filter, but can be revealed
   from the filter checklist without requiring RomM to be online.
-- Artwork loading is cancellable. Library and collection views fetch the
-  canonical cover they display on demand into a bounded 10 GB disk cache;
-  metadata synchronization does not prefetch the complete library.
+- Artwork loading is cancellable. After a successful metadata sync, OpenVault
+  pre-caches every unique canonical library cover at low priority with bounded
+  concurrency into a bounded 10 GB disk cache. Screenshots and other detail
+  media remain on demand.
 - Authentication, permission, decoding, and transport errors produce distinct,
   actionable messages.
 - Network and persistence implementations can be replaced by test doubles at

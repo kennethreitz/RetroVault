@@ -76,6 +76,7 @@ final class AppModel {
 
     func disconnect() async {
         OpenVaultLog.connection.notice("Disconnecting the RomM server")
+        libraryModel?.cancelBackgroundWork()
         do {
             try await environment.serverConnection.disconnect()
             connectionError = nil
@@ -93,7 +94,8 @@ final class AppModel {
     private func showLibrary(_ session: ServerSession) {
         libraryModel = LibraryModel(
             session: session,
-            service: environment.library
+            service: environment.library,
+            artworkCache: environment.artworkCache
         )
         destination = .library(session)
     }

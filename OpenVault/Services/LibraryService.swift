@@ -70,6 +70,10 @@ protocol LibraryServing: Sendable {
   func syncCartridgeSaveAfterPlay(
     _ configuration: CartridgeSaveSyncConfiguration
   ) async throws -> CartridgeSaveSyncOutcome
+  func artworkRequests(
+    for games: [GameSummary],
+    in session: ServerSession
+  ) async throws -> [URLRequest]
   func resourceRequest(for url: URL?, in session: ServerSession) async throws -> URLRequest?
 }
 
@@ -163,6 +167,26 @@ extension LibraryServing {
     _ configuration: CartridgeSaveSyncConfiguration
   ) async throws -> CartridgeSaveSyncOutcome {
     .unchanged
+  }
+
+  func artworkRequests(
+    for games: [GameSummary],
+    in session: ServerSession
+  ) async throws -> [URLRequest] {
+    var requests: [URLRequest] = []
+    var seenURLs: Set<URL> = []
+
+    for game in games {
+      guard let coverURL = game.coverURL,
+        seenURLs.insert(coverURL).inserted,
+        let request = try await resourceRequest(for: coverURL, in: session)
+      else {
+        continue
+      }
+      requests.append(request)
+    }
+
+    return requests
   }
 
 }
@@ -1275,6 +1299,41 @@ actor RomMLibraryService: LibraryServing {
     }
 
     return request
+  }
+
+  func artworkRequests(
+    for games: [GameSummary],
+    in session: ServerSession
+  ) async throws -> [URLRequest] {
+    var seenURLs: Set<URL> = []
+    let urls = games.compactMap(\.coverURL).filter {
+      seenURLs.insert($0).inserted
+    }
+    guard !urls.isEmpty else {
+      return []
+    }
+
+    let hasSameOriginArtwork = urls.contains {
+      session.serverURL.hasSameOrigin(as: $0)
+    }
+    let token: ClientToken? =
+      if hasSameOriginArtwork {
+        try await authenticationToken()
+      } else {
+        nil
+      }
+
+    return urls.map { url in
+      var request = URLRequest(url: url)
+      request.setValue("image/*", forHTTPHeaderField: "Accept")
+      if session.serverURL.hasSameOrigin(as: url), let token {
+        request.setValue(
+          "Bearer \(token.rawValue)",
+          forHTTPHeaderField: "Authorization"
+        )
+      }
+      return request
+    }
   }
 
   private func authenticationToken() async throws -> ClientToken {

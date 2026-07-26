@@ -290,12 +290,12 @@ enum ServerConfiguration: Sendable {
 - Every synchronized game can open offline. Games without a previously cached
   full-detail response render a summary-only detail page from the library
   snapshot and clearly identify it as a cached summary.
-- Artwork uses a 10 GB bounded disk cache separate from SwiftData. OpenVault
-  fetches and retains each game's canonical library cover only when a library
-  or collection view requests it; synchronization does not sweep the complete
-  library. Screenshots and other detail media are likewise loaded on demand.
+- Artwork uses a 10 GB bounded disk cache separate from SwiftData. After each
+  successful metadata synchronization, OpenVault pre-caches every unique
+  canonical library cover at low priority with bounded concurrency. Screenshots
+  and other detail media remain loaded on demand.
 - The offline promise covers all synchronized metadata. Artwork remains
-  available offline after its corresponding library cover has been viewed.
+  available offline after the background cover pass has cached it.
 - Managed downloads and play-on-demand cache entries can launch and export
   offline while their local files remain available.
 - The local cache is replaceable and never becomes a second source of truth.
