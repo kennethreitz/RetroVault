@@ -96,6 +96,21 @@ struct LibretroRewindBuffer: Sendable {
     }
 }
 
+struct LibretroControllerExitChord: Sendable {
+    private var wasPressed = false
+
+    mutating func update(
+        startPressed: Bool,
+        selectPressed: Bool
+    ) -> Bool {
+        let isPressed = startPressed && selectPressed
+        defer {
+            wasPressed = isPressed
+        }
+        return isPressed && !wasPressed
+    }
+}
+
 final class LibretroVideoBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private var frame: LibretroVideoFrame?
@@ -127,6 +142,8 @@ final class LibretroInputState: @unchecked Sendable {
     private var pointerY: Int16 = 0
     private var pointerPressed = false
     private var pointerInside = false
+    private var exitChord = LibretroControllerExitChord()
+    private var exitRequested = false
 
     func setKeyboardButton(_ button: LibretroButton, pressed: Bool) {
         lock.lock()
@@ -164,6 +181,7 @@ final class LibretroInputState: @unchecked Sendable {
     func pollController() {
         guard let gamepad = GCController.controllers().first?.extendedGamepad else {
             lock.lock()
+            _ = exitChord.update(startPressed: false, selectPressed: false)
             controllerButtons = 0
             polledButtons = keyboardButtons | pendingKeyboardPresses
             leftAnalogX = digitalAxis(
@@ -194,10 +212,21 @@ final class LibretroInputState: @unchecked Sendable {
         buttons.set(.r, when: gamepad.rightShoulder.isPressed)
         buttons.set(.l2, when: gamepad.leftTrigger.isPressed)
         buttons.set(.r2, when: gamepad.rightTrigger.isPressed)
-        buttons.set(.select, when: gamepad.buttonOptions?.isPressed == true)
-        buttons.set(.start, when: gamepad.buttonMenu.isPressed)
+        let selectPressed = gamepad.buttonOptions?.isPressed == true
+        let startPressed = gamepad.buttonMenu.isPressed
 
         lock.lock()
+        let isExitChordPressed = startPressed && selectPressed
+        if exitChord.update(
+            startPressed: startPressed,
+            selectPressed: selectPressed
+        ) {
+            exitRequested = true
+        }
+        if !isExitChordPressed {
+            buttons.set(.select, when: selectPressed)
+            buttons.set(.start, when: startPressed)
+        }
         controllerButtons = buttons
         polledButtons = keyboardButtons | pendingKeyboardPresses | controllerButtons
         leftAnalogX = analogAxis(gamepad.leftThumbstick.xAxis.value)
@@ -206,6 +235,15 @@ final class LibretroInputState: @unchecked Sendable {
         rightAnalogY = analogAxis(-gamepad.rightThumbstick.yAxis.value)
         pendingKeyboardPresses = 0
         lock.unlock()
+    }
+
+    func consumeExitRequest() -> Bool {
+        lock.lock()
+        defer {
+            exitRequested = false
+            lock.unlock()
+        }
+        return exitRequested
     }
 
     func value(for id: UInt32) -> Int16 {
@@ -334,6 +372,7 @@ final class LibretroSession {
     private(set) var hasQuickState = false
     private(set) var canRewind = false
     private(set) var saveSyncPhase: SaveSyncPhase = .idle
+    private(set) var shouldClosePlayer = false
 
     private let engine: LibretroEngine
     private let syncCartridgeSave:
@@ -369,6 +408,7 @@ final class LibretroSession {
         phase = .starting
         isPaused = false
         canRewind = false
+        shouldClosePlayer = false
         message = nil
         OpenVaultLog.libretro.notice(
             "Starting core \(self.request.coreID, privacy: .public)"
@@ -468,6 +508,12 @@ final class LibretroSession {
             message = text
         case .saveMemoryPersisted:
             synchronizeCartridgeSave()
+        case .controllerExitRequested:
+            shouldClosePlayer = true
+            message = "Closing game…"
+            OpenVaultLog.libretro.notice(
+                "Start and Select pressed; requesting clean exit"
+            )
         }
     }
 
@@ -1566,6 +1612,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         case running(coreName: String, framesPerSecond: Double)
         case stopped
         case failed(String)
+        case controllerExitRequested
         case quickStateSaved
         case quickStateLoaded
         case notice(String)
@@ -1736,6 +1783,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
 
     func pollInput() {
         inputState.pollController()
+        if inputState.consumeExitRequest() {
+            emit(.controllerExitRequested)
+            stop()
+        }
     }
 
     func input(

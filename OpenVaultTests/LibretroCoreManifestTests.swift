@@ -463,6 +463,25 @@ struct LibretroCoreManifestTests {
         #expect(rewind.byteCount == 0)
     }
 
+    @Test("Start and Select request one clean exit per button chord")
+    func detectsControllerExitChord() {
+        var chord = LibretroControllerExitChord()
+
+        let idle = chord.update(startPressed: false, selectPressed: false)
+        let startOnly = chord.update(startPressed: true, selectPressed: false)
+        let firstChord = chord.update(startPressed: true, selectPressed: true)
+        let heldChord = chord.update(startPressed: true, selectPressed: true)
+        let selectOnly = chord.update(startPressed: false, selectPressed: true)
+        let secondChord = chord.update(startPressed: true, selectPressed: true)
+
+        #expect(!idle)
+        #expect(!startOnly)
+        #expect(firstChord)
+        #expect(!heldChord)
+        #expect(!selectOnly)
+        #expect(secondChord)
+    }
+
     private func containsVisiblePixels(_ frame: LibretroVideoFrame) -> Bool {
         frame.pixels.withUnsafeBytes { bytes in
             guard let pixels = bytes.baseAddress?.assumingMemoryBound(

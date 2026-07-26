@@ -122,6 +122,27 @@ final class LibraryModel {
     }.count
   }
 
+  /// A complete, read-only source for controller-first library presentations.
+  ///
+  /// Big Picture mode consumes the persisted RomM snapshot directly so opening
+  /// it never changes the sidebar selection, search, or table pagination.
+  var bigPictureSource: BigPictureLibrarySource {
+    let sourceGames = snapshot?.games ?? games
+    let visibleGames =
+      hidesBIOSGames
+      ? sourceGames.filter { !$0.isBIOS }
+      : sourceGames
+
+    return BigPictureLibrarySource(
+      synchronizedAt: snapshot?.synchronizedAt ?? lastSuccessfulSync,
+      systems: systems,
+      collections: collections,
+      games: visibleGames,
+      collectionMemberships: snapshot?.collectionMemberships ?? [],
+      downloadedGameIDs: downloadedGameIDs
+    )
+  }
+
   var hasMoreGames: Bool {
     games.count < totalGameCount
   }

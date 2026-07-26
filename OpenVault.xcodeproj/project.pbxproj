@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A80000000000000000000002 /* BigPictureCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000002 /* BigPictureCatalog.swift */; };
+		A80000000000000000000001 /* BigPictureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000001 /* BigPictureView.swift */; };
 		A70000000000000000000001 /* LibretroLogShim.c in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000001 /* LibretroLogShim.c */; };
 		A60000000000000000000001 /* LiquidGlass.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60000000000000000000001 /* LiquidGlass.swift */; };
 		A50000000000000000000002 /* LogViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000002 /* LogViewerView.swift */; };
@@ -66,6 +68,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B80000000000000000000002 /* BigPictureCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BigPictureCatalog.swift; sourceTree = "<group>"; };
+		B80000000000000000000001 /* BigPictureView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BigPictureView.swift; sourceTree = "<group>"; };
 		B70000000000000000000001 /* LibretroLogShim.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; path = LibretroLogShim.c; sourceTree = "<group>"; };
 		B60000000000000000000001 /* LiquidGlass.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiquidGlass.swift; sourceTree = "<group>"; };
 		B50000000000000000000002 /* LogViewerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LogViewerView.swift; sourceTree = "<group>"; };
@@ -139,6 +143,7 @@
 		01D76A098647BA96FCF711A6 /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				C80000000000000000000001 /* BigPicture */,
 				C10000000000000000000001 /* GameDetails */,
 				97C513CCB7D073C2D1A0821C /* Library */,
 				659F600059656F03A76B3B90 /* ServerConnection */,
@@ -146,6 +151,16 @@
 			);
 			name = Features;
 			path = Features;
+			sourceTree = "<group>";
+		};
+		C80000000000000000000001 /* BigPicture */ = {
+			isa = PBXGroup;
+			children = (
+				B80000000000000000000002 /* BigPictureCatalog.swift */,
+				B80000000000000000000001 /* BigPictureView.swift */,
+			);
+			name = BigPicture;
+			path = BigPicture;
 			sourceTree = "<group>";
 		};
 		C10000000000000000000001 /* GameDetails */ = {
@@ -502,6 +517,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A80000000000000000000002 /* BigPictureCatalog.swift in Sources */,
+				A80000000000000000000001 /* BigPictureView.swift in Sources */,
 				A70000000000000000000001 /* LibretroLogShim.c in Sources */,
 				7FB6894CA3D75799680F2756 /* AppEnvironment.swift in Sources */,
 				FDD0BB6FEFC2631F2868A349 /* AppModel.swift in Sources */,

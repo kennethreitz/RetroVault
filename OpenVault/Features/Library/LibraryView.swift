@@ -188,6 +188,7 @@ struct LibraryView: View {
     try? LibretroInstallation.bundled().manifest
 
   @Bindable var model: LibraryModel
+  @Environment(\.openWindow) private var openWindow
   @State private var searchText = ""
   @State private var showsEmptySystems = false
   @State private var showsUnsupportedSystems = false
@@ -450,6 +451,16 @@ struct LibraryView: View {
               )
               .toggleStyle(.checkbox)
             }
+          }
+
+          ToolbarItem(placement: .primaryAction) {
+            Button {
+              openWindow(id: BigPictureScene.id)
+            } label: {
+              Label("Big Picture", systemImage: "tv")
+            }
+            .help("Enter Big Picture mode")
+            .accessibilityLabel("Enter Big Picture Mode")
           }
         }
       }

@@ -37,6 +37,7 @@ OpenVault/
     App/
     UI/
     Features/
+        BigPicture/
         ServerConnection/
         Library/
         Search/
@@ -174,6 +175,29 @@ enum ServerConfiguration: Sendable {
   reconciliation and present RomM's errors.
 - Collection editing, smart-filter creation, and other unimplemented RomM
   mutations remain outside the current slice.
+
+## Big Picture
+
+- The library toolbar exposes a TV button that opens a dedicated, single
+  Big Picture window and enters native macOS full screen.
+- Big Picture follows MinUI's visual grammar: a black canvas, large rounded
+  typography, an inverted white selection, shallow navigation, and persistent
+  controller action hints. It does not reuse the desktop sidebar, toolbar,
+  column browser, or artwork grid.
+- The root menu contains Recently Added, Downloaded, Collections, and only
+  systems with a bundled reviewed core. Regular, smart, and virtual RomM
+  collections remain available in one controller-friendly collection list.
+- The mode reads the complete persisted RomM snapshot without changing the
+  desktop library selection or search. Cached artwork and metadata continue to
+  work when RomM is unavailable.
+- Keyboard, mouse, and extended game controllers share one navigation model.
+  D-pad or left stick moves with hold-to-repeat, A opens or plays, B moves
+  back or exits, and the shoulder buttons page through long lists. OpenVault
+  reads every connected extended or compact controller rather than binding
+  navigation to the first device returned by the system.
+- Starting a game reuses the production details, download, firmware, save-sync,
+  and Libretro preparation pipeline. Large uncached ROMs show byte and
+  percentage progress rather than an indefinite Preparing state.
 
 ## Game details
 

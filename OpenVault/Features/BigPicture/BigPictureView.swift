@@ -1,0 +1,1003 @@
+@preconcurrency import AppKit
+@preconcurrency import GameController
+import SwiftUI
+
+enum BigPictureScene {
+  static let id = "big-picture"
+}
+
+struct BigPictureView: View {
+  private static let bundledManifest =
+    try? LibretroInstallation.bundled().manifest
+
+  @Bindable var model: LibraryModel
+
+  @Environment(\.dismissWindow) private var dismissWindow
+  @Environment(\.openWindow) private var openWindow
+
+  @State private var catalog = BigPictureCatalog.empty
+  @State private var isBuildingCatalog = true
+  @State private var page = BigPicturePage.home
+  @State private var history: [BigPictureHistoryEntry] = []
+  @State private var selectedIndex = 0
+  @State private var controllerState = BigPictureControllerState()
+  @State private var controllerNavigation = BigPictureControllerNavigation()
+  @State private var bigPictureWindow: NSWindow?
+  @State private var playbackModel: GameDetailsModel?
+  @State private var playbackTask: Task<Void, Never>?
+  @State private var isLoadingGameDetails = false
+  @State private var playbackErrorMessage: String?
+  @State private var requestedGame: GameSummary?
+  @FocusState private var hasInterfaceFocus: Bool
+
+  var body: some View {
+    ZStack {
+      Color.black
+        .ignoresSafeArea()
+
+      VStack(spacing: 0) {
+        header
+        menu
+        footer
+      }
+      .padding(.horizontal, 44)
+      .padding(.vertical, 28)
+
+      if isPreparingPlayback {
+        preparationOverlay
+      } else if let playbackErrorMessage {
+        errorOverlay(playbackErrorMessage)
+      }
+    }
+    .foregroundStyle(.white)
+    .fontDesign(.rounded)
+    .focusable()
+    .focused($hasInterfaceFocus)
+    .onAppear {
+      hasInterfaceFocus = true
+    }
+    .onTapGesture {
+      hasInterfaceFocus = true
+    }
+    .onMoveCommand { direction in
+      switch direction {
+      case .up:
+        handle(.up)
+      case .down:
+        handle(.down)
+      case .left:
+        handle(.back)
+      case .right:
+        handle(.activate)
+      default:
+        break
+      }
+    }
+    .onExitCommand {
+      handle(.back)
+    }
+    .onKeyPress(.return) {
+      handle(.activate)
+      return .handled
+    }
+    .onKeyPress(.space) {
+      handle(.activate)
+      return .handled
+    }
+    .onKeyPress(.escape) {
+      handle(.back)
+      return .handled
+    }
+    .background {
+      BigPictureWindowProbe { window in
+        bigPictureWindow = window
+      }
+    }
+    .task {
+      await model.load()
+    }
+    .task(id: catalogKey) {
+      await rebuildCatalog()
+    }
+    .task {
+      await pollControllers()
+    }
+    .onDisappear {
+      playbackTask?.cancel()
+    }
+  }
+
+  private var header: some View {
+    HStack(alignment: .top) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(pageTitle)
+          .font(.system(size: 42, weight: .black, design: .rounded))
+          .lineLimit(1)
+
+        Text(pageSubtitle)
+          .font(.system(size: 13, weight: .bold, design: .rounded))
+          .tracking(2.2)
+          .foregroundStyle(.white.opacity(0.55))
+      }
+
+      Spacer()
+
+      HStack(spacing: 14) {
+        if controllerState.isConnected {
+          controllerPill
+        }
+
+        statusPill
+
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+          Text(
+            context.date.formatted(
+              date: .omitted,
+              time: .shortened
+            )
+          )
+          .font(.system(size: 17, weight: .bold, design: .rounded))
+          .monospacedDigit()
+        }
+      }
+    }
+    .frame(height: 78)
+  }
+
+  private var statusPill: some View {
+    HStack(spacing: 8) {
+      Image(
+        systemName: model.isShowingStaleData
+          ? "wifi.slash"
+          : "checkmark.circle.fill"
+      )
+      Text(model.isShowingStaleData ? "OFFLINE" : "ROMM")
+    }
+    .font(.system(size: 13, weight: .black, design: .rounded))
+    .padding(.horizontal, 14)
+    .padding(.vertical, 9)
+    .background(.white.opacity(0.12), in: Capsule())
+    .accessibilityLabel(
+      model.isShowingStaleData
+        ? "Browsing the offline library"
+        : "Connected to RomM"
+    )
+  }
+
+  private var controllerPill: some View {
+    Label("CONTROLLER", systemImage: "gamecontroller.fill")
+      .font(.system(size: 13, weight: .black, design: .rounded))
+      .padding(.horizontal, 14)
+      .padding(.vertical, 9)
+      .background(.white.opacity(0.12), in: Capsule())
+  }
+
+  @ViewBuilder
+  private var menu: some View {
+    if isBuildingCatalog, catalog.systems.isEmpty {
+      VStack(spacing: 18) {
+        ProgressView()
+          .controlSize(.large)
+          .tint(.white)
+        Text("PREPARING LIBRARY")
+          .font(.system(size: 15, weight: .black, design: .rounded))
+          .tracking(2)
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    } else if rows.isEmpty {
+      VStack(spacing: 14) {
+        Image(systemName: "rectangle.stack.badge.minus")
+          .font(.system(size: 42, weight: .light))
+        Text("NO GAMES")
+          .font(.system(size: 24, weight: .black, design: .rounded))
+        Text("Press B or Escape to go back.")
+          .foregroundStyle(.white.opacity(0.55))
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    } else {
+      HStack(alignment: .center, spacing: 54) {
+        menuRows
+          .frame(maxWidth: 720)
+
+        if case .games = page, let selectedGame {
+          selectedGamePreview(selectedGame)
+            .frame(maxWidth: 350)
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+  }
+
+  private var menuRows: some View {
+    ScrollViewReader { proxy in
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: 4) {
+          ForEach(Array(rows.enumerated()), id: \.element.id) {
+            index,
+            row in
+            Button {
+              selectedIndex = index
+              activate(row)
+            } label: {
+              HStack(spacing: 16) {
+                Text(row.title)
+                  .lineLimit(1)
+
+                Spacer(minLength: 20)
+
+                if let detail = row.detail {
+                  Text(detail)
+                    .font(.system(size: rowDetailSize, weight: .bold, design: .rounded))
+                    .foregroundStyle(
+                      index == selectedIndex
+                        ? .black.opacity(0.56)
+                        : .white.opacity(0.46)
+                    )
+                    .monospacedDigit()
+                    .lineLimit(1)
+                }
+              }
+              .font(.system(size: rowFontSize, weight: .black, design: .rounded))
+              .foregroundStyle(index == selectedIndex ? .black : .white)
+              .padding(.horizontal, 20)
+              .frame(height: rowHeight)
+              .background(
+                index == selectedIndex ? Color.white : Color.clear,
+                in: Capsule()
+              )
+              .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .id(row.id)
+            .onHover { isHovering in
+              if isHovering {
+                selectedIndex = index
+              }
+            }
+            .accessibilityAddTraits(
+              index == selectedIndex ? .isSelected : []
+            )
+          }
+        }
+        .padding(.vertical, 6)
+      }
+      .scrollIndicators(.hidden)
+      .onChange(of: selectedIndex) { _, newIndex in
+        guard rows.indices.contains(newIndex) else {
+          return
+        }
+        withAnimation(.snappy(duration: 0.18)) {
+          proxy.scrollTo(rows[newIndex].id, anchor: .center)
+        }
+      }
+    }
+  }
+
+  private func selectedGamePreview(_ game: GameSummary) -> some View {
+    VStack(alignment: .leading, spacing: 18) {
+      RomMImageView(
+        url: game.coverURL,
+        session: model.session,
+        service: model.service,
+        targetSize: CGSize(width: 480, height: 640),
+        contentMode: .fit,
+        placeholderSystemImage: "gamecontroller",
+        cornerRadius: 14,
+        imagePadding: 6
+      )
+      .aspectRatio(3 / 4, contentMode: .fit)
+      .frame(maxHeight: 330)
+
+      VStack(alignment: .leading, spacing: 6) {
+        Text(game.name)
+          .font(.system(size: 25, weight: .black, design: .rounded))
+          .lineLimit(2)
+
+        HStack(spacing: 12) {
+          Text(game.systemName.uppercased())
+          if model.downloadedGameIDs.contains(game.id) {
+            Label("LOCAL", systemImage: "arrow.down.circle.fill")
+          }
+          if game.hasSave == true {
+            Label("SAVE", systemImage: "memorychip.fill")
+          }
+        }
+        .font(.system(size: 12, weight: .black, design: .rounded))
+        .foregroundStyle(.white.opacity(0.55))
+        .labelStyle(.titleAndIcon)
+      }
+    }
+  }
+
+  private var footer: some View {
+    HStack {
+      if page == .home {
+        actionHint(key: "ESC", label: "EXIT")
+      } else {
+        actionHint(key: "B", label: "BACK")
+      }
+
+      Spacer()
+
+      Text(model.allGameCount.formatted() + " GAMES")
+        .font(.system(size: 13, weight: .black, design: .rounded))
+        .tracking(1.2)
+        .foregroundStyle(.white.opacity(0.45))
+
+      Spacer()
+
+      HStack(spacing: 10) {
+        if rows.count > pageSelectionStride {
+          actionHint(key: "L/R", label: "PAGE")
+        }
+        actionHint(
+          key: "A",
+          label: page.isGameList ? "PLAY" : "OPEN"
+        )
+      }
+    }
+    .frame(height: 64)
+  }
+
+  private func actionHint(key: String, label: String) -> some View {
+    HStack(spacing: 10) {
+      Text(key)
+        .foregroundStyle(.black.opacity(0.68))
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .background(.white, in: Capsule())
+      Text(label)
+    }
+    .font(.system(size: 16, weight: .black, design: .rounded))
+    .padding(7)
+    .padding(.trailing, 8)
+    .background(.white.opacity(0.12), in: Capsule())
+  }
+
+  private var preparationOverlay: some View {
+    VStack(spacing: 24) {
+      ProgressView()
+        .controlSize(.large)
+        .tint(.white)
+
+      VStack(spacing: 8) {
+        Text(preparationTitle)
+          .font(.system(size: 25, weight: .black, design: .rounded))
+        if let game = requestedGame {
+          Text(game.name)
+            .font(.system(size: 18, weight: .bold, design: .rounded))
+            .foregroundStyle(.white.opacity(0.6))
+            .lineLimit(1)
+        }
+      }
+
+      if let progress = playbackModel?.playbackDownloadProgress {
+        VStack(spacing: 9) {
+          if let fraction = progress.fractionCompleted {
+            ProgressView(value: fraction)
+              .progressViewStyle(.linear)
+              .tint(.white)
+          } else {
+            ProgressView()
+              .progressViewStyle(.linear)
+              .tint(.white)
+          }
+          Text(downloadProgressLabel(progress))
+            .font(.system(size: 13, weight: .bold, design: .rounded))
+            .foregroundStyle(.white.opacity(0.55))
+            .monospacedDigit()
+        }
+        .frame(width: 360)
+      }
+
+      actionHint(key: "B", label: "CANCEL")
+    }
+    .padding(42)
+    .frame(minWidth: 520)
+    .background(.black.opacity(0.96), in: RoundedRectangle(cornerRadius: 28))
+    .overlay {
+      RoundedRectangle(cornerRadius: 28)
+        .stroke(.white.opacity(0.18), lineWidth: 1)
+    }
+    .shadow(color: .black.opacity(0.8), radius: 50)
+  }
+
+  private func errorOverlay(_ message: String) -> some View {
+    VStack(spacing: 20) {
+      Image(systemName: "exclamationmark.triangle")
+        .font(.system(size: 42, weight: .light))
+
+      Text("COULDN’T START GAME")
+        .font(.system(size: 25, weight: .black, design: .rounded))
+
+      Text(message)
+        .font(.system(size: 16, weight: .medium, design: .rounded))
+        .foregroundStyle(.white.opacity(0.65))
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 460)
+
+      HStack(spacing: 18) {
+        actionHint(key: "B", label: "BACK")
+        actionHint(key: "A", label: "TRY AGAIN")
+      }
+    }
+    .padding(42)
+    .background(.black.opacity(0.96), in: RoundedRectangle(cornerRadius: 28))
+    .overlay {
+      RoundedRectangle(cornerRadius: 28)
+        .stroke(.white.opacity(0.18), lineWidth: 1)
+    }
+    .shadow(color: .black.opacity(0.8), radius: 50)
+  }
+
+  private var rows: [BigPictureRow] {
+    switch page {
+    case .home:
+      var rows: [BigPictureRow] = [
+        BigPictureRow(
+          id: .home("recent"),
+          title: "Recently Added",
+          detail: catalog.recentlyAddedGames.count.formatted(),
+          action: .navigate(.games(.recentlyAdded))
+        ),
+        BigPictureRow(
+          id: .home("downloaded"),
+          title: "Downloaded",
+          detail: catalog.downloadedGames.count.formatted(),
+          action: .navigate(.games(.downloaded))
+        ),
+        BigPictureRow(
+          id: .home("collections"),
+          title: "Collections",
+          detail: catalog.collections.count.formatted(),
+          action: .navigate(.collections)
+        ),
+      ]
+      rows.append(
+        contentsOf: catalog.systems.map { system in
+          BigPictureRow(
+            id: .system(system.id),
+            title: system.name,
+            detail: system.gameCount.formatted(),
+            action: .navigate(.games(.system(system.id)))
+          )
+        }
+      )
+      return rows
+
+    case .collections:
+      return catalog.collections.map { collection in
+        BigPictureRow(
+          id: .collection(collection.id),
+          title: collection.name,
+          detail: collectionDetail(collection),
+          action: .navigate(.games(.collection(collection.id)))
+        )
+      }
+
+    case .games(let scope):
+      return catalog.games(in: scope).map { game in
+        BigPictureRow(
+          id: .game(game.id),
+          title: game.name,
+          detail:
+            model.downloadedGameIDs.contains(game.id)
+            ? "LOCAL"
+            : game.releaseYear.map(String.init),
+          action: .play(game)
+        )
+      }
+    }
+  }
+
+  private var selectedGame: GameSummary? {
+    guard rows.indices.contains(selectedIndex) else {
+      return nil
+    }
+    if case .play(let game) = rows[selectedIndex].action {
+      return game
+    }
+    return nil
+  }
+
+  private var pageTitle: String {
+    switch page {
+    case .home:
+      "OpenVault"
+    case .collections:
+      "Collections"
+    case .games(let scope):
+      catalog.title(for: scope)
+    }
+  }
+
+  private var pageSubtitle: String {
+    switch page {
+    case .home:
+      "BIG PICTURE"
+    case .collections:
+      "\(catalog.collections.count.formatted()) ROMM COLLECTIONS"
+    case .games(let scope):
+      "\(catalog.games(in: scope).count.formatted()) GAMES"
+    }
+  }
+
+  private var rowFontSize: CGFloat {
+    switch page {
+    case .home:
+      31
+    case .collections, .games:
+      25
+    }
+  }
+
+  private var rowDetailSize: CGFloat {
+    page == .home ? 17 : 14
+  }
+
+  private var rowHeight: CGFloat {
+    page == .home ? 57 : 50
+  }
+
+  private var catalogKey: BigPictureCatalogKey {
+    BigPictureCatalogKey(
+      synchronizedAt: model.lastSuccessfulSync,
+      downloadedGameIDs: model.downloadedGameIDs,
+      hidesBIOSGames: model.hidesBIOSGames
+    )
+  }
+
+  private var isPreparingPlayback: Bool {
+    isLoadingGameDetails || playbackModel?.isPreparingToPlay == true
+  }
+
+  private var preparationTitle: String {
+    if let progress = playbackModel?.playbackDownloadProgress,
+      let fraction = progress.fractionCompleted
+    {
+      return "DOWNLOADING \(Int(fraction * 100))%"
+    }
+    return isLoadingGameDetails ? "CHECKING ROMM" : "PREPARING GAME"
+  }
+
+  private func rebuildCatalog() async {
+    isBuildingCatalog = true
+    let source = model.bigPictureSource
+    let manifest = Self.bundledManifest
+    let preparedCatalog = await Task.detached(priority: .userInitiated) {
+      BigPictureCatalog(source: source, manifest: manifest)
+    }.value
+    guard !Task.isCancelled else {
+      return
+    }
+    catalog = preparedCatalog
+    isBuildingCatalog = false
+    selectedIndex = min(selectedIndex, max(rows.count - 1, 0))
+  }
+
+  private func handle(_ command: BigPictureCommand) {
+    if playbackErrorMessage != nil {
+      switch command {
+      case .activate:
+        playbackErrorMessage = nil
+        if let requestedGame {
+          play(requestedGame)
+        }
+      case .back:
+        playbackErrorMessage = nil
+      case .up, .down, .pageUp, .pageDown:
+        break
+      }
+      return
+    }
+
+    if isPreparingPlayback {
+      if command == .back {
+        playbackTask?.cancel()
+        playbackTask = nil
+        playbackModel = nil
+        isLoadingGameDetails = false
+      }
+      return
+    }
+
+    switch command {
+    case .up:
+      moveSelection(by: -1)
+    case .down:
+      moveSelection(by: 1)
+    case .pageUp:
+      moveSelection(by: -pageSelectionStride, wraps: false)
+    case .pageDown:
+      moveSelection(by: pageSelectionStride, wraps: false)
+    case .activate:
+      guard rows.indices.contains(selectedIndex) else {
+        return
+      }
+      activate(rows[selectedIndex])
+    case .back:
+      navigateBack()
+    }
+  }
+
+  private var pageSelectionStride: Int {
+    page == .home ? 7 : 10
+  }
+
+  private func moveSelection(by offset: Int, wraps: Bool = true) {
+    guard !rows.isEmpty else {
+      return
+    }
+    if wraps {
+      selectedIndex = (selectedIndex + offset + rows.count) % rows.count
+    } else {
+      selectedIndex = min(
+        max(selectedIndex + offset, 0),
+        rows.count - 1
+      )
+    }
+  }
+
+  private func activate(_ row: BigPictureRow) {
+    switch row.action {
+    case .navigate(let destination):
+      history.append(
+        BigPictureHistoryEntry(page: page, selectedIndex: selectedIndex)
+      )
+      page = destination
+      selectedIndex = 0
+    case .play(let game):
+      play(game)
+    }
+  }
+
+  private func navigateBack() {
+    guard let previous = history.popLast() else {
+      dismissWindow(id: BigPictureScene.id)
+      return
+    }
+    page = previous.page
+    selectedIndex = previous.selectedIndex
+  }
+
+  private func play(_ game: GameSummary) {
+    guard playbackTask == nil else {
+      return
+    }
+
+    requestedGame = game
+    playbackErrorMessage = nil
+    let detailsModel = GameDetailsModel(
+      game: game,
+      session: model.session,
+      service: model.service
+    )
+    playbackModel = detailsModel
+    isLoadingGameDetails = true
+
+    playbackTask = Task {
+      await detailsModel.load()
+      guard !Task.isCancelled else {
+        finishPlaybackPreparation()
+        return
+      }
+      isLoadingGameDetails = false
+
+      guard let details = detailsModel.details else {
+        playbackErrorMessage =
+          detailsModel.errorMessage
+          ?? "OpenVault could not load this game’s RomM metadata."
+        finishPlaybackPreparation(keepingError: true)
+        return
+      }
+      guard let request = await detailsModel.prepareToPlay(details) else {
+        playbackErrorMessage =
+          detailsModel.playbackErrorMessage
+          ?? "No bundled core supports this game file."
+        finishPlaybackPreparation(keepingError: true)
+        return
+      }
+      guard !Task.isCancelled else {
+        finishPlaybackPreparation()
+        return
+      }
+
+      await model.reloadDownloadedGames()
+      openWindow(value: request)
+      finishPlaybackPreparation()
+    }
+  }
+
+  private func finishPlaybackPreparation(keepingError: Bool = false) {
+    playbackTask = nil
+    playbackModel = nil
+    isLoadingGameDetails = false
+    if !keepingError {
+      requestedGame = nil
+    }
+  }
+
+  private func collectionDetail(
+    _ collection: LibraryCollection
+  ) -> String {
+    let type: String
+    switch collection.id {
+    case .regular:
+      type = "ROMM"
+    case .smart:
+      type = "SMART"
+    case .virtual:
+      type = "AUTO"
+    }
+    let playableCount = catalog.games(in: .collection(collection.id)).count
+    return "\(type) · \(playableCount.formatted())"
+  }
+
+  private func downloadProgressLabel(
+    _ progress: RomMDownloadProgress
+  ) -> String {
+    let received = progress.bytesReceived.formatted(.byteCount(style: .file))
+    guard let total = progress.totalBytesExpected else {
+      return received
+    }
+    return "\(received) OF \(total.formatted(.byteCount(style: .file)))"
+  }
+
+  private func pollControllers() async {
+    GCController.startWirelessControllerDiscovery(completionHandler: nil)
+    defer {
+      GCController.stopWirelessControllerDiscovery()
+    }
+
+    while !Task.isCancelled {
+      let currentState = BigPictureControllerState.current
+      controllerState = currentState
+      guard NSApplication.shared.keyWindow === bigPictureWindow else {
+        controllerNavigation.synchronize(with: currentState)
+        try? await Task.sleep(for: .milliseconds(30))
+        continue
+      }
+      if let command = controllerNavigation.command(
+        for: currentState,
+        at: ProcessInfo.processInfo.systemUptime
+      ) {
+        handle(command)
+      }
+      try? await Task.sleep(for: .milliseconds(30))
+    }
+  }
+}
+
+private enum BigPicturePage: Hashable {
+  case home
+  case collections
+  case games(BigPictureScope)
+
+  var isGameList: Bool {
+    if case .games = self {
+      return true
+    }
+    return false
+  }
+}
+
+private struct BigPictureHistoryEntry {
+  let page: BigPicturePage
+  let selectedIndex: Int
+}
+
+private struct BigPictureCatalogKey: Hashable {
+  let synchronizedAt: Date?
+  let downloadedGameIDs: Set<Int>
+  let hidesBIOSGames: Bool
+}
+
+enum BigPictureCommand: Equatable, Sendable {
+  case up
+  case down
+  case pageUp
+  case pageDown
+  case activate
+  case back
+}
+
+private struct BigPictureRow: Identifiable {
+  enum ID: Hashable {
+    case home(String)
+    case system(Int)
+    case collection(LibraryCollection.ID)
+    case game(Int)
+  }
+
+  enum Action {
+    case navigate(BigPicturePage)
+    case play(GameSummary)
+  }
+
+  let id: ID
+  let title: String
+  let detail: String?
+  let action: Action
+}
+
+struct BigPictureControllerState: Equatable, Sendable {
+  var isConnected = false
+  var up = false
+  var down = false
+  var left = false
+  var right = false
+  var activate = false
+  var back = false
+  var pageUp = false
+  var pageDown = false
+
+  static var current: Self {
+    let controllers = GCController.controllers()
+    var state = Self(isConnected: !controllers.isEmpty)
+
+    for controller in controllers {
+      if let gamepad = controller.extendedGamepad {
+        state.up =
+          state.up
+          || gamepad.dpad.up.isPressed
+          || gamepad.leftThumbstick.yAxis.value > 0.72
+        state.down =
+          state.down
+          || gamepad.dpad.down.isPressed
+          || gamepad.leftThumbstick.yAxis.value < -0.72
+        state.left =
+          state.left
+          || gamepad.dpad.left.isPressed
+          || gamepad.leftThumbstick.xAxis.value < -0.72
+        state.right =
+          state.right
+          || gamepad.dpad.right.isPressed
+          || gamepad.leftThumbstick.xAxis.value > 0.72
+        state.activate = state.activate || gamepad.buttonA.isPressed
+        state.back =
+          state.back
+          || gamepad.buttonB.isPressed
+          || gamepad.buttonMenu.isPressed
+        state.pageUp =
+          state.pageUp || gamepad.leftShoulder.isPressed
+        state.pageDown =
+          state.pageDown || gamepad.rightShoulder.isPressed
+      } else if let gamepad = controller.microGamepad {
+        state.up = state.up || gamepad.dpad.up.isPressed
+        state.down = state.down || gamepad.dpad.down.isPressed
+        state.left = state.left || gamepad.dpad.left.isPressed
+        state.right = state.right || gamepad.dpad.right.isPressed
+        state.activate = state.activate || gamepad.buttonA.isPressed
+        state.back = state.back || gamepad.buttonX.isPressed
+      }
+    }
+    return state
+  }
+}
+
+struct BigPictureControllerNavigation: Sendable {
+  private static let initialRepeatDelay = 0.34
+  private static let repeatInterval = 0.09
+
+  private var previousState = BigPictureControllerState()
+  private var repeatingCommand: BigPictureCommand?
+  private var nextRepeatTime = 0.0
+
+  mutating func synchronize(with state: BigPictureControllerState) {
+    previousState = state
+    if state.up {
+      repeatingCommand = .up
+      nextRepeatTime = .greatestFiniteMagnitude
+    } else if state.down {
+      repeatingCommand = .down
+      nextRepeatTime = .greatestFiniteMagnitude
+    } else {
+      repeatingCommand = nil
+      nextRepeatTime = 0
+    }
+  }
+
+  mutating func command(
+    for state: BigPictureControllerState,
+    at uptime: TimeInterval
+  ) -> BigPictureCommand? {
+    defer {
+      previousState = state
+    }
+
+    if state.back, !previousState.back {
+      return .back
+    }
+    if state.activate, !previousState.activate {
+      return .activate
+    }
+    if state.pageUp, !previousState.pageUp {
+      return .pageUp
+    }
+    if state.pageDown, !previousState.pageDown {
+      return .pageDown
+    }
+    if state.left, !previousState.left {
+      return .back
+    }
+    if state.right, !previousState.right {
+      return .activate
+    }
+
+    let directionalCommand: BigPictureCommand? =
+      if state.up {
+        .up
+      } else if state.down {
+        .down
+      } else {
+        nil
+      }
+
+    guard let directionalCommand else {
+      repeatingCommand = nil
+      return nil
+    }
+
+    guard repeatingCommand == directionalCommand else {
+      repeatingCommand = directionalCommand
+      nextRepeatTime = uptime + Self.initialRepeatDelay
+      return directionalCommand
+    }
+
+    guard uptime >= nextRepeatTime else {
+      return nil
+    }
+    nextRepeatTime = uptime + Self.repeatInterval
+    return directionalCommand
+  }
+}
+
+private struct BigPictureWindowProbe: NSViewRepresentable {
+  let didMoveToWindow: @MainActor (NSWindow?) -> Void
+
+  func makeNSView(context: Context) -> BigPictureProbeView {
+    let view = BigPictureProbeView()
+    view.didMoveToWindow = didMoveToWindow
+    return view
+  }
+
+  func updateNSView(_ nsView: BigPictureProbeView, context: Context) {
+    nsView.didMoveToWindow = didMoveToWindow
+  }
+}
+
+@MainActor
+private final class BigPictureProbeView: NSView {
+  var didMoveToWindow: (@MainActor (NSWindow?) -> Void)?
+  private var requestedFullScreen = false
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    didMoveToWindow?(window)
+    guard let window else {
+      return
+    }
+
+    window.backgroundColor = .black
+    window.collectionBehavior.insert(.fullScreenPrimary)
+    window.titleVisibility = .hidden
+    window.titlebarAppearsTransparent = true
+    window.toolbar?.isVisible = false
+
+    guard !requestedFullScreen else {
+      return
+    }
+    requestedFullScreen = true
+
+    Task { @MainActor [weak window] in
+      try? await Task.sleep(for: .milliseconds(120))
+      guard
+        let window,
+        !window.styleMask.contains(.fullScreen)
+      else {
+        return
+      }
+      window.toggleFullScreen(nil)
+    }
+  }
+}

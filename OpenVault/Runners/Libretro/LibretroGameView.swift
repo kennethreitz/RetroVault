@@ -101,6 +101,18 @@ struct LibretroGameView: View {
                 session.stop()
             }
         }
+        .onChange(of: session.shouldClosePlayer) { _, shouldClosePlayer in
+            guard shouldClosePlayer, session.phase == .stopped else {
+                return
+            }
+            playerWindow?.performClose(nil)
+        }
+        .onChange(of: session.phase) { _, phase in
+            guard phase == .stopped, session.shouldClosePlayer else {
+                return
+            }
+            playerWindow?.performClose(nil)
+        }
         .onReceive(
             NotificationCenter.default.publisher(
                 for: NSWindow.didEnterFullScreenNotification
@@ -192,6 +204,10 @@ struct LibretroGameView: View {
                 } else {
                     Text("Arrow keys or D-pad to move")
                 }
+
+                Divider()
+                    .frame(height: 18)
+                Text("Start + Select to exit")
 
                 if let message = session.message {
                     Divider()

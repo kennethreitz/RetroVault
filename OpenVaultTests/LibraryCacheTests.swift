@@ -44,6 +44,236 @@ struct ArtworkSortTests {
   }
 }
 
+@Suite("Big Picture catalog")
+struct BigPictureCatalogTests {
+  @Test("Builds recent, downloaded, system, and collection menus offline")
+  func buildsControllerFirstCatalog() {
+    let collectionID = LibraryCollection.ID.virtual("mario")
+    let olderGame = GameSummary(
+      id: 1,
+      name: "Zelda",
+      systemID: 1,
+      systemName: "Super Nintendo Entertainment System",
+      coverURL: nil,
+      createdAt: "2025-01-02T03:04:05Z"
+    )
+    let newerGame = GameSummary(
+      id: 2,
+      name: "Mario",
+      systemID: 1,
+      systemName: "Super Nintendo Entertainment System",
+      coverURL: nil,
+      createdAt: "2026-07-26T12:34:56.789Z"
+    )
+    let handheldGame = GameSummary(
+      id: 3,
+      name: "Tetris",
+      systemID: 2,
+      systemName: "Game Boy",
+      coverURL: nil
+    )
+    let catalog = BigPictureCatalog(
+      source: BigPictureLibrarySource(
+        synchronizedAt: Date(timeIntervalSince1970: 1_000),
+        systems: [
+          LibrarySystem(
+            id: 1,
+            name: "Super Nintendo Entertainment System",
+            gameCount: 2
+          ),
+          LibrarySystem(id: 2, name: "Game Boy", gameCount: 1),
+          LibrarySystem(id: 3, name: "Empty", gameCount: 0),
+        ],
+        collections: [
+          LibraryCollection(
+            id: collectionID,
+            name: "Mario",
+            gameCount: 2,
+            virtualType: "collection"
+          )
+        ],
+        games: [olderGame, handheldGame, newerGame],
+        collectionMemberships: [
+          LibrarySnapshot.CollectionMembership(
+            collectionID: collectionID,
+            gameIDs: [1, 2]
+          )
+        ],
+        downloadedGameIDs: [3]
+      ),
+      manifest: nil
+    )
+
+    #expect(
+      catalog.systems.map(\.name) == [
+        "Game Boy",
+        "Super Nintendo Entertainment System",
+      ])
+    #expect(catalog.recentlyAddedGames.map(\.id) == [2, 1, 3])
+    #expect(catalog.downloadedGames.map(\.id) == [3])
+    #expect(catalog.games(in: .system(1)).map(\.id) == [2, 1])
+    #expect(catalog.games(in: .collection(collectionID)).map(\.id) == [2, 1])
+    #expect(catalog.title(for: .collection(collectionID)) == "Mario")
+  }
+
+  @Test("Keeps only systems with a reviewed bundled core")
+  func filtersUnsupportedSystems() throws {
+    let repositoryURL = URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+    let installation = try LibretroInstallation(
+      manifestURL: repositoryURL
+        .appending(path: "Libretro/CoreManifest.json"),
+      coresDirectory: repositoryURL
+        .appending(path: "Build/LibretroCores")
+    )
+    let source = BigPictureLibrarySource(
+      synchronizedAt: nil,
+      systems: [
+        LibrarySystem(id: 1, name: "Game Boy", gameCount: 1),
+        LibrarySystem(id: 2, name: "Dreamcast", gameCount: 1),
+      ],
+      collections: [],
+      games: [
+        GameSummary(
+          id: 1,
+          name: "Tetris",
+          systemID: 1,
+          systemName: "Game Boy",
+          coverURL: nil
+        ),
+        GameSummary(
+          id: 2,
+          name: "Unsupported",
+          systemID: 2,
+          systemName: "Dreamcast",
+          coverURL: nil
+        ),
+      ],
+      collectionMemberships: [],
+      downloadedGameIDs: []
+    )
+
+    let catalog = BigPictureCatalog(
+      source: source,
+      manifest: installation.manifest
+    )
+
+    #expect(catalog.systems.map(\.name) == ["Game Boy"])
+    #expect(catalog.recentlyAddedGames.map(\.id) == [1])
+  }
+
+  @Test("Repeats held controller navigation after a deliberate delay")
+  func repeatsHeldControllerNavigation() {
+    var navigation = BigPictureControllerNavigation()
+    let up = BigPictureControllerState(isConnected: true, up: true)
+
+    let initial = navigation.command(for: up, at: 10)
+    let beforeDelay = navigation.command(for: up, at: 10.2)
+    let firstRepeat = navigation.command(for: up, at: 10.35)
+    let beforeInterval = navigation.command(for: up, at: 10.4)
+    let secondRepeat = navigation.command(for: up, at: 10.45)
+    let released = navigation.command(
+      for: BigPictureControllerState(isConnected: true),
+      at: 10.5
+    )
+    let reversed = navigation.command(
+      for: BigPictureControllerState(isConnected: true, down: true),
+      at: 10.51
+    )
+
+    #expect(initial == .up)
+    #expect(beforeDelay == nil)
+    #expect(firstRepeat == .up)
+    #expect(beforeInterval == nil)
+    #expect(secondRepeat == .up)
+    #expect(released == nil)
+    #expect(reversed == .down)
+  }
+
+  @Test("Maps controller actions and shoulders without repeating a hold")
+  func mapsControllerNavigationActions() {
+    var navigation = BigPictureControllerNavigation()
+
+    let activate = navigation.command(
+      for: BigPictureControllerState(isConnected: true, activate: true),
+      at: 20
+    )
+    let heldActivate = navigation.command(
+      for: BigPictureControllerState(isConnected: true, activate: true),
+      at: 20.1
+    )
+    _ = navigation.command(
+      for: BigPictureControllerState(isConnected: true),
+      at: 20.2
+    )
+    let back = navigation.command(
+      for: BigPictureControllerState(isConnected: true, back: true),
+      at: 20.3
+    )
+    let pageUp = navigation.command(
+      for: BigPictureControllerState(isConnected: true, pageUp: true),
+      at: 20.4
+    )
+    let pageDown = navigation.command(
+      for: BigPictureControllerState(isConnected: true, pageDown: true),
+      at: 20.5
+    )
+
+    #expect(activate == .activate)
+    #expect(heldActivate == nil)
+    #expect(back == .back)
+    #expect(pageUp == .pageUp)
+    #expect(pageDown == .pageDown)
+  }
+
+  @Test("Does not carry held gameplay input back into Big Picture")
+  func suppressesHeldInputWhileInactive() {
+    var navigation = BigPictureControllerNavigation()
+    let heldUp = BigPictureControllerState(isConnected: true, up: true)
+
+    navigation.synchronize(with: heldUp)
+    let whileStillHeld = navigation.command(for: heldUp, at: 30)
+    let released = navigation.command(
+      for: BigPictureControllerState(isConnected: true),
+      at: 30.1
+    )
+    let pressedAgain = navigation.command(for: heldUp, at: 30.2)
+
+    #expect(whileStillHeld == nil)
+    #expect(released == nil)
+    #expect(pressedAgain == .up)
+  }
+
+  @MainActor
+  @Test("Uses the complete snapshot without changing desktop selection")
+  func readsCompleteLibrarySnapshot() async throws {
+    let snapshot = testLibrarySnapshot()
+    let session = ServerSession(
+      serverURL: try ServerURL("https://romm.example.com"),
+      username: "kenneth"
+    )
+    let model = LibraryModel(
+      session: session,
+      service: OfflineLibraryService(
+        snapshot: snapshot,
+        downloadedGameIDs: [2]
+      )
+    )
+
+    await model.load()
+    model.selection = .system(1)
+    await model.reloadGames()
+
+    let source = model.bigPictureSource
+
+    #expect(model.games.map(\.id) == [1])
+    #expect(source.games.map(\.id) == [1, 2])
+    #expect(source.downloadedGameIDs == [2])
+    #expect(model.selection == .system(1))
+  }
+}
+
 @Suite("Offline library cache")
 struct LibraryCacheTests {
   @Test("Persists a server-scoped snapshot and full game details")
