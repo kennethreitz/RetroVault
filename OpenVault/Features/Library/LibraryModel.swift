@@ -184,6 +184,18 @@ final class LibraryModel {
     )
   }
 
+  /// Returns every visible game in a system from the complete local snapshot.
+  ///
+  /// System-level actions use this instead of the currently presented page so
+  /// bulk operations continue to include the whole system while offline.
+  func games(inSystem systemID: Int) -> [GameSummary] {
+    let sourceGames = snapshot?.games ?? games
+    return sourceGames.filter {
+      $0.systemID == systemID
+        && (!hidesBIOSGames || !$0.isBIOS)
+    }
+  }
+
   var hasMoreGames: Bool {
     games.count < totalGameCount
   }

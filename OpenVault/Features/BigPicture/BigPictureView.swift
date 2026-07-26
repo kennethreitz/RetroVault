@@ -36,6 +36,7 @@ struct BigPictureView: View {
   @State private var requestedGameStartsFresh = false
   @State private var activePlayerRequest: LibretroRunRequest?
   @State private var optionsGame: GameSummary?
+  @State private var optionsSystem: LibrarySystem?
   @State private var selectedGameOptionIndex = 0
   @State private var actionProgressTitle: String?
   @State private var actionNotice: BigPictureActionNotice?
@@ -106,6 +107,8 @@ struct BigPictureView: View {
         actionProgressOverlay(actionProgressTitle)
       } else if let optionsGame {
         gameOptionsOverlay(optionsGame)
+      } else if let optionsSystem {
+        systemOptionsOverlay(optionsSystem)
       } else if let actionNotice {
         actionNoticeOverlay(actionNotice)
       }
@@ -424,7 +427,7 @@ struct BigPictureView: View {
         if rows.count > pageSelectionStride {
           actionHint(key: "←/→", label: "PAGE")
         }
-        if page.isGameList {
+        if page.isGameList || selectedSystem != nil {
           actionHint(
             key: controllerState.optionsButtonPrompt.label,
             systemImage: controllerState.optionsButtonPrompt.systemImage,
@@ -632,6 +635,83 @@ struct BigPictureView: View {
     .shadow(color: .black.opacity(0.85), radius: 55)
   }
 
+  private func systemOptionsOverlay(
+    _ system: LibrarySystem
+  ) -> some View {
+    let systemGames = model.games(inSystem: system.id)
+    let hasUndownloadedGames = systemGames.contains {
+      !model.managedDownloadedGameIDs.contains($0.id)
+    }
+    let gameLabel =
+      "Download All \(systemGames.count.formatted()) "
+      + (systemGames.count == 1 ? "Game" : "Games")
+
+    return VStack(alignment: .leading, spacing: 18) {
+      VStack(alignment: .leading, spacing: 5) {
+        Text("SYSTEM OPTIONS")
+          .font(.system(size: 13, weight: .black, design: .rounded))
+          .tracking(2)
+          .foregroundStyle(.white.opacity(0.52))
+        Text(system.name)
+          .font(.system(size: 27, weight: .black, design: .rounded))
+          .lineLimit(2)
+      }
+
+      Button {
+        downloadAllGames(in: system)
+      } label: {
+        HStack(spacing: 13) {
+          Image(systemName: "arrow.down.circle")
+            .frame(width: 24)
+          Text(gameLabel)
+          Spacer()
+        }
+        .font(.system(size: 19, weight: .bold, design: .rounded))
+        .foregroundStyle(.black)
+        .padding(.horizontal, 17)
+        .frame(height: 48)
+        .background {
+          Capsule().fill(.white)
+        }
+        .contentShape(Capsule())
+      }
+      .buttonStyle(.plain)
+      .disabled(
+        systemGames.isEmpty
+          || !hasUndownloadedGames
+          || model.isDownloadingGames
+      )
+      .opacity(
+        systemGames.isEmpty
+          || !hasUndownloadedGames
+          || model.isDownloadingGames
+          ? 0.34
+          : 1
+      )
+
+      HStack(spacing: 12) {
+        actionHint(
+          key: controllerState.activateButtonPrompt.label,
+          systemImage: controllerState.activateButtonPrompt.systemImage,
+          label: "SELECT"
+        )
+        actionHint(
+          key: controllerState.backButtonPrompt.label,
+          systemImage: controllerState.backButtonPrompt.systemImage,
+          label: "BACK"
+        )
+      }
+    }
+    .padding(30)
+    .frame(width: 540)
+    .background(.black.opacity(0.97), in: RoundedRectangle(cornerRadius: 28))
+    .overlay {
+      RoundedRectangle(cornerRadius: 28)
+        .stroke(.white.opacity(0.2), lineWidth: 1)
+    }
+    .shadow(color: .black.opacity(0.85), radius: 55)
+  }
+
   private func actionNoticeOverlay(
     _ notice: BigPictureActionNotice
   ) -> some View {
@@ -673,16 +753,16 @@ struct BigPictureView: View {
       Text(title.uppercased())
         .font(.system(size: 22, weight: .black, design: .rounded))
 
-      if let fraction = model.downloadProgress?
-        .currentTransferProgress?
-        .fractionCompleted
-      {
-        ProgressView(value: fraction)
+      if let progress = model.downloadProgress {
+        ProgressView(value: progress.fractionCompleted)
           .progressViewStyle(.linear)
           .tint(.white)
           .frame(width: 320)
 
-        Text("\(Int(fraction * 100))%")
+        Text(
+          "\(progress.currentGameNumber.formatted()) of "
+            + "\(progress.totalGameCount.formatted())"
+        )
           .font(.system(size: 14, weight: .bold, design: .rounded))
           .foregroundStyle(.white.opacity(0.58))
           .monospacedDigit()
@@ -775,6 +855,16 @@ struct BigPictureView: View {
       return game
     }
     return nil
+  }
+
+  private var selectedSystem: LibrarySystem? {
+    guard page == .home, rows.indices.contains(selectedIndex) else {
+      return nil
+    }
+    guard case .system(let systemID) = rows[selectedIndex].id else {
+      return nil
+    }
+    return catalog.systems.first(where: { $0.id == systemID })
   }
 
   private func selectedGameSecondaryText(_ game: GameSummary) -> String {
@@ -952,6 +1042,18 @@ struct BigPictureView: View {
       return
     }
 
+    if let optionsSystem {
+      switch command {
+      case .activate, .launchGame:
+        downloadAllGames(in: optionsSystem)
+      case .back, .openGameOptions:
+        self.optionsSystem = nil
+      case .up, .down, .pageUp, .pageDown, .exit:
+        break
+      }
+      return
+    }
+
     if playbackErrorMessage != nil {
       switch command {
       case .activate:
@@ -998,7 +1100,7 @@ struct BigPictureView: View {
     case .launchGame:
       launchSelectedGame()
     case .openGameOptions:
-      presentSelectedGameOptions()
+      presentSelectedOptions()
     case .back:
       navigateBack()
     case .exit:
@@ -1063,14 +1165,15 @@ struct BigPictureView: View {
     play(game)
   }
 
-  private func presentSelectedGameOptions() {
-    guard let selectedGame else {
-      return
+  private func presentSelectedOptions() {
+    if let selectedGame {
+      let options = gameOptions(for: selectedGame)
+      optionsGame = selectedGame
+      selectedGameOptionIndex =
+        options.firstIndex(where: \.isEnabled) ?? 0
+    } else if let selectedSystem {
+      optionsSystem = selectedSystem
     }
-    let options = gameOptions(for: selectedGame)
-    optionsGame = selectedGame
-    selectedGameOptionIndex =
-      options.firstIndex(where: \.isEnabled) ?? 0
   }
 
   private func moveGameOptionSelection(
@@ -1172,6 +1275,51 @@ struct BigPictureView: View {
         title: "Couldn’t Download Game",
         errors: result.errors
       )
+    }
+  }
+
+  private func downloadAllGames(in system: LibrarySystem) {
+    let systemGames = model.games(inSystem: system.id)
+    guard
+      !model.isDownloadingGames,
+      systemGames.contains(where: {
+        !model.managedDownloadedGameIDs.contains($0.id)
+      })
+    else {
+      return
+    }
+
+    optionsSystem = nil
+    actionProgressTitle =
+      "Downloading \(systemGames.count.formatted()) "
+      + (systemGames.count == 1 ? "Game" : "Games")
+    Task {
+      defer {
+        actionProgressTitle = nil
+      }
+      let result = await model.downloadGames(systemGames)
+      if result.completedWithoutErrors {
+        actionNotice = BigPictureActionNotice(
+          title: "System Downloaded",
+          message:
+            "Added \(result.successfulItemCount.formatted()) "
+            + (result.successfulItemCount == 1 ? "game" : "games")
+            + " from \(system.name) to OpenVault’s local library.",
+          systemImage: "checkmark.circle"
+        )
+      } else {
+        actionNotice = BigPictureActionNotice(
+          title: "Some Games Couldn’t Be Downloaded",
+          message:
+            "Downloaded \(result.successfulItemCount.formatted()) and failed "
+            + "to download \(result.failedItemCount.formatted()).\n\n"
+            + (
+              result.errors.first
+                ?? "OpenVault couldn’t complete this action."
+            ),
+          systemImage: "exclamationmark.triangle"
+        )
+      }
     }
   }
 

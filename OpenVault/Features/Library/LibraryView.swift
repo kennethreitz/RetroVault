@@ -513,9 +513,7 @@ struct LibraryView: View {
 
           Section {
             ForEach(supportedPopulatedSystems) { system in
-              Text(system.name)
-                .badge(system.gameCount)
-                .tag(LibrarySelection.system(system.id))
+              sidebarSystemRow(system)
             }
 
             if model.hidesGamesWithoutArtwork, model.isCheckingSystemArtwork {
@@ -530,9 +528,7 @@ struct LibraryView: View {
             if !unsupportedPopulatedSystems.isEmpty {
               DisclosureGroup(isExpanded: $showsUnsupportedSystems) {
                 ForEach(unsupportedPopulatedSystems) { system in
-                  Text(system.name)
-                    .badge(system.gameCount)
-                    .tag(LibrarySelection.system(system.id))
+                  sidebarSystemRow(system)
                 }
               } label: {
                 Label(
@@ -546,9 +542,7 @@ struct LibraryView: View {
             if !emptySystems.isEmpty {
               DisclosureGroup(isExpanded: $showsEmptySystems) {
                 ForEach(emptySystems) { system in
-                  Text(system.name)
-                    .badge(system.gameCount)
-                    .tag(LibrarySelection.system(system.id))
+                  sidebarSystemRow(system)
                 }
               } label: {
                 Label(
@@ -930,6 +924,35 @@ struct LibraryView: View {
     case .allGames, .downloaded, .virtualCollections:
       false
     }
+  }
+
+  private func sidebarSystemRow(
+    _ system: LibrarySystem
+  ) -> some View {
+    let systemGames = model.games(inSystem: system.id)
+    let hasUndownloadedGames = systemGames.contains {
+      !model.managedDownloadedGameIDs.contains($0.id)
+    }
+
+    return Text(system.name)
+      .badge(system.gameCount)
+      .tag(LibrarySelection.system(system.id))
+      .contextMenu {
+        Button {
+          requestGameDownload(systemGames)
+        } label: {
+          Label(
+            "Download All \(systemGames.count.formatted()) "
+              + (systemGames.count == 1 ? "Game" : "Games"),
+            systemImage: "arrow.down.circle"
+          )
+        }
+        .disabled(
+          systemGames.isEmpty
+            || !hasUndownloadedGames
+            || model.isDownloadingGames
+        )
+      }
   }
 
   private var currentPresentation: LibraryPresentation {

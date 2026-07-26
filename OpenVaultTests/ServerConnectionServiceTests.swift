@@ -221,6 +221,7 @@ struct LibraryTests {
         model.selection = .system(2)
         await model.reloadGames()
         #expect(model.games.allSatisfy { $0.systemID == 2 })
+        #expect(model.games(inSystem: 1).count == 31)
 
         await model.search(for: "Game 2")
         #expect(model.searchTerm == "Game 2")
@@ -412,6 +413,7 @@ struct LibraryTests {
         #expect(model.games.count == 1)
         #expect(model.allGameCount == 1)
         #expect(model.displayedGames.allSatisfy { !$0.isBIOS })
+        #expect(model.games(inSystem: 1) == [playableGame])
 
         await model.setHidesBIOSGames(false)
 
@@ -419,6 +421,7 @@ struct LibraryTests {
         #expect(model.games.count == 61)
         #expect(model.allGameCount == 61)
         #expect(model.displayedGames.contains { $0.isBIOS })
+        #expect(model.games(inSystem: 1).count == 61)
     }
 
     @Test("Adds bearer authentication only to same-origin artwork")
