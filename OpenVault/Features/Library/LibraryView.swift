@@ -1529,6 +1529,134 @@ private struct VirtualCollectionCard: View {
   }
 }
 
+private struct LibraryGameSelectionContextMenu<PrimaryActions: View>: View {
+  let model: LibraryModel
+  let selectedGames: [GameSummary]
+  let requestFavoriteChange: ([GameSummary], Bool) -> Void
+  let requestGameDownload: ([GameSummary]) -> Void
+  let requestGameDownloadRemoval: ([GameSummary]) -> Void
+  let requestGameExport: ([GameSummary]) -> Void
+  let requestGameDeletion: ([GameSummary]) -> Void
+  let primaryActions: () -> PrimaryActions
+
+  init(
+    model: LibraryModel,
+    selectedGames: [GameSummary],
+    requestFavoriteChange: @escaping ([GameSummary], Bool) -> Void,
+    requestGameDownload: @escaping ([GameSummary]) -> Void,
+    requestGameDownloadRemoval: @escaping ([GameSummary]) -> Void,
+    requestGameExport: @escaping ([GameSummary]) -> Void,
+    requestGameDeletion: @escaping ([GameSummary]) -> Void,
+    @ViewBuilder primaryActions: @escaping () -> PrimaryActions
+  ) {
+    self.model = model
+    self.selectedGames = selectedGames
+    self.requestFavoriteChange = requestFavoriteChange
+    self.requestGameDownload = requestGameDownload
+    self.requestGameDownloadRemoval = requestGameDownloadRemoval
+    self.requestGameExport = requestGameExport
+    self.requestGameDeletion = requestGameDeletion
+    self.primaryActions = primaryActions
+  }
+
+  var body: some View {
+    let gamesToDownload = selectedGames.filter {
+      !model.downloadedGameIDs.contains($0.id)
+    }
+    let removesDownloads =
+      !selectedGames.isEmpty && gamesToDownload.isEmpty
+    let favoriteChange = RomMFavorites.membershipChange(
+      for: Set(selectedGames.map(\.id)),
+      favoriteGameIDs: model.favoriteGameIDs
+    )
+    let removesFavorites = favoriteChange == .remove
+
+    primaryActions()
+
+    Button {
+      requestFavoriteChange(selectedGames, !removesFavorites)
+    } label: {
+      Label(
+        removesFavorites ? "Remove from Favorites" : "Add to Favorites",
+        systemImage: removesFavorites ? "star.slash" : "star"
+      )
+    }
+    .disabled(
+      selectedGames.isEmpty
+        || model.favoriteCollectionID == nil
+        || model.isUpdatingFavorites
+        || model.isShowingStaleData
+    )
+
+    Divider()
+
+    Button(role: removesDownloads ? .destructive : nil) {
+      if removesDownloads {
+        requestGameDownloadRemoval(selectedGames)
+      } else {
+        requestGameDownload(gamesToDownload)
+      }
+    } label: {
+      Label(
+        removesDownloads
+          ? (
+            selectedGames.count == 1
+              ? "Remove Download"
+              : "Remove \(selectedGames.count.formatted()) Downloads"
+          )
+          : (
+            gamesToDownload.count == 1
+              ? "Download"
+              : "Download \(gamesToDownload.count.formatted()) Games"
+          ),
+        systemImage: removesDownloads ? "trash" : "arrow.down.circle"
+      )
+    }
+    .disabled(
+      selectedGames.isEmpty
+        || model.isDownloadingGames
+        || model.isRemovingDownloads
+        || (!removesDownloads
+          && gamesToDownload.allSatisfy {
+            $0.isMissingFromFileSystem == true
+          })
+    )
+
+    Button {
+      requestGameExport(selectedGames)
+    } label: {
+      Label(
+        selectedGames.count == 1
+          ? "Export"
+          : "Export \(selectedGames.count.formatted()) Games",
+        systemImage: "square.and.arrow.up"
+      )
+    }
+    .disabled(
+      selectedGames.isEmpty
+        || model.isExportingGames
+        || selectedGames.allSatisfy {
+          $0.isMissingFromFileSystem == true
+            && !model.downloadedGameIDs.contains($0.id)
+        }
+    )
+
+    Divider()
+
+    Button(role: .destructive) {
+      requestGameDeletion(selectedGames)
+    } label: {
+      Label(
+        selectedGames.count == 1
+          ? "Delete from RomM…"
+          : "Delete \(selectedGames.count.formatted()) Games from RomM…",
+        systemImage: "trash"
+      )
+    }
+    .disabled(selectedGames.isEmpty || model.isDeletingGames)
+  }
+}
+
 private struct LibraryTableView: View {
   let model: LibraryModel
   let automaticallyFocusesContent: Bool
@@ -1825,98 +1953,17 @@ private struct LibraryTableView: View {
     }
     .contextMenu(forSelectionType: Int.self) { selectedIDs in
       let selectedGames = sortedGames.filter { selectedIDs.contains($0.id) }
-      let gamesToDownload = selectedGames.filter {
-        !model.downloadedGameIDs.contains($0.id)
+      LibraryGameSelectionContextMenu(
+        model: model,
+        selectedGames: selectedGames,
+        requestFavoriteChange: requestFavoriteChange,
+        requestGameDownload: requestGameDownload,
+        requestGameDownloadRemoval: requestGameDownloadRemoval,
+        requestGameExport: requestGameExport,
+        requestGameDeletion: requestGameDeletion
+      ) {
+        EmptyView()
       }
-      let removesDownloads =
-        !selectedGames.isEmpty && gamesToDownload.isEmpty
-      let favoriteChange = RomMFavorites.membershipChange(
-        for: Set(selectedGames.map(\.id)),
-        favoriteGameIDs: model.favoriteGameIDs
-      )
-      let removesFavorites = favoriteChange == .remove
-
-      Button {
-        requestFavoriteChange(selectedGames, !removesFavorites)
-      } label: {
-        Label(
-          removesFavorites ? "Remove from Favorites" : "Add to Favorites",
-          systemImage: removesFavorites ? "star.slash" : "star"
-        )
-      }
-      .disabled(
-        selectedGames.isEmpty
-          || model.favoriteCollectionID == nil
-          || model.isUpdatingFavorites
-          || model.isShowingStaleData
-      )
-
-      Divider()
-
-      Button(role: removesDownloads ? .destructive : nil) {
-        if removesDownloads {
-          requestGameDownloadRemoval(selectedGames)
-        } else {
-          requestGameDownload(gamesToDownload)
-        }
-      } label: {
-        Label(
-          removesDownloads
-            ? (
-              selectedGames.count == 1
-                ? "Remove Download"
-                : "Remove \(selectedGames.count.formatted()) Downloads"
-            )
-            : (
-              gamesToDownload.count == 1
-                ? "Download"
-                : "Download \(gamesToDownload.count.formatted()) Games"
-            ),
-          systemImage: removesDownloads ? "trash" : "arrow.down.circle"
-        )
-      }
-      .disabled(
-        selectedGames.isEmpty
-          || model.isDownloadingGames
-          || model.isRemovingDownloads
-          || (!removesDownloads
-            && gamesToDownload.allSatisfy {
-              $0.isMissingFromFileSystem == true
-            })
-      )
-
-      Button {
-        requestGameExport(selectedGames)
-      } label: {
-        Label(
-          selectedIDs.count == 1
-            ? "Export"
-            : "Export \(selectedIDs.count.formatted()) Games",
-          systemImage: "square.and.arrow.up"
-        )
-      }
-      .disabled(
-        selectedGames.isEmpty
-          || model.isExportingGames
-          || selectedGames.allSatisfy {
-            $0.isMissingFromFileSystem == true
-              && !model.downloadedGameIDs.contains($0.id)
-          }
-      )
-
-      Divider()
-
-      Button(role: .destructive) {
-        requestGameDeletion(selectedGames)
-      } label: {
-        Label(
-          selectedIDs.count == 1
-            ? "Delete from RomM…"
-            : "Delete \(selectedIDs.count.formatted()) Games from RomM…",
-          systemImage: "trash"
-        )
-      }
-      .disabled(selectedGames.isEmpty || model.isDeletingGames)
     }
     .focused($hasTableFocus)
     .onKeyPress("a", phases: .down) { keyPress in
@@ -2817,122 +2864,37 @@ private struct LibraryGridView: View {
               )
               .contextMenu {
                 let selectedGames = contextGames(for: game)
-                let gamesToDownload = selectedGames.filter {
-                  !model.downloadedGameIDs.contains($0.id)
-                }
-                let removesDownloads =
-                  !selectedGames.isEmpty && gamesToDownload.isEmpty
-                let favoriteChange = RomMFavorites.membershipChange(
-                  for: Set(selectedGames.map(\.id)),
-                  favoriteGameIDs: model.favoriteGameIDs
-                )
-                let removesFavorites = favoriteChange == .remove
-
-                if selectedGames.count == 1, let selectedGame = selectedGames.first,
-                  isPlayable(selectedGame)
-                {
-                  Button {
-                    play(selectedGame)
-                  } label: {
-                    Label("Play", systemImage: "play.fill")
-                  }
-
-                  Button {
-                    play(selectedGame, fromBeginning: true)
-                  } label: {
-                    Label(
-                      "Play from Beginning",
-                      systemImage: "forward.end.fill"
-                    )
-                  }
-
-                  Divider()
-                }
-
-                Button {
-                  requestFavoriteChange(selectedGames, !removesFavorites)
-                } label: {
-                  Label(
-                    removesFavorites
-                      ? "Remove from Favorites"
-                      : "Add to Favorites",
-                    systemImage: removesFavorites ? "star.slash" : "star"
-                  )
-                }
-                .disabled(
-                  selectedGames.isEmpty
-                    || model.favoriteCollectionID == nil
-                    || model.isUpdatingFavorites
-                    || model.isShowingStaleData
-                )
-
-                Divider()
-
-                Button(role: removesDownloads ? .destructive : nil) {
-                  if removesDownloads {
-                    requestGameDownloadRemoval(selectedGames)
-                  } else {
-                    requestGameDownload(gamesToDownload)
-                  }
-                } label: {
-                  Label(
-                    removesDownloads
-                      ? (
-                        selectedGames.count == 1
-                          ? "Remove Download"
-                          : "Remove \(selectedGames.count.formatted()) Downloads"
-                      )
-                      : (
-                        gamesToDownload.count == 1
-                          ? "Download"
-                          : "Download \(gamesToDownload.count.formatted()) Games"
-                      ),
-                    systemImage:
-                      removesDownloads ? "trash" : "arrow.down.circle"
-                  )
-                }
-                .disabled(
-                  selectedGames.isEmpty
-                    || model.isDownloadingGames
-                    || model.isRemovingDownloads
-                    || (!removesDownloads
-                      && gamesToDownload.allSatisfy {
-                        $0.isMissingFromFileSystem == true
-                      })
-                )
-
-                Button {
-                  requestGameExport(selectedGames)
-                } label: {
-                  Label(
-                    selectedGames.count == 1
-                      ? "Export"
-                      : "Export \(selectedGames.count.formatted()) Games",
-                    systemImage: "square.and.arrow.up"
-                  )
-                }
-                .disabled(
-                  selectedGames.isEmpty
-                    || model.isExportingGames
-                    || selectedGames.allSatisfy {
-                      $0.isMissingFromFileSystem == true
-                        && !model.downloadedGameIDs.contains($0.id)
+                LibraryGameSelectionContextMenu(
+                  model: model,
+                  selectedGames: selectedGames,
+                  requestFavoriteChange: requestFavoriteChange,
+                  requestGameDownload: requestGameDownload,
+                  requestGameDownloadRemoval: requestGameDownloadRemoval,
+                  requestGameExport: requestGameExport,
+                  requestGameDeletion: requestGameDeletion
+                ) {
+                  if selectedGames.count == 1,
+                    let selectedGame = selectedGames.first,
+                    isPlayable(selectedGame)
+                  {
+                    Button {
+                      play(selectedGame)
+                    } label: {
+                      Label("Play", systemImage: "play.fill")
                     }
-                )
 
-                Divider()
+                    Button {
+                      play(selectedGame, fromBeginning: true)
+                    } label: {
+                      Label(
+                        "Play from Beginning",
+                        systemImage: "forward.end.fill"
+                      )
+                    }
 
-                Button(role: .destructive) {
-                  requestGameDeletion(selectedGames)
-                } label: {
-                  Label(
-                    selectedGames.count == 1
-                      ? "Delete from RomM…"
-                      : "Delete \(selectedGames.count.formatted()) Games from RomM…",
-                    systemImage: "trash"
-                  )
+                    Divider()
+                  }
                 }
-                .disabled(selectedGames.isEmpty || model.isDeletingGames)
               }
               .task {
                 await model.loadMoreIfNeeded(near: game)
