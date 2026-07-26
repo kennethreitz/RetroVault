@@ -105,11 +105,33 @@ struct RomMAPIClientTests {
           """
       case "/api/collections":
         json = """
-          [{"id": 10, "name": "Favorites", "rom_count": 12}]
+          [{"id": 10, "name": "Favorites", "rom_count": 12, "rom_ids": [42]}]
           """
       case "/api/collections/smart":
         json = """
-          [{"id": 11, "name": "Recently Added", "rom_count": 20}]
+          [{"id": 11, "name": "Recently Added", "rom_count": 20, "rom_ids": [42]}]
+          """
+      case "/api/collections/virtual":
+        let components = try #require(
+          request.url.flatMap {
+            URLComponents(url: $0, resolvingAgainstBaseURL: false)
+          }
+        )
+        #expect(
+          components.queryItems?.contains(
+            URLQueryItem(name: "type", value: "all")
+          ) == true
+        )
+        json = """
+          [
+            {
+              "id": "virtual-chrono",
+              "name": "Chrono",
+              "type": "collection",
+              "rom_count": 1,
+              "rom_ids": [42]
+            }
+          ]
           """
       case "/api/roms/42":
         json = """
@@ -258,14 +280,12 @@ struct RomMAPIClientTests {
           ) == true
         )
         #expect(
-          components.queryItems?.contains(
-            URLQueryItem(name: "tags", value: "BIOS")
-          ) == true
+          components.queryItems?.contains(where: { $0.name == "tags" })
+            == false
         )
         #expect(
-          components.queryItems?.contains(
-            URLQueryItem(name: "tags_logic", value: "none")
-          ) == true
+          components.queryItems?.contains(where: { $0.name == "tags_logic" })
+            == false
         )
         json = """
           {
@@ -303,6 +323,7 @@ struct RomMAPIClientTests {
                 "regions": ["USA"],
                 "is_identified": true,
                 "missing_from_fs": false,
+                "created_at": "2026-07-18T10:21:35+00:00",
                 "updated_at": "2026-07-20T13:13:41+00:00",
                 "metadatum": {
                   "genres": ["Role-playing"],
@@ -362,8 +383,15 @@ struct RomMAPIClientTests {
     )
 
     #expect(systems.map(\.name) == ["Empty System", "Game Boy", "Super Nintendo"])
-    #expect(collections.count == 2)
+    #expect(collections.count == 3)
     #expect(collections.contains { $0.id == .smart(11) })
+    #expect(
+      collections.contains {
+        $0.id == .virtual("virtual-chrono")
+          && $0.virtualType == "collection"
+          && $0.memberGameIDs == [42]
+      }
+    )
     #expect(page.games.filter(\.isBIOS).count == 2)
     #expect(page.games.filter { !$0.isBIOS }.map(\.name) == ["Chrono Trigger"])
     #expect(page.games.first(where: { !$0.isBIOS })?.name == "Chrono Trigger")
@@ -379,6 +407,10 @@ struct RomMAPIClientTests {
     #expect(page.games.first(where: { !$0.isBIOS })?.regions == ["USA"])
     #expect(page.games.first(where: { !$0.isBIOS })?.fileSizeBytes == 4_194_304)
     #expect(page.games.first(where: { !$0.isBIOS })?.isIdentified == true)
+    #expect(
+      page.games.first(where: { !$0.isBIOS })?.createdAt
+        == "2026-07-18T10:21:35+00:00"
+    )
     #expect(page.hasMore == false)
     #expect(details.name == "Chrono Trigger")
     #expect(details.files.first?.name == "Chrono Trigger (USA).sfc")
@@ -395,6 +427,131 @@ struct RomMAPIClientTests {
       details.coverURL?.absoluteString
         == "https://romm.example.com/assets/romm/resources/chrono-big.webp?ts=2026-07-20%2013:08:02"
     )
+  }
+
+  @Test("Filters games with a RomM smart collection")
+  func filtersSmartCollection() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [StubURLProtocol.self]
+    let session = URLSession(configuration: configuration)
+    let token = try ClientToken(rawValue: "rmm_" + String(repeating: "c", count: 64))
+
+    StubURLProtocol.handler = { request in
+      let components = try #require(
+        request.url.flatMap {
+          URLComponents(url: $0, resolvingAgainstBaseURL: false)
+        }
+      )
+      let queryItems = components.queryItems ?? []
+      #expect(
+        queryItems.contains(
+          URLQueryItem(name: "smart_collection_id", value: "11")
+        )
+      )
+      #expect(!queryItems.contains { $0.name == "collection_id" })
+
+      let response = HTTPURLResponse(
+        url: try #require(request.url),
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+      )!
+      let json = """
+        {
+          "items": [
+            {
+              "id": 42,
+              "platform_id": 2,
+              "platform_display_name": "Super Nintendo",
+              "fs_name_no_ext": "Chrono Trigger",
+              "name": "Chrono Trigger",
+              "path_cover_small": null,
+              "path_cover_large": null,
+              "url_cover": null
+            }
+          ],
+          "total": 1,
+          "limit": 60,
+          "offset": 0
+        }
+        """
+      return (response, Data(json.utf8))
+    }
+    defer { StubURLProtocol.handler = nil }
+
+    let page = try await URLSessionRomMClient(session: session).games(
+      at: ServerURL("https://romm.example.com"),
+      token: token,
+      matching: .collection(.smart(11)),
+      searchTerm: nil,
+      offset: 0,
+      limit: 60
+    )
+
+    #expect(page.games.map(\.id) == [42])
+  }
+
+  @Test("Filters games with a RomM virtual collection")
+  func filtersVirtualCollection() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [StubURLProtocol.self]
+    let session = URLSession(configuration: configuration)
+    let token = try ClientToken(rawValue: "rmm_" + String(repeating: "f", count: 64))
+
+    StubURLProtocol.handler = { request in
+      let components = try #require(
+        request.url.flatMap {
+          URLComponents(url: $0, resolvingAgainstBaseURL: false)
+        }
+      )
+      let queryItems = components.queryItems ?? []
+      #expect(
+        queryItems.contains(
+          URLQueryItem(name: "virtual_collection_id", value: "virtual-chrono")
+        )
+      )
+      #expect(!queryItems.contains { $0.name == "collection_id" })
+      #expect(!queryItems.contains { $0.name == "smart_collection_id" })
+
+      let response = HTTPURLResponse(
+        url: try #require(request.url),
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+      )!
+      let json = """
+        {
+          "items": [
+            {
+              "id": 42,
+              "platform_id": 2,
+              "platform_display_name": "Super Nintendo",
+              "fs_name_no_ext": "Chrono Trigger",
+              "name": "Chrono Trigger",
+              "path_cover_small": null,
+              "path_cover_large": null,
+              "url_cover": null
+            }
+          ],
+          "total": 1,
+          "limit": 60,
+          "offset": 0
+        }
+        """
+      return (response, Data(json.utf8))
+    }
+    defer { StubURLProtocol.handler = nil }
+
+    let page = try await URLSessionRomMClient(session: session).games(
+      at: ServerURL("https://romm.example.com"),
+      token: token,
+      matching: .collection(.virtual("virtual-chrono")),
+      searchTerm: nil,
+      offset: 0,
+      limit: 60
+    )
+
+    #expect(page.games.map(\.id) == [42])
   }
 
   @Test("Fetches save and state availability with RomM filters")
@@ -499,6 +656,7 @@ struct RomMAPIClientTests {
         httpVersion: nil,
         headerFields: [
           "Content-Disposition": "attachment; filename=\"Chrono Trigger (USA).sfc\"",
+          "Content-Length": String(contents.count),
           "Content-Type": "application/octet-stream",
         ]
       )!
@@ -507,11 +665,13 @@ struct RomMAPIClientTests {
     defer { StubURLProtocol.handler = nil }
 
     let client = URLSessionRomMClient(session: session)
+    let progressRecorder = DownloadProgressRecorder()
     let download = try await client.downloadGame(
       for: 42,
       fileName: "Chrono Trigger (USA).sfc",
       at: ServerURL("https://romm.example.com"),
-      token: token
+      token: token,
+      onProgress: { progressRecorder.append($0) }
     )
     defer {
       try? FileManager.default.removeItem(at: download.temporaryFileURL)
@@ -519,6 +679,287 @@ struct RomMAPIClientTests {
 
     #expect(download.suggestedFileName == "Chrono Trigger (USA).sfc")
     #expect(try Data(contentsOf: download.temporaryFileURL) == contents)
+    let progress = progressRecorder.snapshot()
+    #expect(progress.first?.bytesReceived == 0)
+    #expect(progress.last?.bytesReceived == Int64(contents.count))
+    #expect(progress.last?.totalBytesExpected == Int64(contents.count))
+    #expect(progress.last?.fractionCompleted == 1)
+  }
+
+  @Test("Lists and downloads system firmware from RomM")
+  func downloadsFirmware() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [StubURLProtocol.self]
+    let session = URLSession(configuration: configuration)
+    let token = try ClientToken(
+      rawValue: "rmm_" + String(repeating: "a", count: 64)
+    )
+    let contents = Data("firmware contents".utf8)
+
+    StubURLProtocol.handler = { request in
+      #expect(
+        request.value(forHTTPHeaderField: "Authorization")
+          == "Bearer \(token.rawValue)"
+      )
+
+      let response = HTTPURLResponse(
+        url: try #require(request.url),
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/octet-stream"]
+      )!
+      switch request.url?.path {
+      case "/api/firmware":
+        let components = try #require(
+          request.url.flatMap {
+            URLComponents(url: $0, resolvingAgainstBaseURL: false)
+          }
+        )
+        #expect(
+          components.queryItems?.contains(
+            URLQueryItem(name: "platform_id", value: "12")
+          ) == true
+        )
+        let json = """
+          [{
+            "id": 9,
+            "file_name": "bios.test",
+            "file_size_bytes": \(contents.count),
+            "sha1_hash": "8b19e21435b673a82d392dcb36d0d65cb8c8f9c8",
+            "is_verified": true,
+            "missing_from_fs": false
+          }]
+          """
+        return (response, Data(json.utf8))
+      case "/api/firmware/9/content/bios.test":
+        return (response, contents)
+      default:
+        Issue.record("Unexpected firmware request: \(request.url?.absoluteString ?? "")")
+        return (response, Data())
+      }
+    }
+    defer { StubURLProtocol.handler = nil }
+
+    let client = URLSessionRomMClient(session: session)
+    let firmware = try #require(
+      try await client.firmware(
+        for: 12,
+        at: ServerURL("https://romm.example.com"),
+        token: token
+      ).first
+    )
+    #expect(firmware.fileName == "bios.test")
+
+    let download = try await client.downloadFirmware(
+      firmware,
+      at: ServerURL("https://romm.example.com"),
+      token: token
+    )
+    defer {
+      try? FileManager.default.removeItem(at: download.temporaryFileURL)
+    }
+    #expect(try Data(contentsOf: download.temporaryFileURL) == contents)
+  }
+
+  @Test("Downloads an authenticated RomM cartridge save")
+  func downloadsCartridgeSave() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [StubURLProtocol.self]
+    let session = URLSession(configuration: configuration)
+    let token = try ClientToken(rawValue: "rmm_" + String(repeating: "a", count: 64))
+    let contents = Data(repeating: 0x42, count: 2_048)
+    let serverURL = try ServerURL("https://romm.example.com")
+    let save = GameSaveDataItem(
+      id: 142,
+      kind: .save,
+      fileName: "Super Mario World.srm",
+      fileExtension: "srm",
+      filePath: "saves/SNES",
+      fullPath: "saves/SNES/Super Mario World.srm",
+      downloadURL: serverURL.resourceURL(for: "/api/saves/142/content"),
+      fileSizeBytes: Int64(contents.count),
+      isMissingFromFileSystem: false,
+      createdAt: nil,
+      updatedAt: nil,
+      emulator: "Snes9x",
+      slot: "autosave",
+      contentHash: nil,
+      isPublic: false,
+      screenshotURL: nil
+    )
+
+    StubURLProtocol.handler = { request in
+      #expect(request.url?.path == "/api/saves/142/content")
+      #expect(
+        request.value(forHTTPHeaderField: "Authorization")
+          == "Bearer \(token.rawValue)"
+      )
+      #expect(
+        request.value(forHTTPHeaderField: "Accept")?
+          .contains("application/octet-stream") == true
+      )
+
+      let response = HTTPURLResponse(
+        url: try #require(request.url),
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: [
+          "Content-Disposition": "attachment; filename=\"Super Mario World.srm\"",
+          "Content-Type": "application/octet-stream",
+        ]
+      )!
+      return (response, contents)
+    }
+    defer { StubURLProtocol.handler = nil }
+
+    let download = try await URLSessionRomMClient(session: session)
+      .downloadSave(save, at: serverURL, token: token)
+    defer {
+      try? FileManager.default.removeItem(at: download.temporaryFileURL)
+    }
+
+    #expect(download.suggestedFileName == "Super Mario World.srm")
+    #expect(try Data(contentsOf: download.temporaryFileURL) == contents)
+  }
+
+  @Test("Uploads a changed cartridge save as a bounded RomM autosave revision")
+  func uploadsCartridgeSave() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [StubURLProtocol.self]
+    let session = URLSession(configuration: configuration)
+    let token = try ClientToken(rawValue: "rmm_" + String(repeating: "b", count: 64))
+    let contents = Data(repeating: 0x7A, count: 2_048)
+
+    StubURLProtocol.handler = { request in
+      #expect(request.url?.path == "/api/saves")
+      #expect(request.httpMethod == "POST")
+      #expect(
+        request.value(forHTTPHeaderField: "Authorization")
+          == "Bearer \(token.rawValue)"
+      )
+
+      let components = try #require(
+        request.url.flatMap {
+          URLComponents(url: $0, resolvingAgainstBaseURL: false)
+        }
+      )
+      let queryItems = components.queryItems ?? []
+      #expect(queryItems.contains(URLQueryItem(name: "rom_id", value: "1175")))
+      #expect(queryItems.contains(URLQueryItem(name: "emulator", value: "OpenVault")))
+      #expect(queryItems.contains(URLQueryItem(name: "slot", value: "autosave")))
+      #expect(queryItems.contains(URLQueryItem(name: "overwrite", value: "false")))
+      #expect(queryItems.contains(URLQueryItem(name: "autocleanup", value: "true")))
+      #expect(
+        queryItems.contains(
+          URLQueryItem(name: "autocleanup_limit", value: "10")
+        )
+      )
+
+      let body = try requestBodyData(request)
+      let bodyText = try #require(String(data: body, encoding: .isoLatin1))
+      #expect(bodyText.contains("name=\"saveFile\""))
+      #expect(bodyText.contains("filename=\"Super Mario World.srm\""))
+      #expect(body.range(of: contents) != nil)
+
+      let response = HTTPURLResponse(
+        url: try #require(request.url),
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+      )!
+      let json = """
+        {
+          "id": 143,
+          "rom_id": 1175,
+          "user_id": 1,
+          "file_name": "Super Mario World [2026-07-26_02-00-00].srm",
+          "file_name_no_tags": "Super Mario World.srm",
+          "file_name_no_ext": "Super Mario World",
+          "file_extension": "srm",
+          "file_path": "saves/SNES",
+          "file_size_bytes": 2048,
+          "full_path": "saves/SNES/Super Mario World.srm",
+          "download_path": "/api/saves/143/content",
+          "missing_from_fs": false,
+          "created_at": "2026-07-26T02:00:00Z",
+          "updated_at": "2026-07-26T02:00:00Z",
+          "emulator": "OpenVault",
+          "slot": "autosave",
+          "content_hash": "hash",
+          "is_public": false,
+          "screenshot": null
+        }
+        """
+      return (response, Data(json.utf8))
+    }
+    defer { StubURLProtocol.handler = nil }
+
+    let uploaded = try await URLSessionRomMClient(session: session)
+      .uploadSave(
+        contents,
+        fileName: "Super Mario World.srm",
+        for: 1175,
+        emulator: "OpenVault",
+        slot: "autosave",
+        at: ServerURL("https://romm.example.com"),
+        token: token
+      )
+
+    #expect(uploaded.id == 143)
+    #expect(uploaded.kind == .save)
+    #expect(uploaded.fileSizeBytes == Int64(contents.count))
+    #expect(uploaded.emulator == "OpenVault")
+  }
+
+  @Test("Deletes selected games with an explicit filesystem choice")
+  func deletesSelectedGames() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [StubURLProtocol.self]
+    let session = URLSession(configuration: configuration)
+    let token = try ClientToken(rawValue: "rmm_" + String(repeating: "f", count: 64))
+
+    StubURLProtocol.handler = { request in
+      #expect(request.url?.path == "/api/roms/delete")
+      #expect(request.httpMethod == "POST")
+      #expect(
+        request.value(forHTTPHeaderField: "Authorization")
+          == "Bearer \(token.rawValue)"
+      )
+      #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+
+      let body = try requestBodyData(request)
+      let json = try #require(
+        JSONSerialization.jsonObject(with: body) as? [String: Any]
+      )
+      #expect(json["roms"] as? [Int] == [42, 43])
+      #expect(json["delete_from_fs"] as? [Int] == [42, 43])
+
+      let response = HTTPURLResponse(
+        url: try #require(request.url),
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+      )!
+      let responseBody = """
+        {
+          "successful_items": 2,
+          "failed_items": 0,
+          "errors": []
+        }
+        """
+      return (response, Data(responseBody.utf8))
+    }
+    defer { StubURLProtocol.handler = nil }
+
+    let result = try await URLSessionRomMClient(session: session).deleteGames(
+      withIDs: [42, 43],
+      deletingFiles: true,
+      at: ServerURL("https://romm.example.com"),
+      token: token
+    )
+
+    #expect(result.successfulItemCount == 2)
+    #expect(result.completedWithoutErrors)
   }
 
   @Test("Explains a stale RomM file record")
@@ -633,6 +1074,23 @@ struct RomMAPIClientTests {
     #expect(updated.rating == 9)
     #expect(updated.difficulty == 6)
     #expect(updated.isBacklogged)
+  }
+}
+
+private final class DownloadProgressRecorder: @unchecked Sendable {
+  private let lock = NSLock()
+  private var values: [RomMDownloadProgress] = []
+
+  func append(_ progress: RomMDownloadProgress) {
+    lock.lock()
+    values.append(progress)
+    lock.unlock()
+  }
+
+  func snapshot() -> [RomMDownloadProgress] {
+    lock.lock()
+    defer { lock.unlock() }
+    return values
   }
 }
 

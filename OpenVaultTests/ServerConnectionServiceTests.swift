@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 
@@ -50,10 +51,14 @@ struct ServerConnectionServiceTests {
                 id: 1,
                 username: "kenneth",
                 scopes: [
+                    "assets.read",
+                    "assets.write",
                     "collections.read",
+                    "firmware.read",
                     "me.read",
                     "platforms.read",
                     "roms.read",
+                    "roms.write",
                     "roms.user.write",
                 ]
             )
@@ -138,8 +143,8 @@ struct ServerConnectionServiceTests {
 @Suite("Library")
 struct LibraryTests {
     @MainActor
-    @Test("Loads sidebar data and paginates the shared game grid")
-    func loadsAndPaginates() async throws {
+    @Test("Loads sidebar data and exposes the complete synchronized library")
+    func loadsCompleteLibrary() async throws {
         let session = ServerSession(
             serverURL: try ServerURL("https://romm.example.com"),
             username: "kenneth"
@@ -151,12 +156,9 @@ struct LibraryTests {
 
         #expect(model.systems.map(\.name) == ["Game Boy", "Super Nintendo"])
         #expect(model.collections.map(\.name) == ["Favorites"])
-        #expect(model.games.count == 60)
+        #expect(model.games.count == 61)
         #expect(model.allGameCount == 61)
         #expect(model.totalGameCount == 61)
-
-        await model.loadMoreIfNeeded(near: try #require(model.games.last))
-        #expect(model.games.count == 61)
 
         model.selection = .system(2)
         await model.reloadGames()
@@ -179,6 +181,86 @@ struct LibraryTests {
     }
 
     @MainActor
+    @Test("Starts a resumable artwork pass after synchronization")
+    func startsArtworkCachingAfterSynchronization() async throws {
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let service = MockLibraryService()
+        let artworkCache = RecordingArtworkCache()
+        let model = LibraryModel(
+            session: session,
+            service: service,
+            artworkCache: artworkCache
+        )
+
+        await model.load()
+        let cachedGameIDs = await artworkCache.waitForRequest()
+
+        #expect(cachedGameIDs.count == 61)
+        #expect(model.artworkCacheTotalCount == 30)
+        #expect(model.cachedArtworkCount == 30)
+        #expect(model.artworkCacheFailureCount == 0)
+    }
+
+    @MainActor
+    @Test("Removes games after RomM confirms deletion")
+    func deletesGamesFromLibrary() async throws {
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let service = MockLibraryService()
+        let model = LibraryModel(session: session, service: service)
+        await model.load()
+        let game = try #require(model.games.first)
+
+        let result = try await model.deleteGames(
+            [game],
+            deletingFilesFromServer: false
+        )
+
+        #expect(result.successfulItemCount == 1)
+        #expect(!model.games.contains { $0.id == game.id })
+        #expect(model.allGameCount == 60)
+    }
+
+    @MainActor
+    @Test("Downloads a unique game selection and refreshes local membership")
+    func downloadsSelectedGames() async throws {
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let service = MockLibraryService()
+        let model = LibraryModel(session: session, service: service)
+        await model.load()
+        let firstGame = try #require(model.games.first)
+        let secondGame = try #require(model.games.dropFirst().first)
+
+        let result = await model.downloadGames([
+            firstGame,
+            secondGame,
+            firstGame,
+        ])
+
+        #expect(result.successfulItemCount == 2)
+        #expect(result.failedItemCount == 0)
+        #expect(result.completedWithoutErrors)
+        #expect(model.downloadedGameIDs == [firstGame.id, secondGame.id])
+        let serviceDownloadedGameIDs = await service.downloadedGameIDs(
+            in: session
+        )
+        #expect(serviceDownloadedGameIDs == [firstGame.id, secondGame.id])
+
+        let removalResult = await model.removeDownloads([firstGame, secondGame])
+        #expect(removalResult.successfulItemCount == 2)
+        #expect(removalResult.completedWithoutErrors)
+        #expect(model.downloadedGameIDs.isEmpty)
+    }
+
+    @MainActor
     @Test("Purges the local cache before rebuilding the library")
     func purgesAndResynchronizes() async throws {
         let session = ServerSession(
@@ -192,7 +274,7 @@ struct LibraryTests {
         await model.purgeLocalCacheAndResync()
 
         #expect(await service.purgeCount() == 1)
-        #expect(model.games.count == 60)
+        #expect(model.games.count == 61)
         #expect(model.allGameCount == 61)
         #expect(model.totalGameCount == 61)
         #expect(!model.isSynchronizing)
@@ -201,8 +283,8 @@ struct LibraryTests {
     }
 
     @MainActor
-    @Test("Drops BIOS entries and advances past BIOS-only pages")
-    func dropsBIOSGames() async throws {
+    @Test("Hides BIOS entries by default and can reveal them")
+    func filtersBIOSGames() async throws {
         let session = ServerSession(
             serverURL: try ServerURL("https://romm.example.com"),
             username: "kenneth"
@@ -231,7 +313,15 @@ struct LibraryTests {
 
         #expect(model.displayedGames == [playableGame])
         #expect(model.games.count == 1)
+        #expect(model.allGameCount == 1)
         #expect(model.displayedGames.allSatisfy { !$0.isBIOS })
+
+        await model.setHidesBIOSGames(false)
+
+        #expect(model.displayedGames.count == 61)
+        #expect(model.games.count == 61)
+        #expect(model.allGameCount == 61)
+        #expect(model.displayedGames.contains { $0.isBIOS })
     }
 
     @Test("Adds bearer authentication only to same-origin artwork")
@@ -273,9 +363,19 @@ struct LibraryTests {
         let remoteRequest = try #require(
             try await service.artworkRequest(for: remoteGame, in: session)
         )
+        let batchRequests = try await service.artworkRequests(
+            for: [localGame, remoteGame, localGame],
+            in: session
+        )
 
         #expect(localRequest.value(forHTTPHeaderField: "Authorization") == "Bearer \(token.rawValue)")
         #expect(remoteRequest.value(forHTTPHeaderField: "Authorization") == nil)
+        #expect(batchRequests.count == 2)
+        #expect(
+            batchRequests[0].value(forHTTPHeaderField: "Authorization")
+                == "Bearer \(token.rawValue)"
+        )
+        #expect(batchRequests[1].value(forHTTPHeaderField: "Authorization") == nil)
     }
 
     @MainActor
@@ -383,13 +483,15 @@ struct LibraryTests {
         #expect(cached?.userMetadata == updated.userMetadata)
     }
 
-    @Test("Saves downloads without overwriting an existing ROM")
-    func savesDownloadWithoutOverwriting() async throws {
+    @Test("Exports without overwriting an existing ROM or changing local membership")
+    func exportsWithoutOverwriting() async throws {
         let token = try ClientToken(rawValue: "rmm_" + String(repeating: "f", count: 64))
         let credentials = MemoryCredentialStore()
         await credentials.save(token)
 
         let downloadsDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let localStorageDirectory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(
             at: downloadsDirectory,
@@ -397,6 +499,7 @@ struct LibraryTests {
         )
         defer {
             try? FileManager.default.removeItem(at: downloadsDirectory)
+            try? FileManager.default.removeItem(at: localStorageDirectory)
         }
 
         let existingURL = downloadsDirectory.appending(path: "Game 42.gb")
@@ -409,14 +512,16 @@ struct LibraryTests {
         let service = RomMLibraryService(
             api: api,
             credentialStore: credentials,
-            downloadsDirectory: downloadsDirectory
+            downloadsDirectory: downloadsDirectory,
+            managedROMDirectory: localStorageDirectory.appending(path: "Managed"),
+            runtimeCacheDirectory: localStorageDirectory.appending(path: "Runtime")
         )
         let session = ServerSession(
             serverURL: try ServerURL("https://romm.example.com"),
             username: "kenneth"
         )
 
-        let savedURL = try await service.downloadGame(
+        let savedURL = try await service.exportGame(
             mockGameDetails(id: 42),
             in: session
         )
@@ -424,17 +529,22 @@ struct LibraryTests {
         #expect(savedURL.lastPathComponent == "Game 42 2.gb")
         #expect(try Data(contentsOf: existingURL) == Data("existing".utf8))
         #expect(try Data(contentsOf: savedURL) == Data("downloaded".utf8))
+        #expect(await service.downloadedGameIDs(in: session).isEmpty)
+        #expect(await service.managedDownloadedGameIDs(in: session).isEmpty)
     }
 
-    @Test("Reuses a cached game when RomM credentials are unavailable")
-    func reusesPlaybackCacheOffline() async throws {
-        let token = try ClientToken(rawValue: "rmm_" + String(repeating: "a", count: 64))
+    @Test("Downloads a game into OpenVault's managed local library")
+    func downloadsIntoManagedLibrary() async throws {
+        let token = try ClientToken(rawValue: "rmm_" + String(repeating: "e", count: 64))
         let credentials = MemoryCredentialStore()
         await credentials.save(token)
-        let runtimeCacheDirectory = FileManager.default.temporaryDirectory
+        let managedROMDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let exportsDirectory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer {
-            try? FileManager.default.removeItem(at: runtimeCacheDirectory)
+            try? FileManager.default.removeItem(at: managedROMDirectory)
+            try? FileManager.default.removeItem(at: exportsDirectory)
         }
 
         let expectedData = Data(repeating: 0x42, count: 1_024)
@@ -445,6 +555,63 @@ struct LibraryTests {
                 downloadData: expectedData
             ),
             credentialStore: credentials,
+            downloadsDirectory: exportsDirectory,
+            managedROMDirectory: managedROMDirectory
+        )
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+
+        let localURL = try await service.downloadGame(
+            mockGameDetails(id: 42),
+            in: session
+        )
+
+        #expect(localURL.path.hasPrefix(managedROMDirectory.path))
+        #expect(try Data(contentsOf: localURL) == expectedData)
+        #expect(await service.downloadedGameIDs(in: session) == [42])
+        #expect(await service.managedDownloadedGameIDs(in: session) == [42])
+
+        await credentials.removeToken()
+        let exportedURL = try await service.exportGame(
+            mockGameDetails(id: 42),
+            in: session
+        )
+        #expect(exportedURL.path.hasPrefix(exportsDirectory.path))
+        #expect(try Data(contentsOf: exportedURL) == expectedData)
+        #expect(await service.downloadedGameIDs(in: session) == [42])
+
+        try await service.removeDownloadedGame(withID: 42, in: session)
+        #expect(await service.downloadedGameIDs(in: session).isEmpty)
+        #expect(await service.managedDownloadedGameIDs(in: session).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: localURL.path))
+        #expect(try Data(contentsOf: exportedURL) == expectedData)
+    }
+
+    @Test("Reuses and promotes a cached game when RomM is unavailable")
+    func reusesPlaybackCacheOffline() async throws {
+        let token = try ClientToken(rawValue: "rmm_" + String(repeating: "a", count: 64))
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let runtimeCacheDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let managedROMDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: runtimeCacheDirectory)
+            try? FileManager.default.removeItem(at: managedROMDirectory)
+        }
+
+        let expectedData = Data(repeating: 0x42, count: 1_024)
+        let service = RomMLibraryService(
+            api: MockRomMClient(
+                token: token,
+                user: RomMUser(id: 1, username: "kenneth", scopes: ["roms.read"]),
+                downloadData: expectedData
+            ),
+            credentialStore: credentials,
+            managedROMDirectory: managedROMDirectory,
             runtimeCacheDirectory: runtimeCacheDirectory
         )
         let session = ServerSession(
@@ -458,16 +625,512 @@ struct LibraryTests {
             in: session,
             supportedFileExtensions: ["gb"]
         )
+        #expect(await service.downloadedGameIDs(in: session) == [42])
+        #expect(await service.managedDownloadedGameIDs(in: session).isEmpty)
         await credentials.removeToken()
-        let offlineURL = try await service.prepareGameForPlay(
+        let relaunchedService = RomMLibraryService(
+            api: MockRomMClient(
+                token: token,
+                user: RomMUser(id: 1, username: "kenneth", scopes: ["roms.read"])
+            ),
+            credentialStore: credentials,
+            managedROMDirectory: managedROMDirectory,
+            runtimeCacheDirectory: runtimeCacheDirectory
+        )
+        #expect(await relaunchedService.downloadedGameIDs(in: session) == [42])
+        #expect(await relaunchedService.managedDownloadedGameIDs(in: session).isEmpty)
+        let promotedURL = try await relaunchedService.downloadGame(
+            game,
+            in: session
+        )
+        #expect(promotedURL.path.hasPrefix(managedROMDirectory.path))
+        #expect(await relaunchedService.managedDownloadedGameIDs(in: session) == [42])
+        let offlineURL = try await relaunchedService.prepareGameForPlay(
             game,
             in: session,
             supportedFileExtensions: ["gb"]
         )
 
-        #expect(firstURL == offlineURL)
+        #expect(firstURL.path.hasPrefix(runtimeCacheDirectory.path))
+        #expect(offlineURL == promotedURL)
         #expect(try Data(contentsOf: offlineURL) == expectedData)
-        #expect(offlineURL.path.hasPrefix(runtimeCacheDirectory.path))
+        #expect(offlineURL.path.hasPrefix(managedROMDirectory.path))
+
+        try await relaunchedService.removeDownloadedGame(withID: 42, in: session)
+        #expect(await relaunchedService.downloadedGameIDs(in: session).isEmpty)
+        #expect(await relaunchedService.managedDownloadedGameIDs(in: session).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: firstURL.path))
+        #expect(!FileManager.default.fileExists(atPath: offlineURL.path))
+    }
+
+    @Test("Preserves archives for cores that load them as game content")
+    func preservesCoreNativeArchive() async throws {
+        let token = try ClientToken(
+            rawValue: "rmm_" + String(repeating: "a", count: 64)
+        )
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let runtimeCacheDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let managedROMDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: runtimeCacheDirectory)
+            try? FileManager.default.removeItem(at: managedROMDirectory)
+        }
+
+        let archiveData = Data(repeating: 0x5A, count: 1_024)
+        let service = RomMLibraryService(
+            api: MockRomMClient(
+                token: token,
+                user: RomMUser(
+                    id: 1,
+                    username: "kenneth",
+                    scopes: ["roms.read"]
+                ),
+                downloadData: archiveData
+            ),
+            credentialStore: credentials,
+            managedROMDirectory: managedROMDirectory,
+            runtimeCacheDirectory: runtimeCacheDirectory
+        )
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let game = mockGameDetails(
+            id: 1_942,
+            fileName: "1942.zip",
+            systemName: "Arcade"
+        )
+
+        let contentURL = try await service.prepareGameForPlay(
+            game,
+            in: session,
+            supportedFileExtensions: ["zip", "7z"],
+            loadsArchivesDirectly: true
+        )
+
+        #expect(contentURL.pathExtension == "zip")
+        #expect(try Data(contentsOf: contentURL) == archiveData)
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: contentURL
+                    .deletingLastPathComponent()
+                    .appending(path: "Extracted", directoryHint: .isDirectory)
+                    .path
+            )
+        )
+    }
+
+    @Test("Caches verified RomM system firmware for offline playback")
+    func cachesSystemFirmware() async throws {
+        let token = try ClientToken(
+            rawValue: "rmm_" + String(repeating: "f", count: 64)
+        )
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let data = Data("verified firmware".utf8)
+        let sha1 = Insecure.SHA1.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let firmware = RomMFirmware(
+            id: 9,
+            fileName: "bios.test",
+            fileSizeBytes: Int64(data.count),
+            sha1Hash: sha1,
+            isVerified: true,
+            isMissingFromFileSystem: false
+        )
+        let requirement = LibretroCoreManifest.Core.Firmware(
+            id: "test-bios",
+            fileName: "bios.test",
+            description: "Test BIOS",
+            required: true,
+            sha256: [],
+            sha1: [sha1]
+        )
+        let api = MockRomMClient(
+            token: token,
+            user: RomMUser(
+                id: 1,
+                username: "kenneth",
+                scopes: ["firmware.read"]
+            ),
+            firmwareFiles: [firmware: data]
+        )
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let service = RomMLibraryService(
+            api: api,
+            credentialStore: credentials,
+            firmwareDirectory: directory
+        )
+
+        let systemDirectory = try #require(
+            try await service.prepareFirmwareForPlay(
+                for: 12,
+                requirements: [requirement],
+                in: session
+            )
+        )
+        let cachedURL = systemDirectory.appending(path: "bios.test")
+        #expect(try Data(contentsOf: cachedURL) == data)
+
+        let mismatchedCredentials = MemoryCredentialStore()
+        await mismatchedCredentials.save(token)
+        let mismatchedFirmware = RomMFirmware(
+            id: 10,
+            fileName: "bios.test",
+            fileSizeBytes: Int64(data.count),
+            sha1Hash: String(repeating: "0", count: 40),
+            isVerified: true,
+            isMissingFromFileSystem: false
+        )
+        let mismatchedService = RomMLibraryService(
+            api: MockRomMClient(
+                token: token,
+                user: RomMUser(
+                    id: 1,
+                    username: "kenneth",
+                    scopes: ["firmware.read"]
+                ),
+                firmwareFiles: [mismatchedFirmware: data]
+            ),
+            credentialStore: mismatchedCredentials,
+            firmwareDirectory: directory.appending(
+                path: "Mismatched",
+                directoryHint: .isDirectory
+            )
+        )
+        await #expect(throws: LibraryServiceError.self) {
+            try await mismatchedService.prepareFirmwareForPlay(
+                for: 12,
+                requirements: [
+                    .init(
+                        id: "remote-hash-test",
+                        fileName: "bios.test",
+                        description: "Test BIOS",
+                        required: true,
+                        sha256: [],
+                        sha1: nil
+                    )
+                ],
+                in: session
+            )
+        }
+
+        await credentials.removeToken()
+        let relaunchedService = RomMLibraryService(
+            api: MockRomMClient(
+                token: token,
+                user: RomMUser(id: 1, username: "kenneth", scopes: [])
+            ),
+            credentialStore: credentials,
+            firmwareDirectory: directory
+        )
+        let offlineDirectory = try await relaunchedService.prepareFirmwareForPlay(
+            for: 12,
+            requirements: [requirement],
+            in: session
+        )
+        #expect(offlineDirectory == systemDirectory)
+        #expect(try Data(contentsOf: cachedURL) == data)
+    }
+
+    @Test("Imports the newest available cartridge save and uploads only local changes")
+    func synchronizesCartridgeSaveMemory() async throws {
+        let token = try ClientToken(rawValue: "rmm_" + String(repeating: "b", count: 64))
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let saveDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: saveDirectory)
+        }
+
+        let serverURL = try ServerURL("https://romm.example.com")
+        let importedData = Data(repeating: 0x42, count: 2_048)
+        let changedData = Data(repeating: 0x7A, count: 2_048)
+        let newerRemoteData = Data(repeating: 0x55, count: 2_048)
+        let api = SaveSyncMockRomMClient(
+            token: token,
+            availableSaves: [
+                141: importedData,
+                143: newerRemoteData,
+            ]
+        )
+        let service = RomMLibraryService(
+            api: api,
+            credentialStore: credentials,
+            saveDirectory: saveDirectory
+        )
+        let session = ServerSession(
+            serverURL: serverURL,
+            username: "kenneth"
+        )
+
+        func save(id: Int, updatedAt: Date) -> GameSaveDataItem {
+            GameSaveDataItem(
+                id: id,
+                kind: .save,
+                fileName: "Super Mario World.srm",
+                fileExtension: "srm",
+                filePath: "saves/SNES",
+                fullPath: "saves/SNES/Super Mario World.srm",
+                downloadURL: serverURL.resourceURL(
+                    for: "/api/saves/\(id)/content"
+                ),
+                fileSizeBytes: 2_048,
+                isMissingFromFileSystem: false,
+                createdAt: updatedAt,
+                updatedAt: updatedAt,
+                emulator: "Snes9x",
+                slot: "autosave",
+                contentHash: "remote-\(id)",
+                isPublic: false,
+                screenshotURL: nil
+            )
+        }
+
+        let game = mockGameDetails(
+            id: 1175,
+            fileName: "Super Mario World (U) [!].sfc",
+            systemName: "Super Nintendo Entertainment System",
+            saves: [
+                save(id: 142, updatedAt: Date(timeIntervalSince1970: 2_000)),
+                save(id: 141, updatedAt: Date(timeIntervalSince1970: 1_000)),
+            ]
+        )
+        let prepared = try await service.prepareCartridgeSaveForPlay(
+            game,
+            in: session,
+            emulator: "OpenVault"
+        )
+        let configuration = try #require(prepared)
+
+        #expect(await api.downloadedSaveIDs == [142, 141])
+        #expect(try Data(contentsOf: configuration.localSaveURL) == importedData)
+        #expect(configuration.uploadFileName == "Super Mario World (U) [!].srm")
+
+        #expect(
+            try await service.syncCartridgeSaveAfterPlay(configuration)
+                == .unchanged
+        )
+        #expect(await api.uploadedSaves.isEmpty)
+
+        try changedData.write(to: configuration.localSaveURL, options: .atomic)
+        #expect(
+            try await service.syncCartridgeSaveAfterPlay(configuration)
+                == .uploaded
+        )
+        #expect(await api.uploadedSaves == [changedData])
+
+        #expect(
+            try await service.syncCartridgeSaveAfterPlay(configuration)
+                == .unchanged
+        )
+        #expect(await api.uploadedSaves.count == 1)
+
+        let newerRemoteGame = mockGameDetails(
+            id: game.id,
+            fileName: game.fileName,
+            systemName: game.systemName,
+            saves: [
+                save(id: 143, updatedAt: Date(timeIntervalSince1970: 4_000))
+            ]
+        )
+        await api.setLatestGameDetails(newerRemoteGame)
+        let refreshCountBeforeLaunch = await api.gameDetailsRequestCount
+        _ = try await service.prepareCartridgeSaveForPlay(
+            game,
+            in: session,
+            emulator: "OpenVault"
+        )
+        let refreshedLaunchCount = await api.gameDetailsRequestCount
+        #expect(refreshedLaunchCount == refreshCountBeforeLaunch + 1)
+        #expect(await api.downloadedSaveIDs == [142, 141, 143])
+        #expect(
+            try Data(contentsOf: configuration.localSaveURL)
+                == newerRemoteData
+        )
+
+        let unsynchronizedData = Data(repeating: 0x33, count: 2_048)
+        try unsynchronizedData.write(
+            to: configuration.localSaveURL,
+            options: .atomic
+        )
+        let downloadCount = await api.downloadedSaveIDs.count
+        let refreshCountBeforeUnsynchronizedLaunch =
+            await api.gameDetailsRequestCount
+        _ = try await service.prepareCartridgeSaveForPlay(
+            game,
+            in: session,
+            emulator: "OpenVault"
+        )
+        let offlineSafeLaunchCount = await api.gameDetailsRequestCount
+        #expect(
+            offlineSafeLaunchCount
+                == refreshCountBeforeUnsynchronizedLaunch + 1
+        )
+        #expect(await api.downloadedSaveIDs.count == downloadCount)
+        #expect(
+            try Data(contentsOf: configuration.localSaveURL)
+                == unsynchronizedData
+        )
+    }
+}
+
+private actor SaveSyncMockRomMClient: RomMClient {
+    let token: ClientToken
+    let availableSaves: [Int: Data]
+    private var latestGameDetails: GameDetails?
+    private(set) var gameDetailsRequestCount = 0
+    private(set) var downloadedSaveIDs: [Int] = []
+    private(set) var uploadedSaves: [Data] = []
+
+    init(token: ClientToken, availableSaves: [Int: Data]) {
+        self.token = token
+        self.availableSaves = availableSaves
+    }
+
+    func verifyServer(at serverURL: ServerURL) {}
+
+    func exchange(
+        pairingCode: PairingCode,
+        at serverURL: ServerURL
+    ) -> ClientToken {
+        token
+    }
+
+    func currentUser(
+        at serverURL: ServerURL,
+        token: ClientToken
+    ) -> RomMUser {
+        RomMUser(
+            id: 1,
+            username: "kenneth",
+            scopes: ["assets.read", "assets.write"]
+        )
+    }
+
+    func systems(
+        at serverURL: ServerURL,
+        token: ClientToken
+    ) -> [LibrarySystem] {
+        []
+    }
+
+    func collections(
+        at serverURL: ServerURL,
+        token: ClientToken
+    ) -> [LibraryCollection] {
+        []
+    }
+
+    func games(
+        at serverURL: ServerURL,
+        token: ClientToken,
+        matching filter: LibraryFilter,
+        searchTerm: String?,
+        offset: Int,
+        limit: Int
+    ) -> GamePage {
+        GamePage(games: [], total: 0, limit: limit, offset: offset)
+    }
+
+    func gameDetails(
+        for gameID: Int,
+        at serverURL: ServerURL,
+        token: ClientToken
+    ) throws -> GameDetails {
+        gameDetailsRequestCount += 1
+        guard let latestGameDetails else {
+            throw RomMAPIError.notFound
+        }
+        return latestGameDetails
+    }
+
+    func setLatestGameDetails(_ details: GameDetails) {
+        latestGameDetails = details
+    }
+
+    func updateGameUserMetadata(
+        _ metadata: GameUserMetadata,
+        for gameID: Int,
+        at serverURL: ServerURL,
+        token: ClientToken
+    ) -> GameUserMetadata {
+        metadata
+    }
+
+    func downloadGame(
+        for gameID: Int,
+        fileName: String,
+        at serverURL: ServerURL,
+        token: ClientToken
+    ) throws -> RomMDownload {
+        throw RomMAPIError.notFound
+    }
+
+    func downloadSave(
+        _ save: GameSaveDataItem,
+        at serverURL: ServerURL,
+        token: ClientToken
+    ) throws -> RomMDownload {
+        downloadedSaveIDs.append(save.id)
+        guard let data = availableSaves[save.id] else {
+            throw RomMAPIError.notFound
+        }
+
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString)
+        try data.write(to: temporaryURL)
+        return RomMDownload(
+            temporaryFileURL: temporaryURL,
+            suggestedFileName: save.fileName
+        )
+    }
+
+    func uploadSave(
+        _ data: Data,
+        fileName: String,
+        for gameID: Int,
+        emulator: String,
+        slot: String,
+        at serverURL: ServerURL,
+        token: ClientToken
+    ) -> GameSaveDataItem {
+        uploadedSaves.append(data)
+        let id = 900 + uploadedSaves.count
+        return GameSaveDataItem(
+            id: id,
+            kind: .save,
+            fileName: fileName,
+            fileExtension: URL(fileURLWithPath: fileName).pathExtension,
+            filePath: "saves/SNES",
+            fullPath: "saves/SNES/\(fileName)",
+            downloadURL: serverURL.resourceURL(
+                for: "/api/saves/\(id)/content"
+            ),
+            fileSizeBytes: Int64(data.count),
+            isMissingFromFileSystem: false,
+            createdAt: Date(timeIntervalSince1970: 3_000),
+            updatedAt: Date(timeIntervalSince1970: 3_000),
+            emulator: emulator,
+            slot: slot,
+            contentHash: "uploaded-\(id)",
+            isPublic: false,
+            screenshotURL: nil
+        )
     }
 }
 
@@ -475,6 +1138,7 @@ private struct MockRomMClient: RomMClient {
     let token: ClientToken
     let user: RomMUser
     var downloadData = Data("downloaded".utf8)
+    var firmwareFiles: [RomMFirmware: Data] = [:]
 
     func verifyServer(at serverURL: ServerURL) async throws {}
 
@@ -536,6 +1200,31 @@ private struct MockRomMClient: RomMClient {
             suggestedFileName: fileName
         )
     }
+
+    func firmware(
+        for platformID: Int,
+        at serverURL: ServerURL,
+        token: ClientToken
+    ) -> [RomMFirmware] {
+        Array(firmwareFiles.keys)
+    }
+
+    func downloadFirmware(
+        _ firmware: RomMFirmware,
+        at serverURL: ServerURL,
+        token: ClientToken
+    ) throws -> RomMDownload {
+        guard let data = firmwareFiles[firmware] else {
+            throw RomMAPIError.notFound
+        }
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString)
+        try data.write(to: temporaryURL)
+        return RomMDownload(
+            temporaryFileURL: temporaryURL,
+            suggestedFileName: firmware.fileName
+        )
+    }
 }
 
 private actor MockLibraryService: LibraryServing {
@@ -555,6 +1244,7 @@ private actor MockLibraryService: LibraryServing {
     private let allGames: [GameSummary]
     private let rejectsMetadataUpdates: Bool
     private var localCachePurgeCount = 0
+    private var downloadedIDs: Set<Int> = []
 
     init(
         allGames: [GameSummary]? = nil,
@@ -580,7 +1270,7 @@ private actor MockLibraryService: LibraryServing {
         in session: ServerSession,
         onProgress: @escaping @Sendable (LibrarySyncProgress) async -> Void
     ) async -> LibrarySnapshot {
-        let synchronizedGames = allGames.filter { !$0.isBIOS }
+        let synchronizedGames = allGames
         let synchronizedSystems = systems(in: session).map { system in
             LibrarySystem(
                 id: system.id,
@@ -592,7 +1282,8 @@ private actor MockLibraryService: LibraryServing {
             LibraryCollection(
                 id: collection.id,
                 name: collection.name,
-                gameCount: min(5, synchronizedGames.count)
+                gameCount: min(5, synchronizedGames.count),
+                virtualType: collection.virtualType
             )
         }
 
@@ -694,7 +1385,32 @@ private actor MockLibraryService: LibraryServing {
     }
 
     func downloadGame(_ game: GameDetails, in session: ServerSession) -> URL {
-        FileManager.default.temporaryDirectory.appending(path: game.fileName)
+        downloadedIDs.insert(game.id)
+        return FileManager.default.temporaryDirectory.appending(path: game.fileName)
+    }
+
+    func removeDownloadedGame(withID gameID: Int, in session: ServerSession) {
+        downloadedIDs.remove(gameID)
+    }
+
+    func exportGame(_ game: GameDetails, in session: ServerSession) -> URL {
+        FileManager.default.temporaryDirectory.appending(path: "Exported-\(game.fileName)")
+    }
+
+    func downloadedGameIDs(in session: ServerSession) async -> Set<Int> {
+        downloadedIDs
+    }
+
+    func deleteGames(
+        withIDs gameIDs: [Int],
+        deletingFilesFromServer: Bool,
+        in session: ServerSession
+    ) -> GameDeletionResult {
+        GameDeletionResult(
+            successfulItemCount: Set(gameIDs).count,
+            failedItemCount: 0,
+            errors: []
+        )
     }
 
     func artworkRequest(for game: GameSummary, in session: ServerSession) -> URLRequest? {
@@ -706,12 +1422,53 @@ private actor MockLibraryService: LibraryServing {
     }
 }
 
-func mockGameDetails(id: Int) -> GameDetails {
-    GameDetails(
+private actor RecordingArtworkCache: ArtworkCaching {
+    private var requestedGameIDs: [Int]?
+    private var continuation: CheckedContinuation<[Int], Never>?
+
+    func cacheArtwork(
+        for games: [GameSummary],
+        in session: ServerSession,
+        using service: any LibraryServing,
+        onProgress: @escaping @Sendable (ArtworkCacheProgress) async -> Void
+    ) async {
+        let artworkCount = Set(games.compactMap(\.coverURL)).count
+        await onProgress(
+            ArtworkCacheProgress(
+                completedCount: artworkCount,
+                totalCount: artworkCount,
+                failedCount: 0
+            )
+        )
+
+        let gameIDs = games.map(\.id)
+        requestedGameIDs = gameIDs
+        continuation?.resume(returning: gameIDs)
+        continuation = nil
+    }
+
+    func waitForRequest() async -> [Int] {
+        if let requestedGameIDs {
+            return requestedGameIDs
+        }
+        return await withCheckedContinuation {
+            continuation = $0
+        }
+    }
+}
+
+func mockGameDetails(
+    id: Int,
+    fileName: String? = nil,
+    systemName: String = "Game Boy",
+    saves: [GameSaveDataItem] = []
+) -> GameDetails {
+    let resolvedFileName = fileName ?? "Game \(id).gb"
+    return GameDetails(
         id: id,
         name: "Game \(id)",
         systemID: 1,
-        systemName: "Game Boy",
+        systemName: systemName,
         summary: "Test game",
         coverURL: nil,
         screenshotURLs: [],
@@ -731,10 +1488,10 @@ func mockGameDetails(id: Int) -> GameDetails {
         languages: [],
         tags: [],
         files: [],
-        fileName: "Game \(id).gb",
-        fileExtension: "gb",
+        fileName: resolvedFileName,
+        fileExtension: URL(fileURLWithPath: resolvedFileName).pathExtension,
         filePath: "roms/GB",
-        fullPath: "roms/GB/Game \(id).gb",
+        fullPath: "roms/GB/\(resolvedFileName)",
         fileSizeBytes: 1_024,
         revision: nil,
         crcHash: nil,
@@ -759,11 +1516,11 @@ func mockGameDetails(id: Int) -> GameDetails {
             isNowPlaying: false,
             isHidden: false
         ),
-        saves: [],
+        saves: saves,
         states: [],
         contentCounts: GameContentCounts(
             siblingGames: 0,
-            saves: 0,
+            saves: saves.count,
             states: 0,
             screenshots: 0,
             collections: 0,

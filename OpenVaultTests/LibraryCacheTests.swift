@@ -3,6 +3,47 @@ import Testing
 
 @testable import OpenVault
 
+@Suite("Artwork sorting")
+struct ArtworkSortTests {
+  @Test("Sorts alphabetically or by newest RomM addition")
+  func sortsArtworkGames() {
+    let olderGame = GameSummary(
+      id: 1,
+      name: "Zelda",
+      systemID: 1,
+      systemName: "Nintendo",
+      coverURL: nil,
+      createdAt: "2025-01-02T03:04:05Z"
+    )
+    let newerGame = GameSummary(
+      id: 2,
+      name: "Asteroids",
+      systemID: 1,
+      systemName: "Nintendo",
+      coverURL: nil,
+      createdAt: "2026-07-26T12:34:56.789Z"
+    )
+    let unknownDateGame = GameSummary(
+      id: 3,
+      name: "Metroid",
+      systemID: 1,
+      systemName: "Nintendo",
+      coverURL: nil
+    )
+
+    let games = [olderGame, unknownDateGame, newerGame]
+
+    #expect(
+      ArtworkSort.alphabetical.sorted(games).map(\.name)
+        == ["Asteroids", "Metroid", "Zelda"]
+    )
+    #expect(
+      ArtworkSort.dateAdded.sorted(games).map(\.id)
+        == [newerGame.id, olderGame.id, unknownDateGame.id]
+    )
+  }
+}
+
 @Suite("Offline library cache")
 struct LibraryCacheTests {
   @Test("Persists a server-scoped snapshot and full game details")
@@ -20,6 +61,12 @@ struct LibraryCacheTests {
     #expect(try await cache.snapshot(for: otherServerURL) == nil)
     #expect(try await cache.gameDetails(for: 1, serverURL: serverURL) == details)
     #expect(try await cache.gameDetails(for: 1, serverURL: otherServerURL) == nil)
+
+    try await cache.removeGames(withIDs: [1], for: serverURL)
+
+    #expect(try await cache.snapshot(for: serverURL)?.games.map(\.id) == [2])
+    #expect(try await cache.snapshot(for: serverURL)?.systems.first?.gameCount == 0)
+    #expect(try await cache.gameDetails(for: 1, serverURL: serverURL) == nil)
   }
 
   @Test("Serves cached metadata and details when RomM is unavailable")
@@ -53,10 +100,15 @@ struct LibraryCacheTests {
         limit: 60
       ).games.map(\.name) == ["Tetris"]
     )
-    #expect(try await service.gameDetails(for: 1, in: session) == details)
+    #expect(
+      try await service.cachedGameDetails(
+        for: 1,
+        in: session
+      ) == details
+    )
   }
 
-  @Test("Commits a complete synchronized snapshot and excludes BIOS records")
+  @Test("Commits a complete synchronized snapshot including BIOS records")
   func commitsCompleteSnapshot() async throws {
     let serverURL = try ServerURL("https://romm.example.com")
     let session = ServerSession(serverURL: serverURL, username: "kenneth")
@@ -75,10 +127,36 @@ struct LibraryCacheTests {
 
     let snapshot = try await service.synchronizeLibrary(in: session) { _ in }
 
-    #expect(snapshot.games.map(\.name) == ["Tetris", "Metroid"])
-    #expect(snapshot.systems.first?.gameCount == 2)
-    #expect(snapshot.collections.first?.gameCount == 1)
-    #expect(snapshot.collectionMemberships.first?.gameIDs == [1])
+    #expect(
+      snapshot.games.map(\.name)
+        == ["Tetris", "Metroid", "[BIOS] Game Boy"]
+    )
+    #expect(snapshot.systems.first?.gameCount == 3)
+    #expect(snapshot.collections.first { $0.id == .regular(10) }?.gameCount == 2)
+    #expect(snapshot.collections.first { $0.id == .virtual("virtual-tetris") }?.gameCount == 1)
+    #expect(
+      snapshot.collectionMemberships.first {
+        $0.collectionID == .regular(10)
+      }?.gameIDs == [1, 3]
+    )
+    #expect(
+      snapshot.collectionMemberships.first {
+        $0.collectionID == .virtual("virtual-tetris")
+      }?.gameIDs == [1]
+    )
+    #expect(
+      snapshot.collections.first {
+        $0.id == .virtual("virtual-tetris")
+      }?.memberGameIDs == nil
+    )
+    #expect(
+      snapshot.page(
+        matching: .collection(.virtual("virtual-tetris")),
+        searchTerm: nil,
+        offset: 0,
+        limit: 10
+      ).games.map(\.id) == [1]
+    )
     #expect(snapshot.games.first(where: { $0.id == 1 })?.hasSave == true)
     #expect(snapshot.games.first(where: { $0.id == 2 })?.hasState == true)
     #expect(await cache.snapshot(for: serverURL) == snapshot)
@@ -152,6 +230,160 @@ struct LibraryCacheTests {
     #expect(model.isShowingStaleData)
     #expect(model.refreshErrorMessage != nil)
     #expect(model.errorMessage == nil)
+  }
+
+  @MainActor
+  @Test("Loads every cached game without view-driven pagination")
+  func loadsCompleteCachedSelection() async throws {
+    let games = (1...125).map { id in
+      GameSummary(
+        id: id,
+        name: "Game \(id)",
+        systemID: 1,
+        systemName: "Game Boy",
+        coverURL: id.isMultiple(of: 2)
+          ? URL(string: "https://romm.example.com/\(id).webp")
+          : nil
+      )
+    }
+    let snapshot = LibrarySnapshot(
+      synchronizedAt: Date(timeIntervalSince1970: 1_000),
+      systems: [
+        LibrarySystem(id: 1, name: "Game Boy", gameCount: games.count)
+      ],
+      collections: [],
+      games: games,
+      collectionMemberships: []
+    )
+    let session = ServerSession(
+      serverURL: try ServerURL("https://romm.example.com"),
+      username: "kenneth"
+    )
+    let model = LibraryModel(
+      session: session,
+      service: OfflineLibraryService(snapshot: snapshot)
+    )
+
+    await model.load()
+
+    #expect(model.games.count == 125)
+    #expect(model.totalGameCount == 125)
+
+    await model.setHidesGamesWithoutArtwork(true)
+
+    #expect(model.displayedGames.count == 62)
+  }
+
+  @MainActor
+  @Test("Shows every game detail page from the library cache while offline")
+  func showsSummaryDetailsOffline() async throws {
+    let snapshot = testLibrarySnapshot()
+    let session = ServerSession(
+      serverURL: try ServerURL("https://romm.example.com"),
+      username: "kenneth"
+    )
+    let model = GameDetailsModel(
+      game: try #require(snapshot.games.first),
+      session: session,
+      service: OfflineLibraryService(snapshot: snapshot)
+    )
+
+    await model.load()
+
+    #expect(model.details?.name == "Tetris")
+    #expect(model.dataSource == .librarySummary)
+    #expect(model.refreshErrorMessage != nil)
+    #expect(model.errorMessage == nil)
+  }
+
+  @MainActor
+  @Test("Filters the cached library to games downloaded on this Mac")
+  func filtersDownloadedGames() async throws {
+    let snapshot = testLibrarySnapshot()
+    let session = ServerSession(
+      serverURL: try ServerURL("https://romm.example.com"),
+      username: "kenneth"
+    )
+    let model = LibraryModel(
+      session: session,
+      service: OfflineLibraryService(
+        snapshot: snapshot,
+        downloadedGameIDs: [2]
+      )
+    )
+
+    await model.load()
+    model.selection = .downloaded
+    await model.reloadGames()
+
+    #expect(model.downloadedGameCount == 1)
+    #expect(model.displayedGames.map(\.name) == ["Metroid"])
+    #expect(model.title == "Downloaded")
+  }
+
+  @MainActor
+  @Test("Builds offline artwork previews for the virtual collection gallery")
+  func buildsVirtualCollectionPreviews() async throws {
+    let collectionID = LibraryCollection.ID.virtual("virtual-nintendo")
+    let games = [
+      GameSummary(
+        id: 1,
+        name: "Super Mario World",
+        systemID: 1,
+        systemName: "Super Nintendo Entertainment System",
+        coverURL: URL(string: "https://romm.example.com/mario.webp")
+      ),
+      GameSummary(
+        id: 2,
+        name: "Mario Bros.",
+        systemID: 2,
+        systemName: "Nintendo Entertainment System",
+        coverURL: nil
+      ),
+    ]
+    let snapshot = LibrarySnapshot(
+      synchronizedAt: Date(timeIntervalSince1970: 1_000),
+      systems: [],
+      collections: [
+        LibraryCollection(
+          id: collectionID,
+          name: "Mario",
+          gameCount: 2,
+          virtualType: "collection"
+        )
+      ],
+      games: games,
+      collectionMemberships: [
+        LibrarySnapshot.CollectionMembership(
+          collectionID: collectionID,
+          gameIDs: [2, 1]
+        )
+      ]
+    )
+    let session = ServerSession(
+      serverURL: try ServerURL("https://romm.example.com"),
+      username: "kenneth"
+    )
+    let model = LibraryModel(
+      session: session,
+      service: OfflineLibraryService(snapshot: snapshot)
+    )
+
+    await model.load()
+
+    #expect(model.collectionPreviewGames[collectionID]?.map(\.id) == [1, 2])
+
+    model.selection = .virtualCollections
+    await model.reloadGames()
+
+    #expect(model.title == "Virtual Collections")
+    #expect(model.games.isEmpty)
+    #expect(model.totalGameCount == 0)
+
+    model.selection = .collection(collectionID)
+    await model.reloadGames()
+
+    #expect(model.displayedGames.map(\.id) == [1, 2])
   }
 }
 
@@ -284,7 +516,14 @@ private struct SynchronizationRomMClient: RomMClient {
     token: ClientToken
   ) async throws -> [LibraryCollection] {
     [
-      LibraryCollection(id: .regular(10), name: "Favorites", gameCount: 2)
+      LibraryCollection(id: .regular(10), name: "Favorites", gameCount: 2),
+      LibraryCollection(
+        id: .virtual("virtual-tetris"),
+        name: "Tetris",
+        gameCount: 1,
+        virtualType: "collection",
+        memberGameIDs: [1, 1]
+      ),
     ]
   }
 
@@ -354,9 +593,14 @@ private struct SynchronizationRomMClient: RomMClient {
 
 private actor OfflineLibraryService: LibraryServing {
   let snapshot: LibrarySnapshot
+  let downloadedIDs: Set<Int>
 
-  init(snapshot: LibrarySnapshot) {
+  init(
+    snapshot: LibrarySnapshot,
+    downloadedGameIDs: Set<Int> = []
+  ) {
     self.snapshot = snapshot
+    downloadedIDs = downloadedGameIDs
   }
 
   func cachedSnapshot(in session: ServerSession) -> LibrarySnapshot? {
@@ -415,6 +659,10 @@ private actor OfflineLibraryService: LibraryServing {
 
   func downloadGame(_ game: GameDetails, in session: ServerSession) throws -> URL {
     throw URLError(.notConnectedToInternet)
+  }
+
+  func downloadedGameIDs(in session: ServerSession) -> Set<Int> {
+    downloadedIDs
   }
 
   func artworkRequest(for game: GameSummary, in session: ServerSession) -> URLRequest? {
