@@ -332,6 +332,7 @@ struct BigPictureView: View {
         }
         .padding(.vertical, 6)
       }
+      .id(page)
       .scrollIndicators(.hidden)
       .onChange(of: scrollTargetID) { _, targetID in
         guard let targetID else {
