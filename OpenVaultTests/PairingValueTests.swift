@@ -681,6 +681,11 @@ struct RomMAPIClientTests {
     #expect(try Data(contentsOf: download.temporaryFileURL) == contents)
     let progress = progressRecorder.snapshot()
     #expect(progress.first?.bytesReceived == 0)
+    #expect(
+      progress.dropFirst().dropLast().contains {
+        $0.bytesReceived > 0
+      }
+    )
     #expect(progress.last?.bytesReceived == Int64(contents.count))
     #expect(progress.last?.totalBytesExpected == Int64(contents.count))
     #expect(progress.last?.fractionCompleted == 1)

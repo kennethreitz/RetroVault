@@ -7,11 +7,62 @@ private final class RomMDownloadProgressDelegate:
   @unchecked Sendable
 {
   private let onProgress: @Sendable (RomMDownloadProgress) -> Void
+  private let configuration: URLSessionConfiguration
+  private let lock = NSLock()
+  private var continuation:
+    CheckedContinuation<(URL, URLResponse), any Error>?
+  private var session: URLSession?
+  private var task: URLSessionDownloadTask?
+  private var downloadedFileURL: URL?
+  private var fileMoveError: (any Error)?
+  private var isCancelled = false
+  private var isFinished = false
 
   init(
+    configuration: URLSessionConfiguration,
     onProgress: @escaping @Sendable (RomMDownloadProgress) -> Void
   ) {
+    self.configuration = configuration
     self.onProgress = onProgress
+  }
+
+  func download(for request: URLRequest) async throws -> (URL, URLResponse) {
+    try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { continuation in
+        let delegateQueue = OperationQueue()
+        delegateQueue.maxConcurrentOperationCount = 1
+        delegateQueue.name = "org.kennethreitz.OpenVault.rom-download"
+
+        let session = URLSession(
+          configuration: configuration,
+          delegate: self,
+          delegateQueue: delegateQueue
+        )
+        let task = session.downloadTask(with: request)
+
+        lock.lock()
+        self.continuation = continuation
+        self.session = session
+        self.task = task
+        let shouldCancel = isCancelled
+        lock.unlock()
+
+        task.resume()
+        if shouldCancel {
+          task.cancel()
+        }
+      }
+    } onCancel: {
+      self.cancel()
+    }
+  }
+
+  private func cancel() {
+    lock.lock()
+    isCancelled = true
+    let task = task
+    lock.unlock()
+    task?.cancel()
   }
 
   func urlSession(
@@ -35,7 +86,56 @@ private final class RomMDownloadProgressDelegate:
     _ session: URLSession,
     downloadTask: URLSessionDownloadTask,
     didFinishDownloadingTo location: URL
-  ) {}
+  ) {
+    let retainedURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: false)
+
+    do {
+      try FileManager.default.moveItem(at: location, to: retainedURL)
+      lock.lock()
+      downloadedFileURL = retainedURL
+      lock.unlock()
+    } catch {
+      lock.lock()
+      fileMoveError = error
+      lock.unlock()
+    }
+  }
+
+  func urlSession(
+    _ session: URLSession,
+    task: URLSessionTask,
+    didCompleteWithError error: (any Error)?
+  ) {
+    lock.lock()
+    guard !isFinished else {
+      lock.unlock()
+      return
+    }
+    isFinished = true
+
+    let continuation = continuation
+    let downloadedFileURL = downloadedFileURL
+    let response = task.response
+    let fileMoveError = fileMoveError
+    self.continuation = nil
+    self.task = nil
+    self.session = nil
+    lock.unlock()
+
+    session.finishTasksAndInvalidate()
+
+    if let error = fileMoveError ?? error {
+      if let downloadedFileURL {
+        try? FileManager.default.removeItem(at: downloadedFileURL)
+      }
+      continuation?.resume(throwing: error)
+    } else if let downloadedFileURL, let response {
+      continuation?.resume(returning: (downloadedFileURL, response))
+    } else {
+      continuation?.resume(throwing: RomMAPIError.invalidResponse)
+    }
+  }
 }
 
 final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
@@ -389,6 +489,7 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
     let temporaryFileURL: URL
     let response: URLResponse
     let progressDelegate = RomMDownloadProgressDelegate(
+      configuration: session.configuration,
       onProgress: onProgress
     )
 
@@ -399,9 +500,8 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
           totalBytesExpected: nil
         )
       )
-      (temporaryFileURL, response) = try await session.download(
-        for: request,
-        delegate: progressDelegate
+      (temporaryFileURL, response) = try await progressDelegate.download(
+        for: request
       )
     } catch let error as URLError {
       OpenVaultLog.network.error(
