@@ -82,7 +82,9 @@ struct LibretroGameView: View {
                 .frame(width: 1, height: 1)
                 .opacity(0.001)
         }
-        .navigationTitle(session.request.title)
+        .navigationTitle(
+            isImmersiveBigPicturePlayback ? "" : session.request.title
+        )
         .frame(minWidth: 640, minHeight: 480)
         .background {
             PlayerWindowAccessor { window in
@@ -157,69 +159,75 @@ struct LibretroGameView: View {
             isFullScreen = false
         }
         .windowToolbarFullScreenVisibility(.onHover)
+        .toolbarVisibility(
+            isImmersiveBigPicturePlayback ? .hidden : .automatic,
+            for: .windowToolbar
+        )
         .toolbar {
-            ToolbarItemGroup {
-                Button {
-                    session.togglePause()
-                } label: {
-                    Label(
-                        session.isPaused ? "Resume" : "Pause",
-                        systemImage: session.isPaused ? "play.fill" : "pause.fill"
+            if !isImmersiveBigPicturePlayback {
+                ToolbarItemGroup {
+                    Button {
+                        session.togglePause()
+                    } label: {
+                        Label(
+                            session.isPaused ? "Resume" : "Pause",
+                            systemImage: session.isPaused ? "play.fill" : "pause.fill"
+                        )
+                    }
+                    .disabled(!isRunning)
+
+                    Button {
+                        session.reset()
+                    } label: {
+                        Label("Reset", systemImage: "arrow.counterclockwise")
+                    }
+                    .disabled(!isRunning)
+
+                    Button {
+                        session.rewind()
+                    } label: {
+                        Label("Rewind", systemImage: "gobackward")
+                    }
+                    .buttonRepeatBehavior(.enabled)
+                    .disabled(!isRunning || !session.canRewind)
+                    .help(
+                        session.allowsRewind
+                            ? "Rewind about one second; hold to continue rewinding"
+                            : "Rewind is disabled for Nintendo 64 games"
                     )
-                }
-                .disabled(!isRunning)
 
-                Button {
-                    session.reset()
-                } label: {
-                    Label("Reset", systemImage: "arrow.counterclockwise")
-                }
-                .disabled(!isRunning)
+                    Menu {
+                        Button("Save Quick State") {
+                            session.saveQuickState()
+                        }
 
-                Button {
-                    session.rewind()
-                } label: {
-                    Label("Rewind", systemImage: "gobackward")
-                }
-                .buttonRepeatBehavior(.enabled)
-                .disabled(!isRunning || !session.canRewind)
-                .help(
-                    session.allowsRewind
-                        ? "Rewind about one second; hold to continue rewinding"
-                        : "Rewind is disabled for Nintendo 64 games"
-                )
-
-                Menu {
-                    Button("Save Quick State") {
-                        session.saveQuickState()
+                        Button("Load Quick State") {
+                            session.loadQuickState()
+                        }
+                        .disabled(!session.hasQuickState)
+                    } label: {
+                        Label("State", systemImage: "clock.arrow.circlepath")
                     }
+                    .disabled(!isRunning)
 
-                    Button("Load Quick State") {
-                        session.loadQuickState()
+                    Button {
+                        playerWindow?.toggleFullScreen(nil)
+                    } label: {
+                        Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
                     }
-                    .disabled(!session.hasQuickState)
-                } label: {
-                    Label("State", systemImage: "clock.arrow.circlepath")
-                }
-                .disabled(!isRunning)
+                    .keyboardShortcut("f", modifiers: [.control, .command])
 
-                Button {
-                    playerWindow?.toggleFullScreen(nil)
-                } label: {
-                    Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
-                }
-                .keyboardShortcut("f", modifiers: [.control, .command])
-
-                Button(role: .destructive) {
-                    if onCloseRequested == nil {
-                        session.stop()
-                    } else {
-                        session.exitPlayer(mode: .explicitStop)
+                    Button(role: .destructive) {
+                        if onCloseRequested == nil {
+                            session.stop()
+                        } else {
+                            session.exitPlayer(mode: .explicitStop)
+                        }
+                    } label: {
+                        Label("Stop", systemImage: "stop.fill")
                     }
-                } label: {
-                    Label("Stop", systemImage: "stop.fill")
+                    .disabled(!isRunning)
                 }
-                .disabled(!isRunning)
             }
         }
     }
@@ -297,6 +305,10 @@ struct LibretroGameView: View {
             return true
         }
         return false
+    }
+
+    private var isImmersiveBigPicturePlayback: Bool {
+        session.request.playerOrigin == .bigPicture && isFullScreen
     }
 
     private func closePlayer() {

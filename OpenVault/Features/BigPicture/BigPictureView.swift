@@ -57,7 +57,9 @@ struct BigPictureView: View {
       }
     }
     .background {
-      BigPictureWindowProbe { window in
+      BigPictureWindowProbe(
+        isPlaybackActive: activePlayerRequest != nil
+      ) { window in
         bigPictureWindow = window
       }
     }
@@ -1916,16 +1918,19 @@ enum BigPictureSelectionNavigation {
 }
 
 private struct BigPictureWindowProbe: NSViewRepresentable {
+  let isPlaybackActive: Bool
   let didMoveToWindow: @MainActor (NSWindow?) -> Void
 
   func makeNSView(context: Context) -> BigPictureProbeView {
     let view = BigPictureProbeView()
+    view.setPlaybackActive(isPlaybackActive)
     view.didMoveToWindow = didMoveToWindow
     return view
   }
 
   func updateNSView(_ nsView: BigPictureProbeView, context: Context) {
     nsView.didMoveToWindow = didMoveToWindow
+    nsView.setPlaybackActive(isPlaybackActive)
     nsView.configureWindow()
     nsView.requestFullScreenIfNeeded()
   }
@@ -1958,6 +1963,17 @@ enum BigPicturePresentationOptions {
     options.insert(.autoHideDock)
     return options
   }
+
+  static func playbackImmersive(
+    from current: NSApplication.PresentationOptions
+  ) -> NSApplication.PresentationOptions {
+    var options = current
+    options.remove(.autoHideMenuBar)
+    options.remove(.autoHideDock)
+    options.insert(.hideMenuBar)
+    options.insert(.hideDock)
+    return options
+  }
 }
 
 @MainActor
@@ -1968,6 +1984,7 @@ private final class BigPictureProbeView: NSView {
   private var initialFullScreenGate = BigPictureInitialFullScreenGate()
   private var previousPresentationOptions:
     NSApplication.PresentationOptions?
+  private var isPlaybackActive = false
 
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
@@ -2021,6 +2038,14 @@ private final class BigPictureProbeView: NSView {
       return
     }
     configureBigPictureWindow(window)
+  }
+
+  func setPlaybackActive(_ isPlaybackActive: Bool) {
+    guard self.isPlaybackActive != isPlaybackActive else {
+      return
+    }
+    self.isPlaybackActive = isPlaybackActive
+    applyImmersivePresentation()
   }
 
   deinit {
@@ -2098,15 +2123,28 @@ private final class BigPictureProbeView: NSView {
   }
 
   private func beginImmersivePresentation() {
-    guard previousPresentationOptions == nil else {
+    if previousPresentationOptions == nil {
+      previousPresentationOptions = NSApplication.shared.presentationOptions
+    }
+    applyImmersivePresentation()
+  }
+
+  private func applyImmersivePresentation() {
+    guard
+      let previousPresentationOptions,
+      window?.styleMask.contains(.fullScreen) == true
+    else {
       return
     }
-
     let application = NSApplication.shared
-    previousPresentationOptions = application.presentationOptions
-    application.presentationOptions = BigPicturePresentationOptions.immersive(
-      from: application.presentationOptions
-    )
+    application.presentationOptions =
+      isPlaybackActive
+      ? BigPicturePresentationOptions.playbackImmersive(
+        from: previousPresentationOptions
+      )
+      : BigPicturePresentationOptions.immersive(
+        from: previousPresentationOptions
+      )
   }
 
   private func endImmersivePresentation() {

@@ -236,6 +236,14 @@ struct BigPictureCatalogTests {
     #expect(!immersive.contains(.hideMenuBar))
     #expect(!immersive.contains(.hideDock))
     #expect(immersive.contains(.disableAppleMenu))
+
+    let playback = BigPicturePresentationOptions.playbackImmersive(
+      from: immersive
+    )
+    #expect(playback.contains(.hideMenuBar))
+    #expect(playback.contains(.hideDock))
+    #expect(!playback.contains(.autoHideMenuBar))
+    #expect(!playback.contains(.autoHideDock))
   }
 
   @Test("Keeps native window controls available for optional fullscreen")
