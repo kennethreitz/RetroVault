@@ -2028,6 +2028,7 @@ private final class BigPictureWindowState {
   private let collectionBehavior: NSWindow.CollectionBehavior
   private let styleMask: NSWindow.StyleMask
   private let backgroundColor: NSColor
+  private let acceptsMouseMovedEvents: Bool
   private let isOpaque: Bool
   private let hasShadow: Bool
   private let titlebarAppearsTransparent: Bool
@@ -2040,6 +2041,7 @@ private final class BigPictureWindowState {
     collectionBehavior = window.collectionBehavior
     styleMask = window.styleMask
     backgroundColor = window.backgroundColor
+    acceptsMouseMovedEvents = window.acceptsMouseMovedEvents
     isOpaque = window.isOpaque
     hasShadow = window.hasShadow
     titlebarAppearsTransparent = window.titlebarAppearsTransparent
@@ -2055,6 +2057,7 @@ private final class BigPictureWindowState {
     window.collectionBehavior = collectionBehavior
     window.styleMask = styleMask
     window.backgroundColor = backgroundColor
+    window.acceptsMouseMovedEvents = acceptsMouseMovedEvents
     window.isOpaque = isOpaque
     window.hasShadow = hasShadow
     window.titlebarAppearsTransparent = titlebarAppearsTransparent
@@ -2072,10 +2075,14 @@ private final class BigPictureWindowState {
 
 @MainActor
 private final class BigPictureProbeView: NSView {
+  private static let cursorIdleInterval: TimeInterval = 1.5
+
   var didMoveToWindow: (@MainActor (NSWindow?) -> Void)?
   private weak var observedWindow: NSWindow?
   private var previousWindowState: BigPictureWindowState?
   private var fullScreenRequest: Task<Void, Never>?
+  private var cursorHideTask: Task<Void, Never>?
+  private var pointerTrackingArea: NSTrackingArea?
   private var initialFullScreenGate = BigPictureInitialFullScreenGate()
   private var previousPresentationOptions:
     NSApplication.PresentationOptions?
@@ -2097,6 +2104,45 @@ private final class BigPictureProbeView: NSView {
       beginImmersivePresentation()
     }
     requestFullScreenIfNeeded()
+    recordPointerActivity()
+  }
+
+  override func viewWillMove(toWindow newWindow: NSWindow?) {
+    if newWindow == nil {
+      restoreCursor()
+    }
+    super.viewWillMove(toWindow: newWindow)
+  }
+
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas()
+    if let pointerTrackingArea {
+      removeTrackingArea(pointerTrackingArea)
+    }
+    let trackingArea = NSTrackingArea(
+      rect: bounds,
+      options: [
+        .activeInKeyWindow,
+        .inVisibleRect,
+        .mouseEnteredAndExited,
+        .mouseMoved,
+      ],
+      owner: self
+    )
+    addTrackingArea(trackingArea)
+    pointerTrackingArea = trackingArea
+  }
+
+  override func mouseEntered(with event: NSEvent) {
+    recordPointerActivity()
+  }
+
+  override func mouseMoved(with event: NSEvent) {
+    recordPointerActivity()
+  }
+
+  override func mouseExited(with event: NSEvent) {
+    restoreCursor()
   }
 
   func requestFullScreenIfNeeded() {
@@ -2142,6 +2188,11 @@ private final class BigPictureProbeView: NSView {
       return
     }
     self.isPlaybackActive = isPlaybackActive
+    if isPlaybackActive {
+      restoreCursor()
+    } else {
+      recordPointerActivity()
+    }
     applyImmersivePresentation()
   }
 
@@ -2150,6 +2201,8 @@ private final class BigPictureProbeView: NSView {
   }
 
   deinit {
+    cursorHideTask?.cancel()
+    NSCursor.setHiddenUntilMouseMoves(false)
     NotificationCenter.default.removeObserver(self)
   }
 
@@ -2165,6 +2218,12 @@ private final class BigPictureProbeView: NSView {
       self,
       selector: #selector(windowDidBecomeKey(_:)),
       name: NSWindow.didBecomeKeyNotification,
+      object: window
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(windowDidResignKey(_:)),
+      name: NSWindow.didResignKeyNotification,
       object: window
     )
     NotificationCenter.default.addObserver(
@@ -2190,6 +2249,7 @@ private final class BigPictureProbeView: NSView {
   private func stopObservingWindow() {
     fullScreenRequest?.cancel()
     fullScreenRequest = nil
+    restoreCursor()
     endImmersivePresentation()
     if let observedWindow {
       NotificationCenter.default.removeObserver(
@@ -2207,6 +2267,12 @@ private final class BigPictureProbeView: NSView {
   private func windowDidBecomeKey(_ notification: Notification) {
     configureWindow()
     requestFullScreenIfNeeded()
+    recordPointerActivity()
+  }
+
+  @objc
+  private func windowDidResignKey(_ notification: Notification) {
+    restoreCursor()
   }
 
   @objc
@@ -2223,7 +2289,43 @@ private final class BigPictureProbeView: NSView {
 
   @objc
   private func windowWillClose(_ notification: Notification) {
+    restoreCursor()
     endImmersivePresentation()
+  }
+
+  private func recordPointerActivity() {
+    NSCursor.setHiddenUntilMouseMoves(false)
+    cursorHideTask?.cancel()
+    cursorHideTask = nil
+    guard
+      !isPlaybackActive,
+      let window,
+      window.isKeyWindow,
+      window.frame.contains(NSEvent.mouseLocation)
+    else {
+      return
+    }
+
+    cursorHideTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .seconds(Self.cursorIdleInterval))
+      guard
+        let self,
+        !Task.isCancelled,
+        !self.isPlaybackActive,
+        let window = self.window,
+        window.isKeyWindow,
+        window.frame.contains(NSEvent.mouseLocation)
+      else {
+        return
+      }
+      NSCursor.setHiddenUntilMouseMoves(true)
+    }
+  }
+
+  private func restoreCursor() {
+    cursorHideTask?.cancel()
+    cursorHideTask = nil
+    NSCursor.setHiddenUntilMouseMoves(false)
   }
 
   private func beginImmersivePresentation() {
@@ -2273,6 +2375,7 @@ func configureBigPictureWindow(_ window: NSWindow) {
     .fullSizeContentView,
   ])
   window.backgroundColor = .black
+  window.acceptsMouseMovedEvents = true
   window.isOpaque = true
   window.hasShadow = false
   window.titlebarAppearsTransparent = true

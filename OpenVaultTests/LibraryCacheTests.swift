@@ -342,6 +342,7 @@ struct BigPictureCatalogTests {
     #expect(window.collectionBehavior.contains(.fullScreenPrimary))
     #expect(!window.collectionBehavior.contains(.fullScreenNone))
     #expect(window.backgroundColor == .black)
+    #expect(window.acceptsMouseMovedEvents)
     #expect(window.isOpaque)
     #expect(!window.hasShadow)
     #expect(window.titlebarAppearsTransparent)
