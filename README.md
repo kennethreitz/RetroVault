@@ -9,7 +9,7 @@
 <h1 align="center">OpenVault</h1>
 
 <p align="center">
-  <strong>Your RomM library, at home on the Mac.</strong>
+  <strong>A native home for preserved game libraries.</strong>
 </p>
 
 <p align="center">
@@ -20,10 +20,11 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-2563eb?style=flat-square" alt="GPL-3.0"></a>
 </p>
 
-OpenVault is a native macOS client for [RomM](https://romm.app). It turns the
-library you already have into a fast, artwork-rich Mac experience inspired by
-Music and Photos—without importing, reorganizing, or creating a competing
-catalog.
+OpenVault is a native macOS client for [RomM](https://romm.app), the
+self-hosted, open-source game-library manager developed by
+[the RomM Project](https://github.com/rommapp/romm). It turns the library you
+already preserve into a fast, artwork-rich Mac experience inspired by Music
+and Photos—without importing, reorganizing, or creating a competing catalog.
 
 Connect one server. Browse everything. Keep the metadata and games you choose
 available offline. Press Play.
@@ -32,6 +33,39 @@ available offline. Press Play.
 > OpenVault is under active development and is not ready for a general release.
 > It currently targets macOS 26 on Apple silicon and the RomM 5.x API. Expect
 > rough edges, especially in emulator compatibility and save synchronization.
+
+## Preservation, not platform chasing
+
+Video-game libraries are historical collections. The game files matter, but
+so do their names, releases, regions, revisions, artwork, manuals, hashes,
+firmware relationships, and the saves created while playing them. Together,
+those records document a medium whose original cartridges, discs, hardware,
+storefronts, and online services will not remain available forever.
+
+[RomM](https://github.com/rommapp/romm) is the source of truth for that
+collection. OpenVault's role is to make the archive pleasant to explore and
+practical to use on a modern Mac. Offline metadata, managed local copies,
+export, firmware handling, and save synchronization are preservation features:
+an archive is more resilient when it remains understandable, inspectable, and
+usable rather than becoming a directory of anonymous files.
+
+OpenVault deliberately focuses on older systems. It is not trying to put the
+largest possible platform count on a feature list, and it will not label a
+system “supported” merely because one title reaches a boot screen. A platform
+belongs in the reviewed list only when its Apple-silicon emulation path is
+mature enough for dependable video, audio, input, content loading, firmware,
+offline play, and save handling.
+
+Newer systems often depend on rapidly changing emulators, JIT compilation,
+specialized graphics behavior, protected system software, complex multi-file
+formats, or per-title workarounds. Pretending those systems have durable,
+native support would work against the preservation goal. RomM may catalog
+them, and OpenVault will preserve and display their library metadata, but
+playback remains intentionally unavailable until the complete experience can
+meet the same standard as the reviewed historical systems.
+
+The boundary can move as open-source emulation matures. Accuracy, reliability,
+and long-term maintainability—not novelty—decide when it does.
 
 ## Development status
 
@@ -104,8 +138,10 @@ The detailed scope and acceptance criteria live in
 
 ## Reviewed systems
 
-The application currently bundles the following reviewed core paths. Game and
-firmware compatibility still varies by title while OpenVault is in development.
+The application currently bundles the following reviewed core paths. This is a
+curated preservation target, not a list of every platform RomM can catalog or
+every emulator that happens to build on macOS. Game and firmware compatibility
+still varies by title while OpenVault is in development.
 
 | Family | Systems | Core |
 | --- | --- | --- |
@@ -244,7 +280,9 @@ copying or reorganizing it.
 
 ### Later
 
-- More reviewed systems and cores
+- Deeper compatibility for the reviewed historical systems and cores
+- Additional systems only when their complete playback and save path meets the
+  preservation quality bar
 - Richer native media and metadata tools
 - Plugin boundaries where real use cases justify them
 - Companion experiences on other Apple platforms
@@ -257,6 +295,7 @@ OpenVault is not:
 - A replacement or competing database for RomM
 - A multi-server aggregator
 - A marketplace for arbitrary emulator cores
+- A compatibility checklist for every system RomM can catalog
 - A reason to surrender ownership of your library
 
 ## Contributing
@@ -279,11 +318,13 @@ manifest and must be reviewed before redistribution.
 
 ## Thanks
 
-OpenVault stands on the shoulders of RomM, libretro, OpenEmu, RetroArch,
-Dolphin, PPSSPP, and the countless emulator authors and preservationists who
-keep gaming history accessible.
+OpenVault stands on the shoulders of the
+[RomM Project](https://github.com/rommapp/romm), libretro, OpenEmu, RetroArch,
+Dolphin, PPSSPP, and the countless emulator authors, archivists, researchers,
+dumping-tool authors, metadata contributors, and preservationists who keep
+gaming history accessible.
 
 <p align="center">
-  <strong>Your games. Beautifully organized.</strong><br>
+  <strong>Keep the library. Preserve the history. Play the games.</strong><br>
   <sub>OpenVault.</sub>
 </p>
