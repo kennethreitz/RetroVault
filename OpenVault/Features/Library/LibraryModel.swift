@@ -31,7 +31,7 @@ enum LibrarySelection: Hashable {
 private actor ManagedDownloadScheduler {
   enum PriorityDisposition: Sendable {
     case alreadyActive
-    case queued(inserted: Bool)
+    case claimed(inserted: Bool)
     case closed
   }
 
@@ -71,15 +71,13 @@ private actor ManagedDownloadScheduler {
       return .alreadyActive
     }
     if let index = pendingGames.firstIndex(where: { $0.id == game.id }) {
-      let queuedGame = pendingGames.remove(at: index)
-      pendingGames.insert(queuedGame, at: 0)
-      dispatchWaitingWorkers()
-      return .queued(inserted: false)
+      pendingGames.remove(at: index)
+      activeGameIDs.insert(game.id)
+      return .claimed(inserted: false)
     }
 
-    pendingGames.insert(game, at: 0)
-    dispatchWaitingWorkers()
-    return .queued(inserted: true)
+    activeGameIDs.insert(game.id)
+    return .claimed(inserted: true)
   }
 
   func cancel() {
@@ -159,6 +157,35 @@ private enum ManagedDownloadOutcome: Sendable {
       return true
     }
     return false
+  }
+
+  var prioritizedResult: PrioritizedGameDownloadResult {
+    switch self {
+    case .downloaded:
+      .downloaded
+    case .failed(_, _, let message):
+      .failed(message)
+    case .cancelled:
+      .cancelled
+    }
+  }
+
+  init(
+    game: GameSummary,
+    prioritizedResult: PrioritizedGameDownloadResult
+  ) {
+    switch prioritizedResult {
+    case .downloaded:
+      self = .downloaded(gameID: game.id, gameName: game.name)
+    case .failed(let message):
+      self = .failed(
+        gameID: game.id,
+        gameName: game.name,
+        message: message
+      )
+    case .cancelled, .noActiveQueue:
+      self = .cancelled(gameID: game.id, gameName: game.name)
+    }
   }
 }
 
@@ -793,9 +820,17 @@ final class LibraryModel {
       }
     }
 
-    let outcomesByGameID = Dictionary(
+    var outcomesByGameID = Dictionary(
       uniqueKeysWithValues: workerOutcomes.map { ($0.gameID, $0) }
     )
+    for game in uniqueGames where outcomesByGameID[game.id] == nil {
+      if let result = downloadResultsByGameID[game.id] {
+        outcomesByGameID[game.id] = ManagedDownloadOutcome(
+          game: game,
+          prioritizedResult: result
+        )
+      }
+    }
     let downloadedGameIDs = uniqueGames.compactMap { game in
       outcomesByGameID[game.id]?.wasDownloaded == true ? game.id : nil
     }
@@ -843,7 +878,7 @@ final class LibraryModel {
       return managedDownloadedGameIDs.contains(game.id)
         ? .downloaded
         : .noActiveQueue
-    case .queued(let inserted):
+    case .claimed(let inserted):
       if inserted {
         if var progress = downloadProgress {
           progress.totalGameCount += 1
@@ -851,8 +886,20 @@ final class LibraryModel {
         }
       }
       OpenVaultLog.library.notice(
-        "Prioritized game \(game.id, privacy: .public) for playback in the active download queue"
+        "Starting immediate priority download for game \(game.id, privacy: .public)"
       )
+      let operationID = downloadOperationID
+      beginDownload(game, operationID: operationID)
+      let outcome = await download(
+        game,
+        operationID: operationID
+      )
+      await downloadScheduler.finished(gameID: game.id)
+      completeDownloadItem(
+        outcome,
+        operationID: operationID
+      )
+      return outcome.prioritizedResult
     case .alreadyActive:
       break
     }

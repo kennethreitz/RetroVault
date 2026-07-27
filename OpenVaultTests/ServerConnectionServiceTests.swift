@@ -407,6 +407,52 @@ struct LibraryTests {
     }
 
     @MainActor
+    @Test("Starts a playback download immediately when every bulk worker is occupied")
+    func prioritizesPlaybackBeyondSaturatedBulkWorkers() async throws {
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let blockedGameIDs = Set(
+            1...LibraryModel.maximumConcurrentDownloads
+        )
+        let service = MockLibraryService(
+            blockedDownloadIDs: blockedGameIDs
+        )
+        let model = LibraryModel(session: session, service: service)
+        await model.load()
+        let bulkGames = model.games.filter {
+            blockedGameIDs.contains($0.id)
+        }
+        let launchedGame = try #require(
+            model.games.first {
+                $0.id == LibraryModel.maximumConcurrentDownloads + 1
+            }
+        )
+
+        let bulkDownload = Task { @MainActor in
+            await model.downloadGames(bulkGames)
+        }
+        for gameID in blockedGameIDs {
+            await service.waitUntilDownloadStarts(gameID: gameID)
+        }
+
+        let prioritizedDownload = Task { @MainActor in
+            await model.prioritizeDownloadForPlayback(launchedGame)
+        }
+        await service.waitUntilDownloadStarts(gameID: launchedGame.id)
+
+        #expect(await prioritizedDownload.value == .downloaded)
+        #expect(
+            await service.peakConcurrentDownloadCount()
+                == LibraryModel.maximumConcurrentDownloads + 1
+        )
+
+        await service.resumeBlockedDownload()
+        #expect((await bulkDownload.value).completedWithoutErrors)
+    }
+
+    @MainActor
     @Test("Purges the local cache before rebuilding the library")
     func purgesAndResynchronizes() async throws {
         let session = ServerSession(
@@ -1608,7 +1654,7 @@ private actor MockLibraryService: LibraryServing {
 
     private let allGames: [GameSummary]
     private let rejectsMetadataUpdates: Bool
-    private let blockedDownloadID: Int?
+    private let blockedDownloadIDs: Set<Int>
     private let downloadDelay: Duration?
     private var localCachePurgeCount = 0
     private var downloadedIDs: Set<Int> = []
@@ -1618,17 +1664,20 @@ private actor MockLibraryService: LibraryServing {
     private var downloadedMembershipReads = 0
     private var downloadStartWaiters:
         [Int: [CheckedContinuation<Void, Never>]] = [:]
-    private var blockedDownloadContinuation: CheckedContinuation<Void, Never>?
+    private var blockedDownloadContinuations:
+        [Int: CheckedContinuation<Void, Never>] = [:]
 
     init(
         allGames: [GameSummary]? = nil,
         rejectsMetadataUpdates: Bool = false,
         blockedDownloadID: Int? = nil,
+        blockedDownloadIDs: Set<Int> = [],
         downloadDelay: Duration? = nil
     ) {
         self.allGames = allGames ?? Self.defaultGames
         self.rejectsMetadataUpdates = rejectsMetadataUpdates
-        self.blockedDownloadID = blockedDownloadID
+        self.blockedDownloadIDs =
+            blockedDownloadIDs.union(blockedDownloadID.map { [$0] } ?? [])
         self.downloadDelay = downloadDelay
     }
 
@@ -1781,9 +1830,9 @@ private actor MockLibraryService: LibraryServing {
         for waiter in waiters {
             waiter.resume()
         }
-        if game.id == blockedDownloadID {
+        if blockedDownloadIDs.contains(game.id) {
             await withCheckedContinuation {
-                blockedDownloadContinuation = $0
+                blockedDownloadContinuations[game.id] = $0
             }
         }
         if let downloadDelay {
@@ -1803,8 +1852,11 @@ private actor MockLibraryService: LibraryServing {
     }
 
     func resumeBlockedDownload() {
-        blockedDownloadContinuation?.resume()
-        blockedDownloadContinuation = nil
+        let continuations = blockedDownloadContinuations.values
+        blockedDownloadContinuations = [:]
+        for continuation in continuations {
+            continuation.resume()
+        }
     }
 
     func recordedDownloadOrder() -> [Int] {
