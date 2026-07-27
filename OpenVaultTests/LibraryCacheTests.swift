@@ -50,7 +50,7 @@ struct ArtworkSortTests {
     )
   }
 
-  @Test("Combines completed games with the active ROM byte progress")
+  @Test("Combines completed games with concurrent ROM byte progress")
   func calculatesBatchDownloadProgress() {
     let progress = LibraryDownloadProgress(
       processedGameCount: 1,
@@ -61,11 +61,22 @@ struct ArtworkSortTests {
         bytesReceived: 25,
         totalBytesExpected: 100
       ),
-      failedGameCount: 0
+      failedGameCount: 0,
+      activeGameCount: 2,
+      activeTransferProgress: [
+        2: RomMDownloadProgress(
+          bytesReceived: 25,
+          totalBytesExpected: 100
+        ),
+        3: RomMDownloadProgress(
+          bytesReceived: 50,
+          totalBytesExpected: 100
+        ),
+      ]
     )
 
     #expect(progress.currentGameNumber == 2)
-    #expect(progress.fractionCompleted == 0.3125)
+    #expect(progress.fractionCompleted == 0.4375)
   }
 
   @Test("Prioritizes RomM favorites without changing secondary order")

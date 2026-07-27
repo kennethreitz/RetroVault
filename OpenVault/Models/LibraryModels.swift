@@ -400,6 +400,8 @@ struct LibraryDownloadProgress: Equatable, Sendable {
   var currentGameName: String?
   var currentTransferProgress: RomMDownloadProgress?
   var failedGameCount: Int
+  var activeGameCount: Int = 0
+  var activeTransferProgress: [Int: RomMDownloadProgress] = [:]
 
   var currentGameNumber: Int {
     guard currentGameID != nil else {
@@ -412,13 +414,20 @@ struct LibraryDownloadProgress: Equatable, Sendable {
     guard totalGameCount > 0 else {
       return 0
     }
-    let currentFraction =
-      currentGameID == nil
-      ? 0
-      : currentTransferProgress?.fractionCompleted ?? 0
+    let activeFraction: Double
+    if activeTransferProgress.isEmpty {
+      activeFraction =
+        currentGameID == nil
+        ? 0
+        : currentTransferProgress?.fractionCompleted ?? 0
+    } else {
+      activeFraction = activeTransferProgress.values.reduce(0) {
+        $0 + ($1.fractionCompleted ?? 0)
+      }
+    }
     return min(
       max(
-        (Double(processedGameCount) + currentFraction)
+        (Double(processedGameCount) + activeFraction)
           / Double(totalGameCount),
         0
       ),

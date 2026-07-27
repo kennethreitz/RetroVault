@@ -28,10 +28,145 @@ enum LibrarySelection: Hashable {
   }
 }
 
+private actor ManagedDownloadScheduler {
+  enum PriorityDisposition: Sendable {
+    case alreadyActive
+    case queued(inserted: Bool)
+    case closed
+  }
+
+  private var pendingGames: [GameSummary]
+  private var activeGameIDs: Set<Int> = []
+  private var waitingWorkers:
+    [CheckedContinuation<GameSummary?, Never>] = []
+  private var isClosed = false
+
+  init(games: [GameSummary]) {
+    pendingGames = games
+  }
+
+  func next() async -> GameSummary? {
+    if let game = takeNextGame() {
+      return game
+    }
+    guard !isClosed, !activeGameIDs.isEmpty else {
+      close()
+      return nil
+    }
+    return await withCheckedContinuation {
+      waitingWorkers.append($0)
+    }
+  }
+
+  func finished(gameID: Int) {
+    activeGameIDs.remove(gameID)
+    dispatchWaitingWorkers()
+  }
+
+  func prioritize(_ game: GameSummary) -> PriorityDisposition {
+    guard !isClosed else {
+      return .closed
+    }
+    if activeGameIDs.contains(game.id) {
+      return .alreadyActive
+    }
+    if let index = pendingGames.firstIndex(where: { $0.id == game.id }) {
+      let queuedGame = pendingGames.remove(at: index)
+      pendingGames.insert(queuedGame, at: 0)
+      dispatchWaitingWorkers()
+      return .queued(inserted: false)
+    }
+
+    pendingGames.insert(game, at: 0)
+    dispatchWaitingWorkers()
+    return .queued(inserted: true)
+  }
+
+  func cancel() {
+    pendingGames = []
+    activeGameIDs = []
+    close()
+  }
+
+  private func takeNextGame() -> GameSummary? {
+    guard !pendingGames.isEmpty else {
+      return nil
+    }
+    let game = pendingGames.removeFirst()
+    activeGameIDs.insert(game.id)
+    return game
+  }
+
+  private func dispatchWaitingWorkers() {
+    while
+      !waitingWorkers.isEmpty,
+      let game = takeNextGame()
+    {
+      let worker = waitingWorkers.removeFirst()
+      worker.resume(returning: game)
+    }
+
+    if pendingGames.isEmpty, activeGameIDs.isEmpty {
+      close()
+    }
+  }
+
+  private func close() {
+    guard !isClosed else {
+      return
+    }
+    isClosed = true
+    let workers = waitingWorkers
+    waitingWorkers = []
+    for worker in workers {
+      worker.resume(returning: nil)
+    }
+  }
+}
+
+private enum ManagedDownloadOutcome: Sendable {
+  case downloaded(gameID: Int, gameName: String)
+  case failed(gameID: Int, gameName: String, message: String)
+  case cancelled(gameID: Int, gameName: String)
+
+  var gameID: Int {
+    switch self {
+    case .downloaded(let gameID, _),
+      .failed(let gameID, _, _),
+      .cancelled(let gameID, _):
+      gameID
+    }
+  }
+
+  var gameName: String {
+    switch self {
+    case .downloaded(_, let gameName),
+      .failed(_, let gameName, _),
+      .cancelled(_, let gameName):
+      gameName
+    }
+  }
+
+  var failureMessage: String? {
+    guard case .failed(_, _, let message) = self else {
+      return nil
+    }
+    return message
+  }
+
+  var wasDownloaded: Bool {
+    if case .downloaded = self {
+      return true
+    }
+    return false
+  }
+}
+
 @MainActor
 @Observable
 final class LibraryModel {
   private static let pageSize = 60
+  static let maximumConcurrentDownloads = 6
 
   let session: ServerSession
   let service: any LibraryServing
@@ -77,9 +212,10 @@ final class LibraryModel {
   private var favoriteSynchronizationTask: Task<Void, Never>?
   private var favoriteSynchronizationNeedsAnotherPass = false
   private var downloadOperationID = UUID()
-  private var pendingDownloads: [GameSummary] = []
-  private var pendingDownloadGameIDs: Set<Int> = []
-  private var currentDownloadGameID: Int?
+  private var downloadScheduler: ManagedDownloadScheduler?
+  private var activeDownloadGames: [Int: GameSummary] = [:]
+  private var downloadResultsByGameID:
+    [Int: PrioritizedGameDownloadResult] = [:]
   private var prioritizedDownloadWaiters:
     [Int: [UUID: CheckedContinuation<PrioritizedGameDownloadResult, Never>]] = [:]
   private var snapshot: LibrarySnapshot?
@@ -588,113 +724,88 @@ final class LibraryModel {
     isDownloadingGames = true
     let currentDownloadOperationID = UUID()
     downloadOperationID = currentDownloadOperationID
-    pendingDownloads = uniqueGames
-    pendingDownloadGameIDs = Set(uniqueGames.map(\.id))
-    currentDownloadGameID = nil
+    let scheduler = ManagedDownloadScheduler(games: uniqueGames)
+    downloadScheduler = scheduler
+    activeDownloadGames = [:]
+    downloadResultsByGameID = [:]
     downloadProgress = LibraryDownloadProgress(
       processedGameCount: 0,
       totalGameCount: uniqueGames.count,
       currentGameID: nil,
       currentGameName: nil,
       currentTransferProgress: nil,
-      failedGameCount: 0
+      failedGameCount: 0,
+      activeGameCount: 0,
+      activeTransferProgress: [:]
+    )
+    OpenVaultLog.library.notice(
+      "Starting \(uniqueGames.count, privacy: .public) managed downloads with up to \(Self.maximumConcurrentDownloads, privacy: .public) concurrent transfers"
     )
     defer {
       if downloadOperationID == currentDownloadOperationID {
         isDownloadingGames = false
         downloadProgress = nil
-        pendingDownloads = []
-        pendingDownloadGameIDs = []
-        currentDownloadGameID = nil
+        downloadScheduler = nil
+        activeDownloadGames = [:]
+        downloadResultsByGameID = [:]
         finishAllPrioritizedDownloadWaiters(with: .cancelled)
       }
     }
 
-    var downloadedGameIDs: [Int] = []
-    var errors: [String] = []
-
-    while !pendingDownloads.isEmpty {
-      guard !Task.isCancelled else {
-        break
-      }
-
-      let game = pendingDownloads.removeFirst()
-      pendingDownloadGameIDs.remove(game.id)
-      currentDownloadGameID = game.id
-      let processedGameCount = downloadProgress?.processedGameCount ?? 0
-      downloadProgress = LibraryDownloadProgress(
-        processedGameCount: processedGameCount,
-        totalGameCount:
-          downloadProgress?.totalGameCount
-          ?? (processedGameCount + pendingDownloads.count + 1),
-        currentGameID: game.id,
-        currentGameName: game.name,
-        currentTransferProgress: nil,
-        failedGameCount: errors.count
-      )
-
-      if game.isMissingFromFileSystem == true {
-        let message = "RomM reports that its ROM file is missing."
-        errors.append("\(game.name): \(message)")
-        finishPrioritizedDownloadWaiters(
-          forGameID: game.id,
-          with: .failed(message)
-        )
-        completeDownloadItem(
-          processedGameCount: processedGameCount + 1,
-          failedGameCount: errors.count,
-          operationID: currentDownloadOperationID
-        )
-        continue
-      }
-
-      do {
-        let details = try await transferableDetails(for: game)
-        _ = try await service.downloadGame(
-          details,
-          in: session,
-          onProgress: { [weak self] progress in
-            Task { @MainActor [weak self] in
-              self?.apply(
-                progress,
-                forGameID: game.id,
-                operationID: currentDownloadOperationID
-              )
+    let workerCount = min(
+      Self.maximumConcurrentDownloads,
+      uniqueGames.count
+    )
+    let workerOutcomes = await withTaskCancellationHandler {
+      await withTaskGroup(
+        of: [ManagedDownloadOutcome].self,
+        returning: [ManagedDownloadOutcome].self
+      ) { group in
+        for _ in 0..<workerCount {
+          group.addTask { [weak self] in
+            guard let self else {
+              return []
             }
+            return await self.runDownloadWorker(
+              scheduler: scheduler,
+              operationID: currentDownloadOperationID
+            )
           }
-        )
-        downloadedGameIDs.append(game.id)
-        self.downloadedGameIDs.insert(game.id)
-        managedDownloadedGameIDs.insert(game.id)
-        finishPrioritizedDownloadWaiters(
-          forGameID: game.id,
-          with: .downloaded
-        )
-      } catch is CancellationError {
-        finishPrioritizedDownloadWaiters(
-          forGameID: game.id,
-          with: .cancelled
-        )
-        break
-      } catch {
-        errors.append("\(game.name): \(error.localizedDescription)")
-        finishPrioritizedDownloadWaiters(
-          forGameID: game.id,
-          with: .failed(error.localizedDescription)
-        )
-      }
+        }
 
-      completeDownloadItem(
-        processedGameCount: processedGameCount + 1,
-        failedGameCount: errors.count,
-        operationID: currentDownloadOperationID
-      )
-      currentDownloadGameID = nil
+        var outcomes: [ManagedDownloadOutcome] = []
+        for await workerResults in group {
+          outcomes.append(contentsOf: workerResults)
+        }
+        return outcomes
+      }
+    } onCancel: {
+      Task {
+        await scheduler.cancel()
+      }
     }
 
-    currentDownloadGameID = nil
+    let outcomesByGameID = Dictionary(
+      uniqueKeysWithValues: workerOutcomes.map { ($0.gameID, $0) }
+    )
+    let downloadedGameIDs = uniqueGames.compactMap { game in
+      outcomesByGameID[game.id]?.wasDownloaded == true ? game.id : nil
+    }
+    let errors = uniqueGames.compactMap { game -> String? in
+      guard
+        let outcome = outcomesByGameID[game.id],
+        let message = outcome.failureMessage
+      else {
+        return nil
+      }
+      return "\(game.name): \(message)"
+    }
+
     isDownloadingGames = false
     await reloadDownloadedGames()
+    OpenVaultLog.library.notice(
+      "Finished managed downloads: \(downloadedGameIDs.count, privacy: .public) succeeded and \(errors.count, privacy: .public) failed"
+    )
     return GameDownloadResult(
       downloadedGameIDs: downloadedGameIDs,
       failedItemCount: errors.count,
@@ -710,17 +821,22 @@ final class LibraryModel {
     guard !managedDownloadedGameIDs.contains(game.id) else {
       return .downloaded
     }
-    guard isDownloadingGames else {
+    guard isDownloadingGames, let downloadScheduler else {
       return .noActiveQueue
     }
 
-    if currentDownloadGameID != game.id {
-      if let index = pendingDownloads.firstIndex(where: { $0.id == game.id }) {
-        let queuedGame = pendingDownloads.remove(at: index)
-        pendingDownloads.insert(queuedGame, at: 0)
-      } else if !pendingDownloadGameIDs.contains(game.id) {
-        pendingDownloads.insert(game, at: 0)
-        pendingDownloadGameIDs.insert(game.id)
+    let disposition = await downloadScheduler.prioritize(game)
+    if let completedResult = downloadResultsByGameID[game.id] {
+      return completedResult
+    }
+
+    switch disposition {
+    case .closed:
+      return managedDownloadedGameIDs.contains(game.id)
+        ? .downloaded
+        : .noActiveQueue
+    case .queued(let inserted):
+      if inserted {
         if var progress = downloadProgress {
           progress.totalGameCount += 1
           downloadProgress = progress
@@ -729,6 +845,8 @@ final class LibraryModel {
       OpenVaultLog.library.notice(
         "Prioritized game \(game.id, privacy: .public) for playback in the active download queue"
       )
+    case .alreadyActive:
+      break
     }
 
     let waiterID = UUID()
@@ -789,27 +907,31 @@ final class LibraryModel {
     continuation.resume(returning: .cancelled)
   }
 
-  private func apply(
-    _ transferProgress: RomMDownloadProgress,
-    forGameID gameID: Int,
+  private func runDownloadWorker(
+    scheduler: ManagedDownloadScheduler,
     operationID: UUID
-  ) {
-    guard downloadOperationID == operationID,
-      var progress = downloadProgress,
-      progress.currentGameID == gameID,
-      transferProgress.bytesReceived
-        >= (progress.currentTransferProgress?.bytesReceived ?? 0)
-    else {
-      return
+  ) async -> [ManagedDownloadOutcome] {
+    var outcomes: [ManagedDownloadOutcome] = []
+
+    while !Task.isCancelled, let game = await scheduler.next() {
+      beginDownload(game, operationID: operationID)
+      let outcome = await download(
+        game,
+        operationID: operationID
+      )
+      await scheduler.finished(gameID: game.id)
+      completeDownloadItem(
+        outcome,
+        operationID: operationID
+      )
+      outcomes.append(outcome)
     }
 
-    progress.currentTransferProgress = transferProgress
-    downloadProgress = progress
+    return outcomes
   }
 
-  private func completeDownloadItem(
-    processedGameCount: Int,
-    failedGameCount: Int,
+  private func beginDownload(
+    _ game: GameSummary,
     operationID: UUID
   ) {
     guard downloadOperationID == operationID,
@@ -818,11 +940,137 @@ final class LibraryModel {
       return
     }
 
-    progress.processedGameCount = processedGameCount
-    progress.currentGameID = nil
-    progress.currentGameName = nil
-    progress.currentTransferProgress = nil
-    progress.failedGameCount = failedGameCount
+    activeDownloadGames[game.id] = game
+    progress.activeGameCount = activeDownloadGames.count
+    if progress.currentGameID == nil {
+      progress.currentGameID = game.id
+      progress.currentGameName = game.name
+      progress.currentTransferProgress = nil
+    }
+    downloadProgress = progress
+  }
+
+  private func download(
+    _ game: GameSummary,
+    operationID: UUID
+  ) async -> ManagedDownloadOutcome {
+    if game.isMissingFromFileSystem == true {
+      return .failed(
+        gameID: game.id,
+        gameName: game.name,
+        message: "RomM reports that its ROM file is missing."
+      )
+    }
+
+    do {
+      let details = try await transferableDetails(for: game)
+      _ = try await service.downloadGame(
+        details,
+        in: session,
+        onProgress: { [weak self] progress in
+          Task { @MainActor [weak self] in
+            self?.apply(
+              progress,
+              forGameID: game.id,
+              operationID: operationID
+            )
+          }
+        }
+      )
+      return .downloaded(gameID: game.id, gameName: game.name)
+    } catch is CancellationError {
+      return .cancelled(gameID: game.id, gameName: game.name)
+    } catch {
+      return .failed(
+        gameID: game.id,
+        gameName: game.name,
+        message: error.localizedDescription
+      )
+    }
+  }
+
+  private func apply(
+    _ transferProgress: RomMDownloadProgress,
+    forGameID gameID: Int,
+    operationID: UUID
+  ) {
+    guard downloadOperationID == operationID,
+      var progress = downloadProgress,
+      let game = activeDownloadGames[gameID],
+      transferProgress.bytesReceived
+        >= (
+          progress.activeTransferProgress[gameID]?.bytesReceived
+            ?? 0
+        )
+    else {
+      return
+    }
+
+    progress.activeTransferProgress[gameID] = transferProgress
+    progress.activeGameCount = activeDownloadGames.count
+    progress.currentGameID = gameID
+    progress.currentGameName = game.name
+    progress.currentTransferProgress = transferProgress
+    downloadProgress = progress
+  }
+
+  private func completeDownloadItem(
+    _ outcome: ManagedDownloadOutcome,
+    operationID: UUID
+  ) {
+    guard downloadOperationID == operationID,
+      var progress = downloadProgress
+    else {
+      return
+    }
+
+    let gameID = outcome.gameID
+    activeDownloadGames[gameID] = nil
+    progress.activeTransferProgress[gameID] = nil
+    progress.activeGameCount = activeDownloadGames.count
+    progress.processedGameCount += 1
+
+    let prioritizedResult: PrioritizedGameDownloadResult
+    switch outcome {
+    case .downloaded:
+      downloadedGameIDs.insert(gameID)
+      managedDownloadedGameIDs.insert(gameID)
+      prioritizedResult = .downloaded
+    case .failed(_, _, let message):
+      progress.failedGameCount += 1
+      prioritizedResult = .failed(message)
+    case .cancelled:
+      prioritizedResult = .cancelled
+    }
+    downloadResultsByGameID[gameID] = prioritizedResult
+    finishPrioritizedDownloadWaiters(
+      forGameID: gameID,
+      with: prioritizedResult
+    )
+
+    if
+      let currentGameID = progress.currentGameID,
+      currentGameID != gameID,
+      let currentGame = activeDownloadGames[currentGameID]
+    {
+      progress.currentGameName = currentGame.name
+      progress.currentTransferProgress =
+        progress.activeTransferProgress[currentGameID]
+    } else if
+      let nextGame = activeDownloadGames.values.min(by: {
+        $0.id < $1.id
+      })
+    {
+      progress.currentGameID = nextGame.id
+      progress.currentGameName = nextGame.name
+      progress.currentTransferProgress =
+        progress.activeTransferProgress[nextGame.id]
+    } else {
+      progress.currentGameID = nil
+      progress.currentGameName = nil
+      progress.currentTransferProgress = nil
+    }
+
     downloadProgress = progress
   }
 

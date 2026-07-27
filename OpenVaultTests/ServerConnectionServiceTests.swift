@@ -315,7 +315,29 @@ struct LibraryTests {
     }
 
     @MainActor
-    @Test("Promotes a launched game to the front of an active download queue")
+    @Test("Runs bulk downloads with bounded concurrency")
+    func downloadsConcurrently() async throws {
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let service = MockLibraryService(
+            downloadDelay: .milliseconds(30)
+        )
+        let model = LibraryModel(session: session, service: service)
+        await model.load()
+
+        let result = await model.downloadGames(Array(model.games.prefix(12)))
+
+        #expect(result.successfulItemCount == 12)
+        #expect(
+            await service.peakConcurrentDownloadCount()
+                == LibraryModel.maximumConcurrentDownloads
+        )
+    }
+
+    @MainActor
+    @Test("Starts a prioritized game as soon as a worker is available")
     func prioritizesLaunchedGameDownload() async throws {
         let session = ServerSession(
             serverURL: try ServerURL("https://romm.example.com"),
@@ -339,16 +361,15 @@ struct LibraryTests {
         let prioritizedDownload = Task { @MainActor in
             await model.prioritizeDownloadForPlayback(launchedGame)
         }
-        await Task.yield()
-        await Task.yield()
+        await service.waitUntilDownloadStarts(gameID: launchedGame.id)
         #expect(model.downloadProgress?.totalGameCount == 3)
+        #expect(await prioritizedDownload.value == .downloaded)
         await service.resumeBlockedDownload()
 
-        #expect(await prioritizedDownload.value == .downloaded)
         #expect((await bulkDownload.value).completedWithoutErrors)
         #expect(
             await service.recordedDownloadOrder()
-                == [firstGame.id, launchedGame.id, secondGame.id]
+                == [firstGame.id, secondGame.id, launchedGame.id]
         )
     }
 
@@ -1555,9 +1576,12 @@ private actor MockLibraryService: LibraryServing {
     private let allGames: [GameSummary]
     private let rejectsMetadataUpdates: Bool
     private let blockedDownloadID: Int?
+    private let downloadDelay: Duration?
     private var localCachePurgeCount = 0
     private var downloadedIDs: Set<Int> = []
     private var downloadOrder: [Int] = []
+    private var activeDownloadCount = 0
+    private var peakActiveDownloadCount = 0
     private var downloadStartWaiters:
         [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var blockedDownloadContinuation: CheckedContinuation<Void, Never>?
@@ -1565,11 +1589,13 @@ private actor MockLibraryService: LibraryServing {
     init(
         allGames: [GameSummary]? = nil,
         rejectsMetadataUpdates: Bool = false,
-        blockedDownloadID: Int? = nil
+        blockedDownloadID: Int? = nil,
+        downloadDelay: Duration? = nil
     ) {
         self.allGames = allGames ?? Self.defaultGames
         self.rejectsMetadataUpdates = rejectsMetadataUpdates
         self.blockedDownloadID = blockedDownloadID
+        self.downloadDelay = downloadDelay
     }
 
     func cachedSnapshot(in session: ServerSession) -> LibrarySnapshot? {
@@ -1709,6 +1735,14 @@ private actor MockLibraryService: LibraryServing {
         in session: ServerSession
     ) async -> URL {
         downloadOrder.append(game.id)
+        activeDownloadCount += 1
+        peakActiveDownloadCount = max(
+            peakActiveDownloadCount,
+            activeDownloadCount
+        )
+        defer {
+            activeDownloadCount -= 1
+        }
         let waiters = downloadStartWaiters.removeValue(forKey: game.id) ?? []
         for waiter in waiters {
             waiter.resume()
@@ -1717,6 +1751,9 @@ private actor MockLibraryService: LibraryServing {
             await withCheckedContinuation {
                 blockedDownloadContinuation = $0
             }
+        }
+        if let downloadDelay {
+            try? await Task.sleep(for: downloadDelay)
         }
         downloadedIDs.insert(game.id)
         return FileManager.default.temporaryDirectory.appending(path: game.fileName)
@@ -1738,6 +1775,10 @@ private actor MockLibraryService: LibraryServing {
 
     func recordedDownloadOrder() -> [Int] {
         downloadOrder
+    }
+
+    func peakConcurrentDownloadCount() -> Int {
+        peakActiveDownloadCount
     }
 
     func removeDownloadedGame(withID gameID: Int, in session: ServerSession) {
