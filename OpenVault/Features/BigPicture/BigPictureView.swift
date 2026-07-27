@@ -116,6 +116,7 @@ struct BigPictureView: View {
     .fontDesign(.rounded)
     .focusable()
     .focused($hasInterfaceFocus)
+    .focusEffectDisabled()
     .allowsHitTesting(false)
     .onAppear {
       hasInterfaceFocus = true
