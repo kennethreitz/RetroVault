@@ -897,7 +897,6 @@ struct BigPictureView: View {
         isEnabled:
           model.favoriteCollectionID != nil
           && !model.isUpdatingFavorites
-          && !model.isShowingStaleData
       ),
       BigPictureGameOption(
         action: .setDownloaded(!isDownloaded),

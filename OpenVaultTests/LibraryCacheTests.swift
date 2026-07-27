@@ -859,6 +859,67 @@ struct BigPictureCatalogTests {
 
 @Suite("Offline library cache")
 struct LibraryCacheTests {
+  @Test("Persists local Favorites and their pending RomM changes")
+  func persistsLocalFavorites() async throws {
+    let cache = SwiftDataLibraryCache(isStoredInMemoryOnly: true)
+    let serverURL = try ServerURL("https://romm.example.com")
+    let state = LocalFavoriteState(
+      gameIDs: [1, 2],
+      pendingChanges: [
+        LocalFavoriteState.Change(gameID: 2, isFavorite: true)
+      ]
+    )
+
+    try await cache.replaceLocalFavorites(state, for: serverURL)
+
+    #expect(try await cache.localFavorites(for: serverURL) == state)
+  }
+
+  @Test("Keeps favorite changes local when RomM is unavailable")
+  func keepsFavoriteChangesWhileOffline() async throws {
+    let serverURL = try ServerURL("https://romm.example.com")
+    let session = ServerSession(serverURL: serverURL, username: "kenneth")
+    let cache = InMemoryLibraryCache()
+    await cache.replaceSnapshot(testLibrarySnapshot(), for: serverURL)
+    let service = RomMLibraryService(
+      api: UnavailableRomMClient(),
+      credentialStore: TestCredentialStore(
+        token: try ClientToken(
+          rawValue: "rmm_" + String(repeating: "f", count: 64)
+        )
+      ),
+      cache: cache
+    )
+
+    let localSnapshot = try await service.updateFavoriteMembershipLocally(
+      collectionID: 10,
+      gameIDs: [2],
+      adding: true,
+      in: session
+    )
+
+    #expect(
+      localSnapshot.collectionMemberships.first {
+        $0.collectionID == .regular(10)
+      }?.gameIDs == [1, 2]
+    )
+    await #expect(throws: (any Error).self) {
+      try await service.synchronizePendingFavorites(in: session)
+    }
+    #expect(
+      await cache.localFavorites(for: serverURL)?
+        .pendingChanges == [
+          LocalFavoriteState.Change(gameID: 2, isFavorite: true)
+        ]
+    )
+    #expect(
+      try await service.cachedSnapshot(in: session)?
+        .collectionMemberships.first {
+          $0.collectionID == .regular(10)
+        }?.gameIDs == [1, 2]
+    )
+  }
+
   @Test("Filters a library snapshot to the union of selected systems")
   func filtersMultipleSystems() {
     let games = [

@@ -37,6 +37,19 @@ private final class CachedGameDetailsRecord {
     }
 }
 
+@Model
+private final class LocalFavoriteStateRecord {
+    @Attribute(.unique) var serverKey: String
+    var updatedAt: Date
+    @Attribute(.externalStorage) var payload: Data
+
+    init(serverKey: String, updatedAt: Date, payload: Data) {
+        self.serverKey = serverKey
+        self.updatedAt = updatedAt
+        self.payload = payload
+    }
+}
+
 /// SwiftData implementation of the offline RomM metadata cache.
 actor SwiftDataLibraryCache: LibraryCaching {
     private let isStoredInMemoryOnly: Bool
@@ -179,6 +192,70 @@ actor SwiftDataLibraryCache: LibraryCaching {
             context.delete(record)
         }
 
+        if let state = try localFavorites(for: serverURL) {
+            try replaceLocalFavorites(
+                LocalFavoriteState(
+                    gameIDs: state.gameIDs.subtracting(gameIDs),
+                    pendingChanges: state.pendingChanges.filter {
+                        !gameIDs.contains($0.gameID)
+                    }
+                ),
+                for: serverURL
+            )
+        }
+
+        try context.save()
+    }
+
+    func localFavorites(
+        for serverURL: ServerURL
+    ) throws -> LocalFavoriteState? {
+        let context = try modelContext()
+        let serverKey = key(for: serverURL)
+        var descriptor = FetchDescriptor<LocalFavoriteStateRecord>(
+            predicate: #Predicate { $0.serverKey == serverKey }
+        )
+        descriptor.fetchLimit = 1
+
+        guard let record = try context.fetch(descriptor).first else {
+            return nil
+        }
+        do {
+            return try JSONDecoder().decode(
+                LocalFavoriteState.self,
+                from: record.payload
+            )
+        } catch {
+            context.delete(record)
+            try context.save()
+            return nil
+        }
+    }
+
+    func replaceLocalFavorites(
+        _ state: LocalFavoriteState,
+        for serverURL: ServerURL
+    ) throws {
+        let context = try modelContext()
+        let serverKey = key(for: serverURL)
+        let payload = try JSONEncoder().encode(state)
+        var descriptor = FetchDescriptor<LocalFavoriteStateRecord>(
+            predicate: #Predicate { $0.serverKey == serverKey }
+        )
+        descriptor.fetchLimit = 1
+
+        if let record = try context.fetch(descriptor).first {
+            record.updatedAt = .now
+            record.payload = payload
+        } else {
+            context.insert(
+                LocalFavoriteStateRecord(
+                    serverKey: serverKey,
+                    updatedAt: .now,
+                    payload: payload
+                )
+            )
+        }
         try context.save()
     }
 
@@ -186,6 +263,7 @@ actor SwiftDataLibraryCache: LibraryCaching {
         let context = try modelContext()
         try context.delete(model: CachedLibrarySnapshotRecord.self)
         try context.delete(model: CachedGameDetailsRecord.self)
+        try context.delete(model: LocalFavoriteStateRecord.self)
         try context.save()
     }
 
@@ -197,6 +275,7 @@ actor SwiftDataLibraryCache: LibraryCaching {
         let schema = Schema([
             CachedLibrarySnapshotRecord.self,
             CachedGameDetailsRecord.self,
+            LocalFavoriteStateRecord.self,
         ])
         let configuration = ModelConfiguration(
             "OpenVaultLibrary",

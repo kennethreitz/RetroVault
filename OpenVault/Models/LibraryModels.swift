@@ -43,10 +43,6 @@ struct LibraryCollection: Codable, Identifiable, Hashable, Sendable {
 }
 
 /// RomM's Favorites collection projected into game-level presentation state.
-///
-/// Favorites remain server-owned collection metadata. OpenVault derives this set
-/// from the synchronized collection membership so it also works from the offline
-/// library snapshot.
 enum RomMFavorites {
   enum MembershipChange: Equatable, Sendable {
     case add
@@ -143,6 +139,110 @@ enum RomMFavorites {
       $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
         .localizedCaseInsensitiveCompare("Favorites") == .orderedSame
     }
+  }
+}
+
+/// OpenVault's durable, local-first Favorites state.
+///
+/// The effective set is immediately available offline. Pending changes form a
+/// compact last-write-wins outbox that is reconciled with RomM whenever the
+/// server is reachable.
+struct LocalFavoriteState: Codable, Equatable, Sendable {
+  struct Change: Codable, Equatable, Sendable {
+    let gameID: Int
+    let isFavorite: Bool
+  }
+
+  let gameIDs: Set<Int>
+  let pendingChanges: [Change]
+
+  init(
+    gameIDs: Set<Int> = [],
+    pendingChanges: [Change] = []
+  ) {
+    self.gameIDs = gameIDs
+    self.pendingChanges = Self.normalized(pendingChanges)
+  }
+
+  var additions: [Change] {
+    pendingChanges.filter(\.isFavorite)
+  }
+
+  var removals: [Change] {
+    pendingChanges.filter { !$0.isFavorite }
+  }
+
+  func setting(
+    _ isFavorite: Bool,
+    for changedGameIDs: Set<Int>
+  ) -> LocalFavoriteState {
+    guard !changedGameIDs.isEmpty else {
+      return self
+    }
+
+    var effectiveGameIDs = gameIDs
+    var pendingByGameID = Dictionary(
+      uniqueKeysWithValues: pendingChanges.map {
+        ($0.gameID, $0.isFavorite)
+      }
+    )
+    for gameID in changedGameIDs {
+      if isFavorite {
+        effectiveGameIDs.insert(gameID)
+      } else {
+        effectiveGameIDs.remove(gameID)
+      }
+      pendingByGameID[gameID] = isFavorite
+    }
+
+    return LocalFavoriteState(
+      gameIDs: effectiveGameIDs,
+      pendingChanges: pendingByGameID.map {
+        Change(gameID: $0.key, isFavorite: $0.value)
+      }
+    )
+  }
+
+  func reconciling(serverGameIDs: Set<Int>) -> LocalFavoriteState {
+    var effectiveGameIDs = serverGameIDs
+    for change in pendingChanges {
+      if change.isFavorite {
+        effectiveGameIDs.insert(change.gameID)
+      } else {
+        effectiveGameIDs.remove(change.gameID)
+      }
+    }
+    return LocalFavoriteState(
+      gameIDs: effectiveGameIDs,
+      pendingChanges: pendingChanges
+    )
+  }
+
+  func resolving(
+    _ attemptedChanges: [Change],
+    serverGameIDs: Set<Int>
+  ) -> LocalFavoriteState {
+    let attemptedByGameID = Dictionary(
+      uniqueKeysWithValues: attemptedChanges.map {
+        ($0.gameID, $0.isFavorite)
+      }
+    )
+    let remainingChanges = pendingChanges.filter { current in
+      attemptedByGameID[current.gameID] != current.isFavorite
+    }
+    return LocalFavoriteState(
+      gameIDs: serverGameIDs,
+      pendingChanges: remainingChanges
+    ).reconciling(serverGameIDs: serverGameIDs)
+  }
+
+  private static func normalized(_ changes: [Change]) -> [Change] {
+    let pendingByGameID = changes.reduce(into: [Int: Bool]()) {
+      $0[$1.gameID] = $1.isFavorite
+    }
+    return pendingByGameID
+      .map { Change(gameID: $0.key, isFavorite: $0.value) }
+      .sorted { $0.gameID < $1.gameID }
   }
 }
 
@@ -518,6 +618,33 @@ struct LibrarySnapshot: Codable, Equatable, Sendable {
       collections: updatedCollections,
       games: games,
       collectionMemberships: updatedMemberships
+    )
+  }
+
+  func applyingFavoriteGameIDs(
+    _ favoriteGameIDs: Set<Int>
+  ) -> LibrarySnapshot {
+    guard
+      let favoriteCollectionID = RomMFavorites.collectionID(
+        in: collections
+      ),
+      let favoriteCollection = collections.first(where: {
+        $0.id == favoriteCollectionID
+      })
+    else {
+      return self
+    }
+
+    return replacingCollectionMembership(
+      with: LibraryCollection(
+        id: favoriteCollection.id,
+        name: favoriteCollection.name,
+        gameCount: favoriteGameIDs.count,
+        isFavorite: true,
+        virtualType: favoriteCollection.virtualType,
+        memberGameIDs: Array(favoriteGameIDs).sorted()
+      ),
+      gameIDs: Array(favoriteGameIDs)
     )
   }
 }

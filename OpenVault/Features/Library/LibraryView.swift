@@ -2101,7 +2101,6 @@ private struct LibraryGameSelectionContextMenu<PrimaryActions: View>: View {
       selectedGames.isEmpty
         || model.favoriteCollectionID == nil
         || model.isUpdatingFavorites
-        || model.isShowingStaleData
     )
 
     Divider()

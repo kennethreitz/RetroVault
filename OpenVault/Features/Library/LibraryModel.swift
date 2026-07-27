@@ -79,6 +79,8 @@ final class LibraryModel {
   private var synchronizationID = UUID()
   private var artworkInspectionID = UUID()
   private var artworkCachingTask: Task<Void, Never>?
+  private var favoriteSynchronizationTask: Task<Void, Never>?
+  private var favoriteSynchronizationNeedsAnotherPass = false
   private var downloadOperationID = UUID()
   private var pendingDownloads: [GameSummary] = []
   private var pendingDownloadGameIDs: Set<Int> = []
@@ -351,6 +353,8 @@ final class LibraryModel {
 
   func cancelBackgroundWork() {
     cancelArtworkCaching()
+    favoriteSynchronizationTask?.cancel()
+    favoriteSynchronizationTask = nil
   }
 
   private func startArtworkCaching(for games: [GameSummary]) {
@@ -1055,13 +1059,52 @@ final class LibraryModel {
     isUpdatingFavorites = true
     defer { isUpdatingFavorites = false }
 
-    let updatedSnapshot = try await service.updateCollectionMembership(
+    let updatedSnapshot = try await service.updateFavoriteMembershipLocally(
       collectionID: favoriteCollectionID,
       gameIDs: Array(gameIDs),
       adding: isFavorite,
       in: session
     )
     apply(updatedSnapshot)
+    scheduleFavoriteSynchronization()
+  }
+
+  private func scheduleFavoriteSynchronization() {
+    favoriteSynchronizationNeedsAnotherPass = true
+    guard favoriteSynchronizationTask == nil else {
+      return
+    }
+
+    favoriteSynchronizationTask = Task { [weak self] in
+      guard let self else {
+        return
+      }
+      defer {
+        favoriteSynchronizationTask = nil
+      }
+
+      repeat {
+        favoriteSynchronizationNeedsAnotherPass = false
+        do {
+          try await Task.sleep(for: .milliseconds(250))
+          guard !Task.isCancelled else {
+            return
+          }
+          if let synchronizedSnapshot =
+            try await service.synchronizePendingFavorites(in: session)
+          {
+            apply(synchronizedSnapshot)
+          }
+        } catch is CancellationError {
+          return
+        } catch {
+          OpenVaultLog.library.error(
+            "Favorites remain local and will retry later: \(error.localizedDescription)"
+          )
+        }
+      } while favoriteSynchronizationNeedsAnotherPass
+        && !Task.isCancelled
+    }
   }
 
   private func inspectSystemArtwork() async {

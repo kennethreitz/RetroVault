@@ -29,12 +29,15 @@ protocol LibraryServing: Sendable {
     for game: GameDetails,
     in session: ServerSession
   ) async throws -> GameDetails
-  func updateCollectionMembership(
+  func updateFavoriteMembershipLocally(
     collectionID: Int,
     gameIDs: [Int],
     adding: Bool,
     in session: ServerSession
   ) async throws -> LibrarySnapshot
+  func synchronizePendingFavorites(
+    in session: ServerSession
+  ) async throws -> LibrarySnapshot?
   func downloadGame(_ game: GameDetails, in session: ServerSession) async throws -> URL
   func downloadGame(
     _ game: GameDetails,
@@ -84,13 +87,19 @@ protocol LibraryServing: Sendable {
 }
 
 extension LibraryServing {
-  func updateCollectionMembership(
+  func updateFavoriteMembershipLocally(
     collectionID: Int,
     gameIDs: [Int],
     adding: Bool,
     in session: ServerSession
   ) async throws -> LibrarySnapshot {
     throw LibraryServiceError.favoriteUpdateUnavailable
+  }
+
+  func synchronizePendingFavorites(
+    in session: ServerSession
+  ) async throws -> LibrarySnapshot? {
+    nil
   }
 
   func downloadGame(
@@ -290,7 +299,26 @@ actor RomMLibraryService: LibraryServing {
   }
 
   func cachedSnapshot(in session: ServerSession) async throws -> LibrarySnapshot? {
-    try await cache.snapshot(for: session.serverURL)
+    guard let snapshot = try await cache.snapshot(for: session.serverURL) else {
+      return nil
+    }
+    let serverFavoriteGameIDs = RomMFavorites.gameIDs(
+      collections: snapshot.collections,
+      memberships: snapshot.collectionMemberships
+    )
+    let localState: LocalFavoriteState
+    if let persistedState = try await cache.localFavorites(
+      for: session.serverURL
+    ) {
+      localState = persistedState
+    } else {
+      localState = LocalFavoriteState(gameIDs: serverFavoriteGameIDs)
+      try await cache.replaceLocalFavorites(
+        localState,
+        for: session.serverURL
+      )
+    }
+    return snapshot.applyingFavoriteGameIDs(localState.gameIDs)
   }
 
   func cachedGameDetails(
@@ -314,6 +342,16 @@ actor RomMLibraryService: LibraryServing {
   ) async throws -> LibrarySnapshot {
     OpenVaultLog.library.notice("Starting RomM library synchronization")
     let token = try await authenticationToken()
+    do {
+      _ = try await synchronizePendingFavorites(
+        in: session,
+        token: token
+      )
+    } catch {
+      OpenVaultLog.library.error(
+        "Could not flush pending Favorites before library synchronization: \(error.localizedDescription)"
+      )
+    }
     async let saveGameIDsRequest = api.gameIDsWithSaveData(
       .save,
       at: session.serverURL,
@@ -416,12 +454,29 @@ actor RomMLibraryService: LibraryServing {
         virtualType: $0.virtualType
       )
     }
-    let snapshot = LibrarySnapshot(
+    let remoteSnapshot = LibrarySnapshot(
       synchronizedAt: now(),
       systems: systems,
       collections: collections,
       games: allGames,
       collectionMemberships: memberships
+    )
+    let remoteFavoriteGameIDs = RomMFavorites.gameIDs(
+      collections: remoteSnapshot.collections,
+      memberships: remoteSnapshot.collectionMemberships
+    )
+    let localFavoriteState = try await cache.localFavorites(
+      for: session.serverURL
+    ) ?? LocalFavoriteState(gameIDs: remoteFavoriteGameIDs)
+    let reconciledFavoriteState = localFavoriteState.reconciling(
+      serverGameIDs: remoteFavoriteGameIDs
+    )
+    try await cache.replaceLocalFavorites(
+      reconciledFavoriteState,
+      for: session.serverURL
+    )
+    let snapshot = remoteSnapshot.applyingFavoriteGameIDs(
+      reconciledFavoriteState.gameIDs
     )
 
     try await cache.replaceSnapshot(snapshot, for: session.serverURL)
@@ -567,7 +622,7 @@ actor RomMLibraryService: LibraryServing {
     return updatedGame
   }
 
-  func updateCollectionMembership(
+  func updateFavoriteMembershipLocally(
     collectionID: Int,
     gameIDs: [Int],
     adding: Bool,
@@ -577,53 +632,49 @@ actor RomMLibraryService: LibraryServing {
     guard !uniqueGameIDs.isEmpty else {
       throw LibraryServiceError.favoriteUpdateUnavailable
     }
-
-    OpenVaultLog.library.debug(
-      "\(adding ? "Adding" : "Removing") \(uniqueGameIDs.count, privacy: .public) Favorites collection members"
-    )
-
-    let updatedCollection: LibraryCollection
-    do {
-      updatedCollection = try await api.updateCollectionMembership(
-        collectionID: collectionID,
-        gameIDs: uniqueGameIDs,
-        adding: adding,
-        at: session.serverURL,
-        token: authenticationToken()
-      )
-    } catch RomMAPIError.forbidden {
-      OpenVaultLog.library.error(
-        "Token lacks Favorites collection write permission"
-      )
-      throw LibraryServiceError.favoriteWritePermissionRequired
-    } catch RomMAPIError.notFound {
-      OpenVaultLog.library.error(
-        "RomM no longer exposes Favorites collection \(collectionID, privacy: .public)"
-      )
-      throw LibraryServiceError.favoriteCollectionUnavailable
-    } catch {
-      OpenVaultLog.library.error(
-        "Could not update Favorites collection: \(error.localizedDescription)"
-      )
-      throw error
-    }
-
-    guard let memberGameIDs = updatedCollection.memberGameIDs else {
-      throw LibraryServiceError.favoriteUpdateUnavailable
-    }
     guard let snapshot = try await cache.snapshot(for: session.serverURL) else {
       throw LibraryServiceError.favoriteUpdateUnavailable
     }
+    guard
+      RomMFavorites.regularCollectionID(in: snapshot.collections)
+        == collectionID
+    else {
+      throw LibraryServiceError.favoriteCollectionUnavailable
+    }
 
-    let updatedSnapshot = snapshot.replacingCollectionMembership(
-      with: updatedCollection,
-      gameIDs: memberGameIDs
+    let serverFavoriteGameIDs = RomMFavorites.gameIDs(
+      collections: snapshot.collections,
+      memberships: snapshot.collectionMemberships
+    )
+    let currentState = try await cache.localFavorites(
+      for: session.serverURL
+    ) ?? LocalFavoriteState(gameIDs: serverFavoriteGameIDs)
+    let updatedState = currentState.setting(
+      adding,
+      for: Set(uniqueGameIDs)
+    )
+    try await cache.replaceLocalFavorites(
+      updatedState,
+      for: session.serverURL
+    )
+    let updatedSnapshot = snapshot.applyingFavoriteGameIDs(
+      updatedState.gameIDs
     )
     try await cache.replaceSnapshot(updatedSnapshot, for: session.serverURL)
     OpenVaultLog.library.notice(
-      "Updated Favorites collection to \(memberGameIDs.count, privacy: .public) games"
+      "Updated local Favorites to \(updatedState.gameIDs.count, privacy: .public) games; \(updatedState.pendingChanges.count, privacy: .public) changes await RomM"
     )
     return updatedSnapshot
+  }
+
+  func synchronizePendingFavorites(
+    in session: ServerSession
+  ) async throws -> LibrarySnapshot? {
+    let token = try await authenticationToken()
+    return try await synchronizePendingFavorites(
+      in: session,
+      token: token
+    )
   }
 
   func downloadGame(_ game: GameDetails, in session: ServerSession) async throws -> URL {
@@ -1425,6 +1476,86 @@ actor RomMLibraryService: LibraryServing {
       }
       return request
     }
+  }
+
+  private func synchronizePendingFavorites(
+    in session: ServerSession,
+    token: ClientToken
+  ) async throws -> LibrarySnapshot? {
+    guard var snapshot = try await cache.snapshot(
+      for: session.serverURL
+    ) else {
+      return nil
+    }
+    let serverFavoriteGameIDs = RomMFavorites.gameIDs(
+      collections: snapshot.collections,
+      memberships: snapshot.collectionMemberships
+    )
+    var state = try await cache.localFavorites(
+      for: session.serverURL
+    ) ?? LocalFavoriteState(gameIDs: serverFavoriteGameIDs)
+    guard !state.pendingChanges.isEmpty else {
+      return snapshot.applyingFavoriteGameIDs(state.gameIDs)
+    }
+    guard
+      let collectionID = RomMFavorites.regularCollectionID(
+        in: snapshot.collections
+      )
+    else {
+      throw LibraryServiceError.favoriteCollectionUnavailable
+    }
+
+    let batches = [
+      (adding: true, changes: state.additions),
+      (adding: false, changes: state.removals),
+    ]
+    for batch in batches where !batch.changes.isEmpty {
+      OpenVaultLog.library.debug(
+        "\(batch.adding ? "Adding" : "Removing") \(batch.changes.count, privacy: .public) pending Favorites members"
+      )
+
+      let updatedCollection: LibraryCollection
+      do {
+        updatedCollection = try await api.updateCollectionMembership(
+          collectionID: collectionID,
+          gameIDs: batch.changes.map(\.gameID),
+          adding: batch.adding,
+          at: session.serverURL,
+          token: token
+        )
+      } catch RomMAPIError.forbidden {
+        throw LibraryServiceError.favoriteWritePermissionRequired
+      } catch RomMAPIError.notFound {
+        throw LibraryServiceError.favoriteCollectionUnavailable
+      } catch {
+        throw error
+      }
+
+      guard let memberGameIDs = updatedCollection.memberGameIDs else {
+        throw LibraryServiceError.favoriteUpdateUnavailable
+      }
+      let latestState = try await cache.localFavorites(
+        for: session.serverURL
+      ) ?? state
+      state = latestState.resolving(
+        batch.changes,
+        serverGameIDs: Set(memberGameIDs)
+      )
+      try await cache.replaceLocalFavorites(
+        state,
+        for: session.serverURL
+      )
+      snapshot = snapshot.replacingCollectionMembership(
+        with: updatedCollection,
+        gameIDs: Array(state.gameIDs)
+      )
+      try await cache.replaceSnapshot(snapshot, for: session.serverURL)
+    }
+
+    OpenVaultLog.library.notice(
+      "Synchronized local Favorites with RomM; \(state.pendingChanges.count, privacy: .public) changes remain pending"
+    )
+    return snapshot.applyingFavoriteGameIDs(state.gameIDs)
   }
 
   private func authenticationToken() async throws -> ClientToken {

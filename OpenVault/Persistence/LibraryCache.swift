@@ -7,6 +7,11 @@ protocol LibraryCaching: Sendable {
     func gameDetails(for gameID: Int, serverURL: ServerURL) async throws -> GameDetails?
     func saveGameDetails(_ details: GameDetails, for serverURL: ServerURL) async throws
     func removeGames(withIDs gameIDs: Set<Int>, for serverURL: ServerURL) async throws
+    func localFavorites(for serverURL: ServerURL) async throws -> LocalFavoriteState?
+    func replaceLocalFavorites(
+        _ state: LocalFavoriteState,
+        for serverURL: ServerURL
+    ) async throws
     func removeAll() async throws
 }
 
@@ -14,6 +19,7 @@ protocol LibraryCaching: Sendable {
 actor InMemoryLibraryCache: LibraryCaching {
     private var snapshots: [ServerURL: LibrarySnapshot] = [:]
     private var details: [ServerURL: [Int: GameDetails]] = [:]
+    private var favorites: [ServerURL: LocalFavoriteState] = [:]
 
     func snapshot(for serverURL: ServerURL) -> LibrarySnapshot? {
         snapshots[serverURL]
@@ -43,10 +49,30 @@ actor InMemoryLibraryCache: LibraryCaching {
         details[serverURL] = details[serverURL]?.filter {
             !gameIDs.contains($0.key)
         }
+        if let state = favorites[serverURL] {
+            favorites[serverURL] = LocalFavoriteState(
+                gameIDs: state.gameIDs.subtracting(gameIDs),
+                pendingChanges: state.pendingChanges.filter {
+                    !gameIDs.contains($0.gameID)
+                }
+            )
+        }
+    }
+
+    func localFavorites(for serverURL: ServerURL) -> LocalFavoriteState? {
+        favorites[serverURL]
+    }
+
+    func replaceLocalFavorites(
+        _ state: LocalFavoriteState,
+        for serverURL: ServerURL
+    ) {
+        favorites[serverURL] = state
     }
 
     func removeAll() {
         snapshots.removeAll()
         details.removeAll()
+        favorites.removeAll()
     }
 }

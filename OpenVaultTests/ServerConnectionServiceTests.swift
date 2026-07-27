@@ -176,11 +176,26 @@ struct LibraryTests {
             cache: cache
         )
 
-        let result = try await service.updateCollectionMembership(
+        let localResult = try await service.updateFavoriteMembershipLocally(
             collectionID: 10,
             gameIDs: [2],
             adding: true,
             in: session
+        )
+        #expect(
+            localResult.collectionMemberships.first {
+                $0.collectionID == .regular(10)
+            }?.gameIDs == [1, 2]
+        )
+        #expect(
+            await cache.localFavorites(for: serverURL)?
+                .pendingChanges == [
+                    LocalFavoriteState.Change(gameID: 2, isFavorite: true)
+                ]
+        )
+
+        let result = try #require(
+            try await service.synchronizePendingFavorites(in: session)
         )
 
         #expect(
@@ -192,6 +207,10 @@ struct LibraryTests {
             await cache.snapshot(for: serverURL)?
                 .collections.first { $0.id == .regular(10) }?
                 .isFavorite == true
+        )
+        #expect(
+            await cache.localFavorites(for: serverURL)?
+                .pendingChanges.isEmpty == true
         )
     }
 
@@ -829,7 +848,11 @@ struct LibraryTests {
             supportedFileExtensions: ["gb"]
         )
 
-        #expect(preparedURL.path.hasPrefix(legacyDirectory.path))
+        #expect(
+            preparedURL.resolvingSymlinksInPath().path.hasPrefix(
+                legacyDirectory.resolvingSymlinksInPath().path
+            )
+        )
         #expect(try Data(contentsOf: preparedURL) == expectedData)
         #expect(await service.managedDownloadedGameIDs(in: session) == [1_134])
     }
