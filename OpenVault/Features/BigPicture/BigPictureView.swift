@@ -26,7 +26,6 @@ struct BigPictureView: View {
   @State private var scrollTargetID: BigPictureRow.ID?
   @State private var controllerState = BigPictureControllerState()
   @State private var controllerNavigation = BigPictureControllerNavigation()
-  @State private var inputPriority = BigPictureInputPriority()
   @State private var bigPictureWindow: NSWindow?
   @State private var playbackModel: GameDetailsModel?
   @State private var playbackTask: Task<Void, Never>?
@@ -107,10 +106,8 @@ struct BigPictureView: View {
     .fontDesign(.rounded)
     .focusable()
     .focused($hasInterfaceFocus)
+    .allowsHitTesting(false)
     .onAppear {
-      hasInterfaceFocus = true
-    }
-    .onTapGesture {
       hasInterfaceFocus = true
     }
     .onMoveCommand { direction in
@@ -301,15 +298,6 @@ struct BigPictureView: View {
             }
             .buttonStyle(.plain)
             .id(row.id)
-            .onContinuousHover { phase in
-              if case .active = phase,
-                inputPriority.acceptsPointerHover(
-                  at: NSEvent.mouseLocation
-                )
-              {
-                selectRow(at: index, scrollsIntoView: false)
-              }
-            }
             .accessibilityAddTraits(
               index == selectedIndex ? .isSelected : []
             )
@@ -545,16 +533,6 @@ struct BigPictureView: View {
           .buttonStyle(.plain)
           .disabled(!option.isEnabled)
           .opacity(option.isEnabled ? 1 : 0.34)
-          .onContinuousHover { phase in
-            if case .active = phase,
-              option.isEnabled,
-              inputPriority.acceptsPointerHover(
-                at: NSEvent.mouseLocation
-              )
-            {
-              selectedGameOptionIndex = index
-            }
-          }
         }
       }
 
@@ -1335,7 +1313,6 @@ struct BigPictureView: View {
   }
 
   private func handleEscape() {
-    recordNavigationInput()
     if playbackErrorMessage != nil
       || isPreparingPlayback
       || !history.isEmpty
@@ -1347,7 +1324,6 @@ struct BigPictureView: View {
   }
 
   private func handleNavigationInput(_ command: BigPictureCommand) {
-    recordNavigationInput()
     handle(command)
   }
 
@@ -1377,7 +1353,6 @@ struct BigPictureView: View {
       return .ignored
     }
 
-    recordNavigationInput()
     if let index = BigPictureTypeSelection.index(
       matching: keyPress.characters,
       in: rows.map(\.title)
@@ -1385,12 +1360,6 @@ struct BigPictureView: View {
       selectRow(at: index, scrollsIntoView: true)
     }
     return .handled
-  }
-
-  private func recordNavigationInput() {
-    inputPriority.recordNavigationInput(
-      pointerPosition: NSEvent.mouseLocation
-    )
   }
 
   private func play(
@@ -1465,7 +1434,6 @@ struct BigPictureView: View {
     }
     activePlayerRequest = nil
     controllerNavigation.synchronize(with: .current)
-    recordNavigationInput()
 
     Task { @MainActor in
       await Task.yield()
@@ -1944,37 +1912,6 @@ enum BigPictureSelectionNavigation {
       return 0
     }
     return min(max(index + offset, 0), itemCount - 1)
-  }
-}
-
-struct BigPictureInputPriority: Sendable {
-  private static let pointerMovementThreshold: CGFloat = 3
-  private var navigationPointerPosition: CGPoint?
-
-  mutating func recordNavigationInput(pointerPosition: CGPoint) {
-    navigationPointerPosition = pointerPosition
-  }
-
-  mutating func acceptsPointerHover(at pointerPosition: CGPoint) -> Bool {
-    guard let navigationPointerPosition else {
-      return true
-    }
-
-    let horizontalMovement =
-      pointerPosition.x - navigationPointerPosition.x
-    let verticalMovement =
-      pointerPosition.y - navigationPointerPosition.y
-    let movementSquared =
-      horizontalMovement * horizontalMovement
-      + verticalMovement * verticalMovement
-    let thresholdSquared =
-      Self.pointerMovementThreshold * Self.pointerMovementThreshold
-
-    guard movementSquared >= thresholdSquared else {
-      return false
-    }
-    self.navigationPointerPosition = nil
-    return true
   }
 }
 

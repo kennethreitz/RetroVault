@@ -781,35 +781,6 @@ struct BigPictureCatalogTests {
     )
   }
 
-  @Test("Keyboard and controller navigation suppress stationary pointer hover")
-  func prioritizesNavigationOverStationaryPointer() {
-    var priority = BigPictureInputPriority()
-    let initialPosition = CGPoint(x: 400, y: 300)
-
-    let initiallyAcceptsHover =
-      priority.acceptsPointerHover(at: initialPosition)
-    #expect(initiallyAcceptsHover)
-
-    priority.recordNavigationInput(pointerPosition: initialPosition)
-
-    let acceptsStationaryHover =
-      priority.acceptsPointerHover(at: initialPosition)
-    let acceptsPointerJitter = priority.acceptsPointerHover(
-      at: CGPoint(x: initialPosition.x + 2, y: initialPosition.y)
-    )
-    let acceptsDeliberateMovement = priority.acceptsPointerHover(
-      at: CGPoint(x: initialPosition.x + 4, y: initialPosition.y)
-    )
-    let remainsInPointerMode = priority.acceptsPointerHover(
-      at: CGPoint(x: initialPosition.x + 4, y: initialPosition.y)
-    )
-
-    #expect(!acceptsStationaryHover)
-    #expect(!acceptsPointerJitter)
-    #expect(acceptsDeliberateMovement)
-    #expect(remainsInPointerMode)
-  }
-
   @Test("Does not carry held gameplay input back into Big Picture")
   func suppressesHeldInputWhileInactive() {
     var navigation = BigPictureControllerNavigation()
