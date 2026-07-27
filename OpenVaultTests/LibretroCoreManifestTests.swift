@@ -803,6 +803,39 @@ struct LibretroCoreManifestTests {
         )
     }
 
+    @Test("Captures every frame at a 60 Hz rewind cadence")
+    func capturesEveryFrameAtFullCadence() {
+        var schedule = LibretroRewindCaptureSchedule(
+            framesPerSecond: 60
+        )
+
+        for _ in 0..<10 {
+            let shouldCapture = schedule.shouldCapture()
+            #expect(shouldCapture)
+            schedule.didCapture(snapshotInterval: 1.0 / 60.0)
+        }
+    }
+
+    @Test("Spaces lower-rate rewind captures by emulated frames")
+    func spacesLowerRateCapturesByFrame() {
+        var schedule = LibretroRewindCaptureSchedule(
+            framesPerSecond: 60
+        )
+
+        let first = schedule.shouldCapture()
+        #expect(first)
+        schedule.didCapture(snapshotInterval: 1.0 / 30.0)
+        let second = schedule.shouldCapture()
+        let third = schedule.shouldCapture()
+        #expect(!second)
+        #expect(third)
+        schedule.didCapture(snapshotInterval: 1.0 / 30.0)
+        let fourth = schedule.shouldCapture()
+        let fifth = schedule.shouldCapture()
+        #expect(!fourth)
+        #expect(fifth)
+    }
+
     @Test("Disables rewind for Nintendo 64 cores")
     func disablesNintendo64Rewind() {
         #expect(
