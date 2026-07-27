@@ -38,6 +38,7 @@ struct OpenVaultApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             DiagnosticsCommands()
+            GameInfoCommands()
         }
 
         WindowGroup("OpenVault Player", for: LibretroRunRequest.self) { $request in
@@ -57,6 +58,31 @@ struct OpenVaultApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             DiagnosticsCommands()
+            GameInfoCommands()
+        }
+
+        WindowGroup("Game Information", for: GameInfoRequest.self) { $request in
+            if
+                let request,
+                let libraryModel = model.libraryModel
+            {
+                GameInfoView(
+                    request: request,
+                    session: libraryModel.session,
+                    service: model.libraryService
+                )
+            } else {
+                ContentUnavailableView(
+                    "Game Information Unavailable",
+                    systemImage: "info.circle"
+                )
+            }
+        }
+        .defaultSize(width: 780, height: 680)
+        .windowResizability(.contentMinSize)
+        .commands {
+            DiagnosticsCommands()
+            GameInfoCommands()
         }
 
         WindowGroup("OpenVault Logs", id: "diagnostics") {
@@ -66,6 +92,7 @@ struct OpenVaultApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             DiagnosticsCommands()
+            GameInfoCommands()
         }
 
         Settings {
@@ -73,6 +100,7 @@ struct OpenVaultApp: App {
         }
         .commands {
             DiagnosticsCommands()
+            GameInfoCommands()
         }
     }
 }

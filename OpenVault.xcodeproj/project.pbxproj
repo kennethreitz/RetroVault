@@ -28,6 +28,7 @@
 		A20000000000000000000003 /* LibraryCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* LibraryCacheTests.swift */; };
 		A10000000000000000000001 /* GameDetailsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* GameDetailsModels.swift */; };
 		A10000000000000000000002 /* GameDetailsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* GameDetailsModel.swift */; };
+		A10000000000000000000003 /* GameInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* GameInfoView.swift */; };
 		099606899B62ABB6D739ACF9 /* ServerConnectionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3C9E07B1356C2C0E592CE86 /* ServerConnectionServiceTests.swift */; };
 		09AB210B6FCFB9F8B78F2845 /* PairingCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A82F533028A891EA05B14D94 /* PairingCode.swift */; };
 		192333E4FC57A92E3F3830D2 /* RomMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE75336E7FEDEE7B75E050D9 /* RomMClient.swift */; };
@@ -90,6 +91,7 @@
 		B20000000000000000000003 /* LibraryCacheTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryCacheTests.swift; sourceTree = "<group>"; };
 		B10000000000000000000001 /* GameDetailsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameDetailsModels.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* GameDetailsModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameDetailsModel.swift; sourceTree = "<group>"; };
+		B10000000000000000000003 /* GameInfoView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameInfoView.swift; sourceTree = "<group>"; };
 		0BABBE07DF488BF436DC84BF /* OpenVault.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = OpenVault.entitlements; sourceTree = "<group>"; };
 		2CAD73996C51B8702DFEEB34 /* GameCoverView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameCoverView.swift; sourceTree = "<group>"; };
 		3040A5BD5E00216649E71C29 /* ClientToken.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClientToken.swift; sourceTree = "<group>"; };
@@ -171,6 +173,7 @@
 			isa = PBXGroup;
 			children = (
 				B10000000000000000000002 /* GameDetailsModel.swift */,
+				B10000000000000000000003 /* GameInfoView.swift */,
 			);
 			name = GameDetails;
 			path = GameDetails;
@@ -532,6 +535,7 @@
 				7E431AEE25FC06574419D9BD /* OpenVaultApp.swift in Sources */,
 				F017A574EAC69F62D11F4ED1 /* RootScene.swift in Sources */,
 				A10000000000000000000002 /* GameDetailsModel.swift in Sources */,
+				A10000000000000000000003 /* GameInfoView.swift in Sources */,
 				C770809077DE038B49E7B58C /* GameCoverView.swift in Sources */,
 				F8FA8B9D176F0682F3359356 /* LibraryModel.swift in Sources */,
 				6ECFA994641940B43D4510C9 /* LibraryView.swift in Sources */,

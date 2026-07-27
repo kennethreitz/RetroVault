@@ -2048,6 +2048,7 @@ private struct LibraryGameSelectionContextMenu<PrimaryActions: View>: View {
   let requestGameDownloadRemoval: ([GameSummary]) -> Void
   let requestGameExport: ([GameSummary]) -> Void
   let requestGameDeletion: ([GameSummary]) -> Void
+  let requestGameInfo: (GameSummary) -> Void
   let primaryActions: () -> PrimaryActions
 
   init(
@@ -2058,6 +2059,7 @@ private struct LibraryGameSelectionContextMenu<PrimaryActions: View>: View {
     requestGameDownloadRemoval: @escaping ([GameSummary]) -> Void,
     requestGameExport: @escaping ([GameSummary]) -> Void,
     requestGameDeletion: @escaping ([GameSummary]) -> Void,
+    requestGameInfo: @escaping (GameSummary) -> Void,
     @ViewBuilder primaryActions: @escaping () -> PrimaryActions
   ) {
     self.model = model
@@ -2067,6 +2069,7 @@ private struct LibraryGameSelectionContextMenu<PrimaryActions: View>: View {
     self.requestGameDownloadRemoval = requestGameDownloadRemoval
     self.requestGameExport = requestGameExport
     self.requestGameDeletion = requestGameDeletion
+    self.requestGameInfo = requestGameInfo
     self.primaryActions = primaryActions
   }
 
@@ -2083,6 +2086,16 @@ private struct LibraryGameSelectionContextMenu<PrimaryActions: View>: View {
     let removesFavorites = favoriteChange == .remove
 
     primaryActions()
+
+    if selectedGames.count == 1, let selectedGame = selectedGames.first {
+      Button {
+        requestGameInfo(selectedGame)
+      } label: {
+        Label("Get Info", systemImage: "info.circle")
+      }
+
+      Divider()
+    }
 
     Button {
       requestFavoriteChange(selectedGames, !removesFavorites)
@@ -2512,7 +2525,8 @@ private struct LibraryTableView: View {
         requestGameDownload: requestGameDownload,
         requestGameDownloadRemoval: requestGameDownloadRemoval,
         requestGameExport: requestGameExport,
-        requestGameDeletion: requestGameDeletion
+        requestGameDeletion: requestGameDeletion,
+        requestGameInfo: openGameInfo
       ) {
         if selectedGames.count == 1,
           let selectedGame = selectedGames.first,
@@ -2538,6 +2552,7 @@ private struct LibraryTableView: View {
       }
     }
     .focused($hasTableFocus)
+    .focusedSceneValue(\.openGameInfo, gameInfoAction)
     .onKeyPress("a", phases: .down) { keyPress in
       guard keyPress.modifiers.contains(.command) else {
         return .ignored
@@ -2596,6 +2611,29 @@ private struct LibraryTableView: View {
         break
       }
     }
+  }
+
+  private var gameInfoAction: OpenGameInfoAction? {
+    guard
+      selectedGameIDs.count == 1,
+      let selectedGame = sortedGames.first(where: {
+        selectedGameIDs.contains($0.id)
+      })
+    else {
+      return nil
+    }
+    return OpenGameInfoAction {
+      openGameInfo(selectedGame)
+    }
+  }
+
+  private func openGameInfo(_ game: GameSummary) {
+    openWindow(
+      value: GameInfoRequest(
+        game: game,
+        lastLibrarySync: model.lastSuccessfulSync
+      )
+    )
   }
 
   private func handleControllerCommand(
@@ -3623,6 +3661,8 @@ private struct LibraryGridView: View {
                 isFavorite:
                   model.prioritizesFavoritesInCurrentView
                   && model.favoriteGameIDs.contains(game.id),
+                isDownloaded: model.downloadedGameIDs.contains(game.id),
+                hasSaveState: game.hasState == true,
                 secondaryText: cardSecondaryText(for: game),
                 isPreparingToPlay: preparingGameID == game.id,
                 isPlaybackBusy: preparingGameID != nil,
@@ -3645,7 +3685,8 @@ private struct LibraryGridView: View {
                   requestGameDownload: requestGameDownload,
                   requestGameDownloadRemoval: requestGameDownloadRemoval,
                   requestGameExport: requestGameExport,
-                  requestGameDeletion: requestGameDeletion
+                  requestGameDeletion: requestGameDeletion,
+                  requestGameInfo: openGameInfo
                 ) {
                   if selectedGames.count == 1,
                     let selectedGame = selectedGames.first,
@@ -3688,6 +3729,7 @@ private struct LibraryGridView: View {
         }
         .focusable()
         .focused($hasGridFocus)
+        .focusedSceneValue(\.openGameInfo, gameInfoAction)
         .focusEffectDisabled()
         .onKeyPress("a", phases: .down) { keyPress in
           guard keyPress.modifiers.contains(.command) else {
@@ -3772,6 +3814,29 @@ private struct LibraryGridView: View {
     LibraryGamePlayability.isPlayable(
       game,
       downloadedGameIDs: model.downloadedGameIDs
+    )
+  }
+
+  private var gameInfoAction: OpenGameInfoAction? {
+    guard
+      selectedGameIDs.count == 1,
+      let selectedGame = sortedGames.first(where: {
+        selectedGameIDs.contains($0.id)
+      })
+    else {
+      return nil
+    }
+    return OpenGameInfoAction {
+      openGameInfo(selectedGame)
+    }
+  }
+
+  private func openGameInfo(_ game: GameSummary) {
+    openWindow(
+      value: GameInfoRequest(
+        game: game,
+        lastLibrarySync: model.lastSuccessfulSync
+      )
     )
   }
 
@@ -4142,6 +4207,8 @@ private struct ArtworkGameItem: View {
   let isSelected: Bool
   let isPlayable: Bool
   let isFavorite: Bool
+  let isDownloaded: Bool
+  let hasSaveState: Bool
   let secondaryText: String
   let isPreparingToPlay: Bool
   let isPlaybackBusy: Bool
@@ -4160,6 +4227,8 @@ private struct ArtworkGameItem: View {
           session: session,
           service: service,
           isFavorite: isFavorite,
+          isDownloaded: isDownloaded,
+          hasSaveState: hasSaveState,
           secondaryText: secondaryText
         )
         .padding(5)
@@ -4265,7 +4334,7 @@ private struct ArtworkGameItem: View {
         self.isHovered = isHovered
       }
     }
-    .help("Click to open; Command-click or Shift-click to select")
+    .help("Click to select; press Command-I for information")
   }
 }
 
@@ -4274,6 +4343,8 @@ private struct GameCard: View {
   let session: ServerSession
   let service: any LibraryServing
   let isFavorite: Bool
+  let isDownloaded: Bool
+  let hasSaveState: Bool
   let secondaryText: String
 
   var body: some View {
@@ -4283,6 +4354,28 @@ private struct GameCard: View {
         session: session,
         service: service
       )
+      .overlay(alignment: .bottomLeading) {
+        if isDownloaded || hasSaveState {
+          HStack(spacing: 6) {
+            if isDownloaded {
+              ArtworkStatusBadge(
+                title: "Downloaded",
+                systemImage: "arrow.down.circle.fill",
+                tint: .blue
+              )
+            }
+
+            if hasSaveState {
+              ArtworkStatusBadge(
+                title: "Save State",
+                systemImage: "clock.arrow.circlepath",
+                tint: .purple
+              )
+            }
+          }
+          .padding(10)
+        }
+      }
 
       HStack(alignment: .firstTextBaseline, spacing: 6) {
         Text(game.name)
@@ -4305,8 +4398,32 @@ private struct GameCard: View {
     .contentShape(.rect)
     .accessibilityElement(children: .combine)
     .accessibilityLabel(
-      "\(game.name), \(secondaryText)\(isFavorite ? ", Favorite" : "")"
+      "\(game.name), \(secondaryText)"
+        + "\(isFavorite ? ", Favorite" : "")"
+        + "\(isDownloaded ? ", Downloaded" : "")"
+        + "\(hasSaveState ? ", Has save state" : "")"
     )
+  }
+}
+
+private struct ArtworkStatusBadge: View {
+  let title: String
+  let systemImage: String
+  let tint: Color
+
+  var body: some View {
+    Image(systemName: systemImage)
+      .font(.system(size: 10, weight: .semibold))
+      .foregroundStyle(.white)
+      .frame(width: 24, height: 24)
+      .background(tint.opacity(0.9), in: Circle())
+      .overlay {
+        Circle()
+          .stroke(.white.opacity(0.35), lineWidth: 0.5)
+      }
+      .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+      .help(title)
+      .accessibilityLabel(title)
   }
 }
 
