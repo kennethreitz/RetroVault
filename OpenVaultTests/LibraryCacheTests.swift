@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -220,6 +221,27 @@ struct SidebarSystemSortTests {
 
 @Suite("Big Picture catalog")
 struct BigPictureCatalogTests {
+  @Test("Keeps native window controls available for optional fullscreen")
+  @MainActor
+  func configuresOptionalFullScreenWindow() {
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 1_280, height: 720),
+      styleMask: [],
+      backing: .buffered,
+      defer: false
+    )
+
+    configureBigPictureWindow(window)
+
+    #expect(window.styleMask.contains(.titled))
+    #expect(window.styleMask.contains(.closable))
+    #expect(window.styleMask.contains(.miniaturizable))
+    #expect(window.styleMask.contains(.resizable))
+    #expect(window.collectionBehavior.contains(.fullScreenPrimary))
+    #expect(!window.collectionBehavior.contains(.fullScreenNone))
+    #expect(window.standardWindowButton(.zoomButton)?.isEnabled == true)
+  }
+
   @Test("Requests fullscreen only for the initial visible presentation")
   func requestsInitialFullScreenOnce() {
     var gate = BigPictureInitialFullScreenGate()

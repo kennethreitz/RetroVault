@@ -2023,7 +2023,7 @@ private final class BigPictureProbeView: NSView {
 
     observe(window)
     window.backgroundColor = .black
-    configureFullScreen(for: window)
+    configureBigPictureWindow(window)
     requestFullScreenIfNeeded()
   }
 
@@ -2052,7 +2052,7 @@ private final class BigPictureProbeView: NSView {
       else {
         return
       }
-      configureFullScreen(for: window)
+      configureBigPictureWindow(window)
       window.toggleFullScreen(nil)
     }
   }
@@ -2096,8 +2096,14 @@ private final class BigPictureProbeView: NSView {
 }
 
 @MainActor
-private func configureFullScreen(for window: NSWindow) {
+func configureBigPictureWindow(_ window: NSWindow) {
   window.collectionBehavior.remove(.fullScreenNone)
   window.collectionBehavior.insert(.fullScreenPrimary)
-  window.styleMask.insert([.titled, .resizable])
+  window.styleMask.insert([
+    .titled,
+    .closable,
+    .miniaturizable,
+    .resizable,
+  ])
+  window.standardWindowButton(.zoomButton)?.isEnabled = true
 }
