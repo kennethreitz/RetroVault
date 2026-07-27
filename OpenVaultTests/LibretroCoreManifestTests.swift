@@ -568,6 +568,40 @@ struct LibretroCoreManifestTests {
         )
     }
 
+    @Test("Preserves arcade archive names when shortening their launch path")
+    func preservesArcadeArchiveNameWhenStaging() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let sourceDirectory = root
+            .appending(
+                path: String(repeating: "sandbox-container-", count: 10),
+                directoryHint: .isDirectory
+            )
+        defer {
+            try? fileManager.removeItem(at: root)
+        }
+        try fileManager.createDirectory(
+            at: sourceDirectory,
+            withIntermediateDirectories: true
+        )
+
+        let archiveURL = sourceDirectory.appending(path: "digdug.zip")
+        try Data([0x50, 0x4B, 0x03, 0x04]).write(to: archiveURL)
+        #expect(archiveURL.path.utf8.count >= 192)
+
+        let staged = try LibretroStagedContent.prepare(
+            contentURL: archiveURL,
+            needsFullPath: true
+        )
+        let stagedURL = try #require(staged.contentURL)
+
+        #expect(stagedURL != archiveURL)
+        #expect(stagedURL.lastPathComponent == "digdug.zip")
+        #expect(stagedURL.path.utf8.count < 192)
+        #expect(try Data(contentsOf: stagedURL) == Data(contentsOf: archiveURL))
+    }
+
     @Test("Renders visible N64 pixels when a smoke-test ROM is provided")
     @MainActor
     func rendersN64SmokeTestROM() async throws {

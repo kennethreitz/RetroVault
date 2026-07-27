@@ -772,20 +772,37 @@ final class LibretroStagedContent {
                 )
             }
 
-            let fileExtension = contentURL.pathExtension
-            var launchName = fileExtension.isEmpty
-                ? "content"
-                : "content.\(fileExtension)"
-            if launchName == contentURL.lastPathComponent {
-                launchName = fileExtension.isEmpty
-                    ? "launch"
-                    : "launch.\(fileExtension)"
-            }
-            let stagedURL = stagingDirectory.appending(path: launchName)
-            try fileManager.createSymbolicLink(
-                at: stagedURL,
-                withDestinationURL: contentURL
+            let originalNameURL = stagingDirectory.appending(
+                path: contentURL.lastPathComponent
             )
+            let stagedURL: URL
+            if originalNameURL.path.utf8.count < maximumUnstagedPathLength {
+                // Arcade cores identify a ROM set by its archive basename.
+                // Preserve names such as `digdug.zip` when shortening the
+                // containing sandbox path.
+                stagedURL = originalNameURL
+                if !fileManager.fileExists(atPath: stagedURL.path) {
+                    try fileManager.createSymbolicLink(
+                        at: stagedURL,
+                        withDestinationURL: contentURL
+                    )
+                }
+            } else {
+                let fileExtension = contentURL.pathExtension
+                var launchName = fileExtension.isEmpty
+                    ? "content"
+                    : "content.\(fileExtension)"
+                if launchName == contentURL.lastPathComponent {
+                    launchName = fileExtension.isEmpty
+                        ? "launch"
+                        : "launch.\(fileExtension)"
+                }
+                stagedURL = stagingDirectory.appending(path: launchName)
+                try fileManager.createSymbolicLink(
+                    at: stagedURL,
+                    withDestinationURL: contentURL
+                )
+            }
 
             guard
                 stagedURL.path.utf8.count < maximumUnstagedPathLength,
