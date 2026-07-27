@@ -240,15 +240,8 @@ struct BigPictureView: View {
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     } else {
-      HStack(alignment: .center, spacing: 54) {
-        menuRows
-          .frame(maxWidth: 720)
-
-        if case .games = page, let selectedGame {
-          selectedGamePreview(selectedGame)
-            .frame(maxWidth: 350)
-        }
-      }
+      menuRows
+        .frame(maxWidth: 1_080)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
   }
@@ -339,42 +332,6 @@ struct BigPictureView: View {
             scrollTargetID = nil
           }
         }
-      }
-    }
-  }
-
-  private func selectedGamePreview(_ game: GameSummary) -> some View {
-    VStack(alignment: .leading, spacing: 18) {
-      RomMImageView(
-        url: game.coverURL,
-        session: model.session,
-        service: model.service,
-        targetSize: CGSize(width: 480, height: 640),
-        contentMode: .fit,
-        placeholderSystemImage: "gamecontroller",
-        cornerRadius: 14,
-        imagePadding: 6
-      )
-      .aspectRatio(3 / 4, contentMode: .fit)
-      .frame(maxHeight: 330)
-
-      VStack(alignment: .leading, spacing: 6) {
-        Text(game.name)
-          .font(.system(size: 25, weight: .black, design: .rounded))
-          .lineLimit(2)
-
-        HStack(spacing: 12) {
-          Text(selectedGameSecondaryText(game).uppercased())
-          if model.downloadedGameIDs.contains(game.id) {
-            Label("LOCAL", systemImage: "arrow.down.circle.fill")
-          }
-          if game.hasSave == true {
-            Label("SAVE", systemImage: "memorychip.fill")
-          }
-        }
-        .font(.system(size: 12, weight: .black, design: .rounded))
-        .foregroundStyle(.white.opacity(0.55))
-        .labelStyle(.titleAndIcon)
       }
     }
   }
@@ -861,13 +818,6 @@ struct BigPictureView: View {
       return nil
     }
     return catalog.systems.first(where: { $0.id == systemID })
-  }
-
-  private func selectedGameSecondaryText(_ game: GameSummary) -> String {
-    if case .games(.system) = page {
-      return game.releaseYear.map(String.init) ?? "Unknown Year"
-    }
-    return game.systemName
   }
 
   private func gameOptions(
