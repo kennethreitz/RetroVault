@@ -259,31 +259,6 @@ struct LibraryTests {
     }
 
     @MainActor
-    @Test("Starts a complete artwork pass after synchronization")
-    func startsArtworkCachingAfterSynchronization() async throws {
-        let session = ServerSession(
-            serverURL: try ServerURL("https://romm.example.com"),
-            username: "kenneth"
-        )
-        let service = MockLibraryService()
-        let artworkCache = RecordingArtworkCache()
-        let model = LibraryModel(
-            session: session,
-            service: service,
-            artworkCache: artworkCache
-        )
-
-        await model.load()
-        let cachedGameIDs = await artworkCache.waitForRequest()
-
-        #expect(cachedGameIDs.count == 61)
-        #expect(model.artworkCacheTotalCount == 30)
-        #expect(model.cachedArtworkCount == 30)
-        #expect(model.artworkCacheFailureCount == 0)
-        #expect(!model.isCachingArtwork)
-    }
-
-    @MainActor
     @Test("Removes games after RomM confirms deletion")
     func deletesGamesFromLibrary() async throws {
         let session = ServerSession(
@@ -482,19 +457,8 @@ struct LibraryTests {
         let remoteRequest = try #require(
             try await service.resourceRequest(for: remoteGame.coverURL, in: session)
         )
-        let batchRequests = try await service.artworkRequests(
-            for: [localGame, remoteGame, localGame],
-            in: session
-        )
-
         #expect(localRequest.value(forHTTPHeaderField: "Authorization") == "Bearer \(token.rawValue)")
         #expect(remoteRequest.value(forHTTPHeaderField: "Authorization") == nil)
-        #expect(batchRequests.count == 2)
-        #expect(
-            batchRequests[0].value(forHTTPHeaderField: "Authorization")
-                == "Bearer \(token.rawValue)"
-        )
-        #expect(batchRequests[1].value(forHTTPHeaderField: "Authorization") == nil)
     }
 
     @MainActor
@@ -1663,41 +1627,6 @@ private actor MockLibraryService: LibraryServing {
 
     func resourceRequest(for url: URL?, in session: ServerSession) -> URLRequest? {
         nil
-    }
-}
-
-private actor RecordingArtworkCache: ArtworkCaching {
-    private var requestedGameIDs: [Int]?
-    private var continuation: CheckedContinuation<[Int], Never>?
-
-    func cacheArtwork(
-        for games: [GameSummary],
-        in session: ServerSession,
-        using service: any LibraryServing,
-        onProgress: @escaping @Sendable (ArtworkCacheProgress) async -> Void
-    ) async {
-        let artworkCount = Set(games.compactMap(\.coverURL)).count
-        await onProgress(
-            ArtworkCacheProgress(
-                completedCount: artworkCount,
-                totalCount: artworkCount,
-                failedCount: 0
-            )
-        )
-
-        let gameIDs = games.map(\.id)
-        requestedGameIDs = gameIDs
-        continuation?.resume(returning: gameIDs)
-        continuation = nil
-    }
-
-    func waitForRequest() async -> [Int] {
-        if let requestedGameIDs {
-            return requestedGameIDs
-        }
-        return await withCheckedContinuation {
-            continuation = $0
-        }
     }
 }
 

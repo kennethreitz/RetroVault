@@ -94,8 +94,7 @@ final class AppModel {
     private func showLibrary(_ session: ServerSession) {
         libraryModel = LibraryModel(
             session: session,
-            service: environment.library,
-            artworkCache: environment.artworkCache
+            service: environment.library
         )
         destination = .library(session)
     }

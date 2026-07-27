@@ -57,7 +57,6 @@ final class LibraryModel {
   private(set) var isCheckingSystemArtwork = false
   private(set) var isSynchronizing = false
   private(set) var isPurgingLocalCache = false
-  private(set) var isCachingArtwork = false
   private(set) var isDownloadingGames = false
   private(set) var downloadProgress: LibraryDownloadProgress?
   private(set) var isRemovingDownloads = false
@@ -66,9 +65,6 @@ final class LibraryModel {
   private(set) var isUpdatingFavorites = false
   private(set) var synchronizedGameCount = 0
   private(set) var synchronizationTotalGameCount = 0
-  private(set) var cachedArtworkCount = 0
-  private(set) var artworkCacheTotalCount = 0
-  private(set) var artworkCacheFailureCount = 0
   private(set) var lastSuccessfulSync: Date?
   private(set) var isShowingStaleData = false
   private(set) var refreshErrorMessage: String?
@@ -78,7 +74,6 @@ final class LibraryModel {
   private var requestID = UUID()
   private var synchronizationID = UUID()
   private var artworkInspectionID = UUID()
-  private var artworkCachingTask: Task<Void, Never>?
   private var favoriteSynchronizationTask: Task<Void, Never>?
   private var favoriteSynchronizationNeedsAnotherPass = false
   private var downloadOperationID = UUID()
@@ -88,16 +83,13 @@ final class LibraryModel {
   private var prioritizedDownloadWaiters:
     [Int: [UUID: CheckedContinuation<PrioritizedGameDownloadResult, Never>]] = [:]
   private var snapshot: LibrarySnapshot?
-  private let artworkCache: any ArtworkCaching
 
   init(
     session: ServerSession,
-    service: any LibraryServing,
-    artworkCache: any ArtworkCaching = DisabledArtworkCache()
+    service: any LibraryServing
   ) {
     self.session = session
     self.service = service
-    self.artworkCache = artworkCache
   }
 
   var title: String {
@@ -234,7 +226,6 @@ final class LibraryModel {
       return
     }
 
-    cancelArtworkCaching()
     await reloadDownloadedGames()
 
     let currentSynchronizationID = UUID()
@@ -270,7 +261,6 @@ final class LibraryModel {
       isSynchronizing = false
       isShowingStaleData = false
       refreshErrorMessage = nil
-      startArtworkCaching(for: refreshedSnapshot.games)
       if hidesGamesWithoutArtwork {
         await inspectSystemArtwork()
       }
@@ -308,7 +298,6 @@ final class LibraryModel {
       return
     }
 
-    cancelArtworkCaching()
     isSynchronizing = true
     isPurgingLocalCache = true
     refreshErrorMessage = nil
@@ -352,68 +341,8 @@ final class LibraryModel {
   }
 
   func cancelBackgroundWork() {
-    cancelArtworkCaching()
     favoriteSynchronizationTask?.cancel()
     favoriteSynchronizationTask = nil
-  }
-
-  private func startArtworkCaching(for games: [GameSummary]) {
-    artworkCachingTask?.cancel()
-
-    let totalCount = Set(games.compactMap(\.coverURL)).count
-    cachedArtworkCount = 0
-    artworkCacheTotalCount = totalCount
-    artworkCacheFailureCount = 0
-    isCachingArtwork = totalCount > 0
-
-    guard totalCount > 0 else {
-      artworkCachingTask = nil
-      return
-    }
-
-    let artworkCache = self.artworkCache
-    let session = self.session
-    let service = self.service
-    artworkCachingTask = Task { [weak self] in
-      await artworkCache.cacheArtwork(
-        for: games,
-        in: session,
-        using: service
-      ) { [weak self] progress in
-        await self?.apply(progress)
-      }
-
-      guard !Task.isCancelled else {
-        return
-      }
-      self?.isCachingArtwork = false
-      self?.artworkCachingTask = nil
-
-      if let failureCount = self?.artworkCacheFailureCount,
-        failureCount > 0
-      {
-        OpenVaultLog.library.notice(
-          "Artwork caching completed with \(failureCount, privacy: .public) failed requests"
-        )
-      } else {
-        OpenVaultLog.library.notice("Artwork caching completed")
-      }
-    }
-  }
-
-  private func apply(_ progress: ArtworkCacheProgress) {
-    cachedArtworkCount = progress.completedCount
-    artworkCacheTotalCount = progress.totalCount
-    artworkCacheFailureCount = progress.failedCount
-  }
-
-  private func cancelArtworkCaching() {
-    artworkCachingTask?.cancel()
-    artworkCachingTask = nil
-    isCachingArtwork = false
-    cachedArtworkCount = 0
-    artworkCacheTotalCount = 0
-    artworkCacheFailureCount = 0
   }
 
   func reloadGames() async {
