@@ -3328,7 +3328,10 @@ private struct LibraryTableView: View {
       selectedStatus: showsStatusBrowser ? selectedStatus : nil,
       selectedSaveData: showsSaveDataBrowser ? selectedSaveData : nil,
       selectedDownloaded: showsDownloadedBrowser ? selectedDownloaded : nil,
-      downloadedGameIDs: model.downloadedGameIDs,
+      downloadedFilterGameIDs:
+        showsDownloadedBrowser && selectedDownloaded != nil
+        ? model.downloadedGameIDs
+        : [],
       selectedArtwork: showsArtworkBrowser ? selectedArtwork : nil,
       favoriteGameIDs:
         model.prioritizesFavoritesInCurrentView
@@ -3993,7 +3996,6 @@ private struct LibraryGridView: View {
       loadedGameCount: model.games.count,
       hidesBIOSGames: model.hidesBIOSGames,
       hidesGamesWithoutArtwork: model.hidesGamesWithoutArtwork,
-      downloadedGameIDs: model.downloadedGameIDs,
       favoriteGameIDs:
         model.prioritizesFavoritesInCurrentView
         ? model.favoriteGameIDs
@@ -4098,7 +4100,12 @@ private struct LibraryTableRowsKey: Hashable {
   let selectedStatus: String?
   let selectedSaveData: String?
   let selectedDownloaded: String?
-  let downloadedGameIDs: Set<Int>
+  /// Download membership affects the row set only while its browser filter is active.
+  ///
+  /// Keeping ordinary checkbox updates out of this structural key prevents each
+  /// completed background download from replacing the table and losing its scroll
+  /// position.
+  let downloadedFilterGameIDs: Set<Int>
   let selectedArtwork: String?
   let favoriteGameIDs: Set<Int>
 }
@@ -4110,7 +4117,6 @@ private struct LibraryArtworkRowsKey: Hashable {
   let loadedGameCount: Int
   let hidesBIOSGames: Bool
   let hidesGamesWithoutArtwork: Bool
-  let downloadedGameIDs: Set<Int>
   let favoriteGameIDs: Set<Int>
   let sort: ArtworkSort
 }

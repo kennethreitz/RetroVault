@@ -683,6 +683,14 @@ final class LibraryModel {
   }
 
   func reloadDownloadedGames() async {
+    // Each completed managed download posts a filesystem-change notification.
+    // The active batch already applies those completions directly, so rescanning
+    // hundreds of times is both redundant and capable of replacing newer
+    // in-memory membership with an older scan. Reconcile once after the batch.
+    guard !isDownloadingGames else {
+      return
+    }
+
     async let downloadedGameIDsRequest = service.downloadedGameIDs(in: session)
     async let managedDownloadedGameIDsRequest = service.managedDownloadedGameIDs(
       in: session

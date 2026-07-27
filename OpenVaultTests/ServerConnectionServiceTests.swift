@@ -337,6 +337,39 @@ struct LibraryTests {
     }
 
     @MainActor
+    @Test("Defers downloaded membership rescans until a bulk download completes")
+    func defersDownloadedMembershipRescans() async throws {
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let service = MockLibraryService(blockedDownloadID: 1)
+        let model = LibraryModel(session: session, service: service)
+        await model.load()
+        let firstGame = try #require(model.games.first { $0.id == 1 })
+        let initialReadCount = await service.downloadedMembershipReadCount()
+
+        let bulkDownload = Task { @MainActor in
+            await model.downloadGames([firstGame])
+        }
+        await service.waitUntilDownloadStarts(gameID: firstGame.id)
+
+        await model.reloadDownloadedGames()
+        #expect(
+            await service.downloadedMembershipReadCount()
+                == initialReadCount
+        )
+
+        await service.resumeBlockedDownload()
+        #expect((await bulkDownload.value).completedWithoutErrors)
+        #expect(
+            await service.downloadedMembershipReadCount()
+                > initialReadCount
+        )
+        #expect(model.downloadedGameIDs.contains(firstGame.id))
+    }
+
+    @MainActor
     @Test("Starts a prioritized game as soon as a worker is available")
     func prioritizesLaunchedGameDownload() async throws {
         let session = ServerSession(
@@ -1582,6 +1615,7 @@ private actor MockLibraryService: LibraryServing {
     private var downloadOrder: [Int] = []
     private var activeDownloadCount = 0
     private var peakActiveDownloadCount = 0
+    private var downloadedMembershipReads = 0
     private var downloadStartWaiters:
         [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var blockedDownloadContinuation: CheckedContinuation<Void, Never>?
@@ -1790,7 +1824,12 @@ private actor MockLibraryService: LibraryServing {
     }
 
     func downloadedGameIDs(in session: ServerSession) async -> Set<Int> {
-        downloadedIDs
+        downloadedMembershipReads += 1
+        return downloadedIDs
+    }
+
+    func downloadedMembershipReadCount() -> Int {
+        downloadedMembershipReads
     }
 
     func deleteGames(
