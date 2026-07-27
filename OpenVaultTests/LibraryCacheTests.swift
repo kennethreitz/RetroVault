@@ -1195,6 +1195,40 @@ struct LibraryCacheTests {
     #expect(await cache.snapshot(for: serverURL) == snapshot)
   }
 
+  @Test("Fetches large synchronized libraries in parallel")
+  func fetchesSynchronizedPagesInParallel() async throws {
+    let serverURL = try ServerURL("https://romm.example.com")
+    let session = ServerSession(serverURL: serverURL, username: "kenneth")
+    let client = SynchronizationRomMClient(
+      gameCount: 2_505,
+      gameRequestDelayMilliseconds: 20
+    )
+    let progress = SyncProgressRecorder()
+    let service = RomMLibraryService(
+      api: client,
+      credentialStore: TestCredentialStore(
+        token: try ClientToken(
+          rawValue: "rmm_" + String(repeating: "e", count: 64)
+        )
+      ),
+      cache: InMemoryLibraryCache()
+    )
+
+    let snapshot = try await service.synchronizeLibrary(in: session) {
+      await progress.record($0)
+    }
+    let requestStats = await client.catalogRequestStats()
+    let completedCounts = await progress.completedCounts()
+
+    #expect(snapshot.games.count == 2_505)
+    #expect(snapshot.games.map(\.id) == Array(1...2_505))
+    #expect(requestStats.offsets.sorted() == [0, 1_000, 2_000])
+    #expect(requestStats.limits == [1_000, 1_000, 1_000])
+    #expect(requestStats.maximumConcurrentRequestCount > 1)
+    #expect(completedCounts == completedCounts.sorted())
+    #expect(completedCounts.last == 2_505)
+  }
+
   @Test("Does not replace a good snapshot after a failed synchronization")
   func keepsPreviousSnapshotAfterSyncFailure() async throws {
     let serverURL = try ServerURL("https://romm.example.com")
@@ -1527,31 +1561,56 @@ private struct UnavailableRomMClient: RomMClient {
   }
 }
 
-private struct SynchronizationRomMClient: RomMClient {
-  private let allGames = [
-    GameSummary(
-      id: 1,
-      name: "Tetris",
-      systemID: 1,
-      systemName: "Game Boy",
-      coverURL: nil
-    ),
-    GameSummary(
-      id: 2,
-      name: "Metroid",
-      systemID: 1,
-      systemName: "Game Boy",
-      coverURL: nil
-    ),
-    GameSummary(
-      id: 3,
-      name: "[BIOS] Game Boy",
-      systemID: 1,
-      systemName: "Game Boy",
-      coverURL: nil,
-      isBIOS: true
-    ),
-  ]
+private actor SynchronizationRomMClient: RomMClient {
+  private let allGames: [GameSummary]
+  private let gameRequestDelayMilliseconds: Int64
+  private var catalogRequestOffsets: [Int] = []
+  private var catalogRequestLimits: [Int] = []
+  private var activeCatalogRequestCount = 0
+  private var maximumConcurrentCatalogRequestCount = 0
+
+  init(
+    gameCount: Int? = nil,
+    gameRequestDelayMilliseconds: Int64 = 0
+  ) {
+    self.gameRequestDelayMilliseconds = gameRequestDelayMilliseconds
+    if let gameCount {
+      allGames = (1...gameCount).map {
+        GameSummary(
+          id: $0,
+          name: "Game \(String(format: "%05d", $0))",
+          systemID: 1,
+          systemName: "Game Boy",
+          coverURL: nil
+        )
+      }
+    } else {
+      allGames = [
+        GameSummary(
+          id: 1,
+          name: "Tetris",
+          systemID: 1,
+          systemName: "Game Boy",
+          coverURL: nil
+        ),
+        GameSummary(
+          id: 2,
+          name: "Metroid",
+          systemID: 1,
+          systemName: "Game Boy",
+          coverURL: nil
+        ),
+        GameSummary(
+          id: 3,
+          name: "[BIOS] Game Boy",
+          systemID: 1,
+          systemName: "Game Boy",
+          coverURL: nil,
+          isBIOS: true
+        ),
+      ]
+    }
+  }
 
   func verifyServer(at serverURL: ServerURL) async throws {}
 
@@ -1565,7 +1624,7 @@ private struct SynchronizationRomMClient: RomMClient {
 
   func systems(at serverURL: ServerURL, token: ClientToken) async throws -> [LibrarySystem] {
     [
-      LibrarySystem(id: 1, name: "Game Boy", gameCount: 3)
+      LibrarySystem(id: 1, name: "Game Boy", gameCount: allGames.count)
     ]
   }
 
@@ -1606,6 +1665,24 @@ private struct SynchronizationRomMClient: RomMClient {
     offset: Int,
     limit: Int
   ) async throws -> GamePage {
+    if case .allGames = filter {
+      catalogRequestOffsets.append(offset)
+      catalogRequestLimits.append(limit)
+      activeCatalogRequestCount += 1
+      maximumConcurrentCatalogRequestCount = max(
+        maximumConcurrentCatalogRequestCount,
+        activeCatalogRequestCount
+      )
+      defer {
+        activeCatalogRequestCount -= 1
+      }
+      if gameRequestDelayMilliseconds > 0 {
+        try await Task.sleep(
+          for: .milliseconds(gameRequestDelayMilliseconds)
+        )
+      }
+    }
+
     let filtered: [GameSummary]
     switch filter {
     case .allGames, .system, .systems:
@@ -1619,6 +1696,18 @@ private struct SynchronizationRomMClient: RomMClient {
       total: filtered.count,
       limit: limit,
       offset: offset
+    )
+  }
+
+  func catalogRequestStats() -> (
+    offsets: [Int],
+    limits: [Int],
+    maximumConcurrentRequestCount: Int
+  ) {
+    (
+      catalogRequestOffsets,
+      catalogRequestLimits,
+      maximumConcurrentCatalogRequestCount
     )
   }
 
@@ -1646,6 +1735,18 @@ private struct SynchronizationRomMClient: RomMClient {
     token: ClientToken
   ) async throws -> RomMDownload {
     throw URLError(.unsupportedURL)
+  }
+}
+
+private actor SyncProgressRecorder {
+  private var values: [Int] = []
+
+  func record(_ progress: LibrarySyncProgress) {
+    values.append(progress.completedGameCount)
+  }
+
+  func completedCounts() -> [Int] {
+    values
   }
 }
 

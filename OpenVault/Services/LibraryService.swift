@@ -261,7 +261,8 @@ extension LibraryServing {
 
 actor RomMLibraryService: LibraryServing {
   private static let artworkInspectionPageSize = 500
-  private static let synchronizationPageSize = 500
+  private static let synchronizationPageSize = 1_000
+  private static let synchronizationRequestLimit = 4
   private let api: any RomMClient
   private let credentialStore: any CredentialStoring
   private let cache: any LibraryCaching
@@ -417,45 +418,13 @@ actor RomMLibraryService: LibraryServing {
       collectionsRequest
     )
 
-    var allGames: [GameSummary] = []
-    var seenGameIDs: Set<Int> = []
-    var offset = 0
-
-    while true {
-      let page = try await api.games(
-        at: session.serverURL,
-        token: token,
-        matching: .allGames,
-        searchTerm: nil,
-        offset: offset,
-        limit: Self.synchronizationPageSize
-      )
-      let newGames = page.games.filter {
-        seenGameIDs.insert($0.id).inserted
-      }
-      allGames.append(contentsOf: newGames)
-
-      await onProgress(
-        LibrarySyncProgress(
-          systems: remoteSystems,
-          collections: remoteCollections,
-          games: newGames,
-          completedGameCount: min(
-            page.offset + page.games.count,
-            page.total
-          ),
-          totalGameCount: page.total
-        )
-      )
-
-      guard page.hasMore else {
-        break
-      }
-      guard !page.games.isEmpty else {
-        throw LibraryServiceError.incompleteSynchronization
-      }
-      offset = page.offset + page.games.count
-    }
+    var allGames = try await synchronizedGames(
+      in: session,
+      token: token,
+      systems: remoteSystems,
+      collections: remoteCollections,
+      onProgress: onProgress
+    )
 
     let (saveGameIDs, stateGameIDs) = try await (
       saveGameIDsRequest,
@@ -526,6 +495,124 @@ actor RomMLibraryService: LibraryServing {
       "Synchronized \(snapshot.games.count, privacy: .public) games across \(snapshot.systems.count, privacy: .public) systems"
     )
     return snapshot
+  }
+
+  private func synchronizedGames(
+    in session: ServerSession,
+    token: ClientToken,
+    systems: [LibrarySystem],
+    collections: [LibraryCollection],
+    onProgress: @escaping @Sendable (LibrarySyncProgress) async -> Void
+  ) async throws -> [GameSummary] {
+    let pageSize = Self.synchronizationPageSize
+    let firstPage = try await api.games(
+      at: session.serverURL,
+      token: token,
+      matching: .allGames,
+      searchTerm: nil,
+      offset: 0,
+      limit: pageSize
+    )
+    guard firstPage.offset == 0 else {
+      throw LibraryServiceError.incompleteSynchronization
+    }
+
+    await onProgress(
+      LibrarySyncProgress(
+        systems: systems,
+        collections: collections,
+        games: firstPage.games,
+        completedGameCount: firstPage.games.count,
+        totalGameCount: firstPage.total
+      )
+    )
+
+    guard firstPage.hasMore else {
+      return try completeGames(from: [firstPage], expectedCount: firstPage.total)
+    }
+    guard !firstPage.games.isEmpty else {
+      throw LibraryServiceError.incompleteSynchronization
+    }
+
+    let effectivePageSize = firstPage.games.count
+    let offsets = Array(
+      stride(
+        from: firstPage.offset + effectivePageSize,
+        to: firstPage.total,
+        by: effectivePageSize
+      )
+    )
+    let api = self.api
+    let serverURL = session.serverURL
+    let requestLimit = Self.synchronizationRequestLimit
+    var pages = [firstPage]
+    var completedGameCount = firstPage.games.count
+
+    try await withThrowingTaskGroup(of: GamePage.self) { group in
+      var nextOffsetIndex = 0
+
+      func addNextRequest() {
+        guard nextOffsetIndex < offsets.count else {
+          return
+        }
+        let offset = offsets[nextOffsetIndex]
+        nextOffsetIndex += 1
+        group.addTask {
+          try await api.games(
+            at: serverURL,
+            token: token,
+            matching: .allGames,
+            searchTerm: nil,
+            offset: offset,
+            limit: pageSize
+          )
+        }
+      }
+
+      for _ in 0..<min(requestLimit, offsets.count) {
+        addNextRequest()
+      }
+
+      while let page = try await group.next() {
+        guard
+          page.total == firstPage.total,
+          offsets.contains(page.offset),
+          !page.games.isEmpty
+        else {
+          throw LibraryServiceError.incompleteSynchronization
+        }
+        pages.append(page)
+        completedGameCount += page.games.count
+        await onProgress(
+          LibrarySyncProgress(
+            systems: systems,
+            collections: collections,
+            games: page.games,
+            completedGameCount: min(completedGameCount, firstPage.total),
+            totalGameCount: firstPage.total
+          )
+        )
+        addNextRequest()
+      }
+    }
+
+    return try completeGames(from: pages, expectedCount: firstPage.total)
+  }
+
+  private func completeGames(
+    from pages: [GamePage],
+    expectedCount: Int
+  ) throws -> [GameSummary] {
+    let games = pages
+      .sorted { $0.offset < $1.offset }
+      .flatMap(\.games)
+    guard
+      games.count == expectedCount,
+      Set(games.map(\.id)).count == expectedCount
+    else {
+      throw LibraryServiceError.incompleteSynchronization
+    }
+    return games
   }
 
   func systems(in session: ServerSession) async throws -> [LibrarySystem] {
