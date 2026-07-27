@@ -1593,8 +1593,15 @@ private final class LibretroCStringStore {
     }
 }
 
-private final class LibretroEnvironment {
-    private static let preferredVariableValues = [
+enum LibretroCoreOptionPreferences {
+    private static let values = [
+        // DOSBox Pure's ARM64 dynamic recompiler allocates its code cache with
+        // malloc and then tries to make it executable with mprotect. Hardened
+        // macOS rejects that transition even when the app has the JIT
+        // entitlement, so protected-mode games trap shortly after their
+        // executable is selected. The interpreter is slower but reliable.
+        "dosbox_pure_cpu_core": "normal",
+
         // GLideN64's framebuffer path can produce valid but entirely black
         // frames through macOS's deprecated OpenGL implementation. The
         // multithreaded Angrylion renderer is CPU-based, accurate, and avoids
@@ -1604,6 +1611,12 @@ private final class LibretroEnvironment {
         "parallel-n64-angrylion-multithread": "all threads",
     ]
 
+    static func value(for key: String, default defaultValue: String) -> String {
+        values[key] ?? defaultValue
+    }
+}
+
+private final class LibretroEnvironment {
     private let strings = LibretroCStringStore()
     private let systemDirectory: UnsafePointer<CChar>
     private let saveDirectory: UnsafePointer<CChar>
@@ -1831,7 +1844,10 @@ private final class LibretroEnvironment {
                     }
                 if let defaultValue = values?.first, !defaultValue.isEmpty {
                     variables[key] = strings.store(
-                        Self.preferredVariableValues[key] ?? defaultValue
+                        LibretroCoreOptionPreferences.value(
+                            for: key,
+                            default: defaultValue
+                        )
                     )
                 }
             }

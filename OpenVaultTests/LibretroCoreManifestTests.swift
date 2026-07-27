@@ -5,6 +5,22 @@ import Testing
 
 @Suite("Bundled Libretro cores")
 struct LibretroCoreManifestTests {
+    @Test("Uses interpreter mode for DOSBox Pure")
+    func usesSafeDOSBoxPureCPUCore() {
+        #expect(
+            LibretroCoreOptionPreferences.value(
+                for: "dosbox_pure_cpu_core",
+                default: "auto"
+            ) == "normal"
+        )
+        #expect(
+            LibretroCoreOptionPreferences.value(
+                for: "unconfigured_core_option",
+                default: "core default"
+            ) == "core default"
+        )
+    }
+
     @Test("Maps Xbox and Nintendo face buttons to matching positions")
     func mapsControllerFaceButtonPositions() {
         let xboxBottom = LibretroInputState.faceButtonMask(
