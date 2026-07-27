@@ -220,6 +220,39 @@ struct SidebarSystemSortTests {
 
 @Suite("Big Picture catalog")
 struct BigPictureCatalogTests {
+  @Test("Requests fullscreen only for the initial visible presentation")
+  func requestsInitialFullScreenOnce() {
+    var gate = BigPictureInitialFullScreenGate()
+
+    let hiddenRequest = gate.shouldRequest(
+      isWindowVisible: false,
+      isFullScreen: false
+    )
+    let initialRequest = gate.shouldRequest(
+      isWindowVisible: true,
+      isFullScreen: false
+    )
+    let repeatedRequest = gate.shouldRequest(
+      isWindowVisible: true,
+      isFullScreen: false
+    )
+    #expect(!hiddenRequest)
+    #expect(initialRequest)
+    #expect(!repeatedRequest)
+
+    var alreadyFullScreen = BigPictureInitialFullScreenGate()
+    let redundantRequest = alreadyFullScreen.shouldRequest(
+      isWindowVisible: true,
+      isFullScreen: true
+    )
+    let requestAfterExiting = alreadyFullScreen.shouldRequest(
+      isWindowVisible: true,
+      isFullScreen: false
+    )
+    #expect(!redundantRequest)
+    #expect(!requestAfterExiting)
+  }
+
   @Test("Builds recent, favorite, downloaded, system, and collection menus offline")
   func buildsControllerFirstCatalog() {
     let collectionID = LibraryCollection.ID.virtual("mario")

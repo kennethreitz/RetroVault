@@ -71,16 +71,6 @@ struct BigPictureView: View {
     .task {
       await pollControllers()
     }
-    .onReceive(
-      NotificationCenter.default.publisher(
-        for: NSWindow.didExitFullScreenNotification
-      )
-    ) { notification in
-      guard notification.object as? NSWindow === bigPictureWindow else {
-        return
-      }
-      dismissWindow(id: BigPictureScene.id)
-    }
     .onDisappear {
       playbackTask?.cancel()
     }
@@ -2000,11 +1990,28 @@ private struct BigPictureWindowProbe: NSViewRepresentable {
   }
 }
 
+struct BigPictureInitialFullScreenGate: Sendable {
+  private(set) var hasHandledInitialPresentation = false
+
+  mutating func shouldRequest(
+    isWindowVisible: Bool,
+    isFullScreen: Bool
+  ) -> Bool {
+    guard isWindowVisible, !hasHandledInitialPresentation else {
+      return false
+    }
+
+    hasHandledInitialPresentation = true
+    return !isFullScreen
+  }
+}
+
 @MainActor
 private final class BigPictureProbeView: NSView {
   var didMoveToWindow: (@MainActor (NSWindow?) -> Void)?
   private weak var observedWindow: NSWindow?
   private var fullScreenRequest: Task<Void, Never>?
+  private var initialFullScreenGate = BigPictureInitialFullScreenGate()
 
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
@@ -2017,17 +2024,16 @@ private final class BigPictureProbeView: NSView {
     observe(window)
     window.backgroundColor = .black
     configureFullScreen(for: window)
-    window.titleVisibility = .hidden
-    window.titlebarAppearsTransparent = true
-    window.toolbar?.isVisible = false
     requestFullScreenIfNeeded()
   }
 
   func requestFullScreenIfNeeded() {
     guard
       let window,
-      window.isVisible,
-      !window.styleMask.contains(.fullScreen),
+      initialFullScreenGate.shouldRequest(
+        isWindowVisible: window.isVisible,
+        isFullScreen: window.styleMask.contains(.fullScreen)
+      ),
       fullScreenRequest == nil
     else {
       return
