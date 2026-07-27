@@ -2006,12 +2006,27 @@ struct BigPictureInitialFullScreenGate: Sendable {
   }
 }
 
+enum BigPicturePresentationOptions {
+  static func immersive(
+    from current: NSApplication.PresentationOptions
+  ) -> NSApplication.PresentationOptions {
+    var options = current
+    options.remove(.hideMenuBar)
+    options.remove(.hideDock)
+    options.insert(.autoHideMenuBar)
+    options.insert(.autoHideDock)
+    return options
+  }
+}
+
 @MainActor
 private final class BigPictureProbeView: NSView {
   var didMoveToWindow: (@MainActor (NSWindow?) -> Void)?
   private weak var observedWindow: NSWindow?
   private var fullScreenRequest: Task<Void, Never>?
   private var initialFullScreenGate = BigPictureInitialFullScreenGate()
+  private var previousPresentationOptions:
+    NSApplication.PresentationOptions?
 
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
@@ -2024,6 +2039,9 @@ private final class BigPictureProbeView: NSView {
     observe(window)
     window.backgroundColor = .black
     configureBigPictureWindow(window)
+    if window.styleMask.contains(.fullScreen) {
+      beginImmersivePresentation()
+    }
     requestFullScreenIfNeeded()
   }
 
@@ -2074,15 +2092,34 @@ private final class BigPictureProbeView: NSView {
       name: NSWindow.didBecomeKeyNotification,
       object: window
     )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(windowDidEnterFullScreen(_:)),
+      name: NSWindow.didEnterFullScreenNotification,
+      object: window
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(windowDidExitFullScreen(_:)),
+      name: NSWindow.didExitFullScreenNotification,
+      object: window
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(windowWillClose(_:)),
+      name: NSWindow.willCloseNotification,
+      object: window
+    )
   }
 
   private func stopObservingWindow() {
     fullScreenRequest?.cancel()
     fullScreenRequest = nil
+    endImmersivePresentation()
     if let observedWindow {
       NotificationCenter.default.removeObserver(
         self,
-        name: NSWindow.didBecomeKeyNotification,
+        name: nil,
         object: observedWindow
       )
     }
@@ -2092,6 +2129,42 @@ private final class BigPictureProbeView: NSView {
   @objc
   private func windowDidBecomeKey(_ notification: Notification) {
     requestFullScreenIfNeeded()
+  }
+
+  @objc
+  private func windowDidEnterFullScreen(_ notification: Notification) {
+    beginImmersivePresentation()
+  }
+
+  @objc
+  private func windowDidExitFullScreen(_ notification: Notification) {
+    endImmersivePresentation()
+  }
+
+  @objc
+  private func windowWillClose(_ notification: Notification) {
+    endImmersivePresentation()
+  }
+
+  private func beginImmersivePresentation() {
+    guard previousPresentationOptions == nil else {
+      return
+    }
+
+    let application = NSApplication.shared
+    previousPresentationOptions = application.presentationOptions
+    application.presentationOptions = BigPicturePresentationOptions.immersive(
+      from: application.presentationOptions
+    )
+  }
+
+  private func endImmersivePresentation() {
+    guard let previousPresentationOptions else {
+      return
+    }
+
+    NSApplication.shared.presentationOptions = previousPresentationOptions
+    self.previousPresentationOptions = nil
   }
 }
 

@@ -221,6 +221,23 @@ struct SidebarSystemSortTests {
 
 @Suite("Big Picture catalog")
 struct BigPictureCatalogTests {
+  @Test("Uses immersive presentation only while fullscreen")
+  func createsImmersivePresentationOptions() {
+    let original: NSApplication.PresentationOptions = [
+      .hideMenuBar,
+      .hideDock,
+      .disableAppleMenu,
+    ]
+
+    let immersive = BigPicturePresentationOptions.immersive(from: original)
+
+    #expect(immersive.contains(.autoHideMenuBar))
+    #expect(immersive.contains(.autoHideDock))
+    #expect(!immersive.contains(.hideMenuBar))
+    #expect(!immersive.contains(.hideDock))
+    #expect(immersive.contains(.disableAppleMenu))
+  }
+
   @Test("Keeps native window controls available for optional fullscreen")
   @MainActor
   func configuresOptionalFullScreenWindow() {
