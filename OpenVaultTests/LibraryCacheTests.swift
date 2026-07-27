@@ -729,6 +729,33 @@ struct BigPictureCatalogTests {
     )
   }
 
+  @Test("Jumps to the first title matching a typed letter")
+  func selectsBigPictureRowByLetter() {
+    let titles = [
+      "Alien Hominid",
+      "Castlevania",
+      "Écco the Dolphin",
+      "EarthBound",
+      "Zelda",
+    ]
+
+    #expect(
+      BigPictureTypeSelection.index(matching: "c", in: titles) == 1
+    )
+    #expect(
+      BigPictureTypeSelection.index(matching: "E", in: titles) == 2
+    )
+    #expect(
+      BigPictureTypeSelection.index(matching: "z", in: titles) == 4
+    )
+    #expect(
+      BigPictureTypeSelection.index(matching: "q", in: titles) == nil
+    )
+    #expect(
+      BigPictureTypeSelection.index(matching: "12", in: titles) == nil
+    )
+  }
+
   @Test("Keeps Big Picture selection at list boundaries")
   func clampsBigPictureSelection() {
     #expect(

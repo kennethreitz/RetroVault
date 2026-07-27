@@ -139,9 +139,8 @@ struct BigPictureView: View {
     .onKeyPress(.delete) {
       handleKeyboardKey(.delete)
     }
-    .onKeyPress("x") {
-      handleNavigationInput(.openGameOptions)
-      return .handled
+    .onKeyPress(phases: .down) { keyPress in
+      handleTypeSelection(keyPress)
     }
     .onKeyPress(.escape) {
       handleEscape()
@@ -1413,6 +1412,32 @@ struct BigPictureView: View {
     return .handled
   }
 
+  private func handleTypeSelection(
+    _ keyPress: KeyPress
+  ) -> KeyPress.Result {
+    guard
+      keyPress.modifiers.intersection([.command, .control, .option]).isEmpty,
+      BigPictureTypeSelection.isSearchCharacter(keyPress.characters),
+      actionProgressTitle == nil,
+      actionNotice == nil,
+      optionsGame == nil,
+      optionsSystem == nil,
+      playbackErrorMessage == nil,
+      !isPreparingPlayback
+    else {
+      return .ignored
+    }
+
+    recordNavigationInput()
+    if let index = BigPictureTypeSelection.index(
+      matching: keyPress.characters,
+      in: rows.map(\.title)
+    ) {
+      selectRow(at: index, scrollsIntoView: true)
+    }
+    return .handled
+  }
+
   private func recordNavigationInput() {
     inputPriority.recordNavigationInput(
       pointerPosition: NSEvent.mouseLocation
@@ -1611,6 +1636,35 @@ enum BigPictureKeyboardNavigation {
     default:
       nil
     }
+  }
+}
+
+enum BigPictureTypeSelection {
+  static func isSearchCharacter(_ characters: String) -> Bool {
+    characters.count == 1 && characters.first?.isLetter == true
+  }
+
+  static func index(
+    matching characters: String,
+    in titles: [String]
+  ) -> Int? {
+    guard isSearchCharacter(characters) else {
+      return nil
+    }
+
+    let prefix = normalized(characters)
+    return titles.firstIndex {
+      normalized(
+        $0.trimmingCharacters(in: .whitespacesAndNewlines)
+      ).hasPrefix(prefix)
+    }
+  }
+
+  private static func normalized(_ value: String) -> String {
+    value.folding(
+      options: [.caseInsensitive, .diacriticInsensitive],
+      locale: .current
+    )
   }
 }
 
