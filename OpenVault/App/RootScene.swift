@@ -3,27 +3,41 @@ import SwiftUI
 struct RootScene: View {
     let model: AppModel
 
-    @Environment(\.openWindow) private var openWindow
     @AppStorage(BigPictureScene.launchesAutomaticallyPreferenceKey)
     private var launchesBigPictureAutomatically = false
     @State private var automaticLaunchGate = BigPictureAutomaticLaunchGate()
+    @State private var isPresentingBigPicture = false
 
     var body: some View {
         Group {
-            switch model.destination {
-            case .preparing:
-                ProgressView("Opening OpenVault…")
-                    .frame(minWidth: 520, minHeight: 380)
-
-            case .connection:
-                ServerConnectionView(model: model)
-
-            case .library:
-                if let libraryModel = model.libraryModel {
-                    LibraryView(model: libraryModel)
-                } else {
-                    ProgressView("Opening Library…")
+            if isPresentingBigPicture, let libraryModel = model.libraryModel {
+                BigPictureView(
+                    model: libraryModel,
+                    onExitRequested: {
+                        isPresentingBigPicture = false
+                    }
+                )
+            } else {
+                switch model.destination {
+                case .preparing:
+                    ProgressView("Opening OpenVault…")
                         .frame(minWidth: 520, minHeight: 380)
+
+                case .connection:
+                    ServerConnectionView(model: model)
+
+                case .library:
+                    if let libraryModel = model.libraryModel {
+                        LibraryView(
+                            model: libraryModel,
+                            onOpenBigPicture: {
+                                isPresentingBigPicture = true
+                            }
+                        )
+                    } else {
+                        ProgressView("Opening Library…")
+                            .frame(minWidth: 520, minHeight: 380)
+                    }
                 }
             }
         }
@@ -39,7 +53,7 @@ struct RootScene: View {
             }
 
             await Task.yield()
-            openWindow(id: BigPictureScene.id)
+            isPresentingBigPicture = true
         }
     }
 }

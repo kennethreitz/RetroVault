@@ -435,7 +435,7 @@ struct LibraryView: View {
     try? LibretroInstallation.bundled().manifest
 
   @Bindable var model: LibraryModel
-  @Environment(\.openWindow) private var openWindow
+  let onOpenBigPicture: () -> Void
   @State private var searchText = ""
   @State private var showsEmptySystems = false
   @State private var showsUnsupportedSystems = false
@@ -745,7 +745,7 @@ struct LibraryView: View {
 
           ToolbarItem(placement: .primaryAction) {
             Button {
-              openWindow(id: BigPictureScene.id)
+              onOpenBigPicture()
             } label: {
               Label("Big Picture", systemImage: "tv")
             }
@@ -1412,7 +1412,7 @@ struct LibraryView: View {
 
   private func handleControllerCommand(_ command: LibraryControllerCommand) {
     if command == .openBigPicture {
-      openWindow(id: BigPictureScene.id)
+      onOpenBigPicture()
       return
     }
 

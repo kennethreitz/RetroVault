@@ -3,7 +3,6 @@
 import SwiftUI
 
 enum BigPictureScene {
-  static let id = "big-picture"
   static let launchesAutomaticallyPreferenceKey =
     "big-picture.launches-automatically.v1"
   static let opensInFullScreenPreferenceKey =
@@ -16,8 +15,8 @@ struct BigPictureView: View {
     try? LibretroInstallation.bundled().manifest
 
   @Bindable var model: LibraryModel
+  let onExitRequested: () -> Void
 
-  @Environment(\.dismissWindow) private var dismissWindow
   @Environment(\.accessibilityReduceMotion) private var reducesMotion
   @AppStorage(BigPictureScene.opensInFullScreenPreferenceKey)
   private var opensInFullScreen =
@@ -35,6 +34,7 @@ struct BigPictureView: View {
   @State private var bigPictureWindow: NSWindow?
   @State private var playbackModel: GameDetailsModel?
   @State private var playbackTask: Task<Void, Never>?
+  @State private var exitTask: Task<Void, Never>?
   @State private var isLoadingGameDetails = false
   @State private var playbackErrorMessage: String?
   @State private var requestedGame: GameSummary?
@@ -81,6 +81,7 @@ struct BigPictureView: View {
     }
     .onDisappear {
       playbackTask?.cancel()
+      exitTask?.cancel()
     }
   }
 
@@ -940,7 +941,7 @@ struct BigPictureView: View {
 
   private func handle(_ command: BigPictureCommand) {
     if command == .exit {
-      dismissWindow(id: BigPictureScene.id)
+      exitBigPicture()
       return
     }
 
@@ -1328,7 +1329,38 @@ struct BigPictureView: View {
     {
       handle(.back)
     } else {
-      dismissWindow(id: BigPictureScene.id)
+      exitBigPicture()
+    }
+  }
+
+  private func exitBigPicture() {
+    guard exitTask == nil else {
+      return
+    }
+    guard
+      let window = bigPictureWindow,
+      window.styleMask.contains(.fullScreen)
+    else {
+      onExitRequested()
+      return
+    }
+
+    window.toggleFullScreen(nil)
+    exitTask = Task { @MainActor in
+      defer {
+        exitTask = nil
+      }
+      for _ in 0..<160 {
+        guard !Task.isCancelled else {
+          return
+        }
+        guard window.styleMask.contains(.fullScreen) else {
+          onExitRequested()
+          return
+        }
+        try? await Task.sleep(for: .milliseconds(25))
+      }
+      onExitRequested()
     }
   }
 
@@ -1988,9 +2020,57 @@ enum BigPicturePresentationOptions {
 }
 
 @MainActor
+private final class BigPictureWindowState {
+  private let collectionBehavior: NSWindow.CollectionBehavior
+  private let styleMask: NSWindow.StyleMask
+  private let backgroundColor: NSColor
+  private let isOpaque: Bool
+  private let hasShadow: Bool
+  private let titlebarAppearsTransparent: Bool
+  private let titleVisibility: NSWindow.TitleVisibility
+  private let zoomButtonTarget: AnyObject?
+  private let zoomButtonAction: Selector?
+  private let isZoomButtonEnabled: Bool?
+
+  init(window: NSWindow) {
+    collectionBehavior = window.collectionBehavior
+    styleMask = window.styleMask
+    backgroundColor = window.backgroundColor
+    isOpaque = window.isOpaque
+    hasShadow = window.hasShadow
+    titlebarAppearsTransparent = window.titlebarAppearsTransparent
+    titleVisibility = window.titleVisibility
+
+    let zoomButton = window.standardWindowButton(.zoomButton)
+    zoomButtonTarget = zoomButton?.target
+    zoomButtonAction = zoomButton?.action
+    isZoomButtonEnabled = zoomButton?.isEnabled
+  }
+
+  func restore(on window: NSWindow) {
+    window.collectionBehavior = collectionBehavior
+    window.styleMask = styleMask
+    window.backgroundColor = backgroundColor
+    window.isOpaque = isOpaque
+    window.hasShadow = hasShadow
+    window.titlebarAppearsTransparent = titlebarAppearsTransparent
+    window.titleVisibility = titleVisibility
+
+    if let zoomButton = window.standardWindowButton(.zoomButton) {
+      zoomButton.target = zoomButtonTarget
+      zoomButton.action = zoomButtonAction
+      if let isZoomButtonEnabled {
+        zoomButton.isEnabled = isZoomButtonEnabled
+      }
+    }
+  }
+}
+
+@MainActor
 private final class BigPictureProbeView: NSView {
   var didMoveToWindow: (@MainActor (NSWindow?) -> Void)?
   private weak var observedWindow: NSWindow?
+  private var previousWindowState: BigPictureWindowState?
   private var fullScreenRequest: Task<Void, Never>?
   private var initialFullScreenGate = BigPictureInitialFullScreenGate()
   private var previousPresentationOptions:
@@ -2076,6 +2156,7 @@ private final class BigPictureProbeView: NSView {
 
     stopObservingWindow()
     observedWindow = window
+    previousWindowState = BigPictureWindowState(window: window)
     NotificationCenter.default.addObserver(
       self,
       selector: #selector(windowDidBecomeKey(_:)),
@@ -2112,7 +2193,9 @@ private final class BigPictureProbeView: NSView {
         name: nil,
         object: observedWindow
       )
+      previousWindowState?.restore(on: observedWindow)
     }
+    previousWindowState = nil
     observedWindow = nil
   }
 

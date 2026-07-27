@@ -40,21 +40,6 @@ struct OpenVaultApp: App {
             DiagnosticsCommands()
         }
 
-        Window("OpenVault Big Picture", id: BigPictureScene.id) {
-            if let libraryModel = model.libraryModel {
-                BigPictureView(model: libraryModel)
-            } else {
-                ContentUnavailableView(
-                    "Connect to RomM First",
-                    systemImage: "tv"
-                )
-            }
-        }
-        .defaultSize(width: 1_280, height: 720)
-        .commands {
-            DiagnosticsCommands()
-        }
-
         WindowGroup("OpenVault Player", for: LibretroRunRequest.self) { $request in
             if let request {
                 LibretroGameView(
