@@ -709,12 +709,14 @@ final class LibraryModel {
     }
   }
 
-  func reloadDownloadedGames() async {
+  func reloadDownloadedGames(
+    reconcilingDuringDownloads: Bool = false
+  ) async {
     // Each completed managed download posts a filesystem-change notification.
     // The active batch already applies those completions directly, so rescanning
     // hundreds of times is both redundant and capable of replacing newer
     // in-memory membership with an older scan. Reconcile once after the batch.
-    guard !isDownloadingGames else {
+    guard !isDownloadingGames || reconcilingDuringDownloads else {
       return
     }
 
@@ -726,18 +728,43 @@ final class LibraryModel {
       downloadedGameIDsRequest,
       managedDownloadedGameIDsRequest
     )
+    OpenVaultLog.library.info(
+      "Found \(gameIDs.count, privacy: .public) locally available games, including \(managedGameIDs.count, privacy: .public) managed downloads"
+    )
+
+    // A forced reconciliation may overlap active transfer completions. Those
+    // completions are already authoritative and additive, so preserve them
+    // while also discovering files written by playback or another app process.
+    let reconciledGameIDs =
+      isDownloadingGames
+      ? downloadedGameIDs.union(gameIDs)
+      : gameIDs
+    let reconciledManagedGameIDs =
+      isDownloadingGames
+      ? managedDownloadedGameIDs.union(managedGameIDs)
+      : managedGameIDs
     guard
-      gameIDs != downloadedGameIDs
-        || managedGameIDs != managedDownloadedGameIDs
+      reconciledGameIDs != downloadedGameIDs
+        || reconciledManagedGameIDs != managedDownloadedGameIDs
     else {
       return
     }
 
-    downloadedGameIDs = gameIDs
-    managedDownloadedGameIDs = managedGameIDs
+    downloadedGameIDs = reconciledGameIDs
+    managedDownloadedGameIDs = reconciledManagedGameIDs
     if selection == .downloaded {
       await reloadGames()
     }
+  }
+
+  /// Records a ROM promoted into OpenVault's managed local library.
+  ///
+  /// Playback can finish preparing a game while a bulk download is active.
+  /// Applying that result directly keeps badges and the Downloaded collection
+  /// current without requiring a filesystem scan for every queued transfer.
+  func recordManagedDownload(gameID: Int) {
+    downloadedGameIDs.insert(gameID)
+    managedDownloadedGameIDs.insert(gameID)
   }
 
   func downloadGames(
@@ -1088,8 +1115,7 @@ final class LibraryModel {
     let prioritizedResult: PrioritizedGameDownloadResult
     switch outcome {
     case .downloaded:
-      downloadedGameIDs.insert(gameID)
-      managedDownloadedGameIDs.insert(gameID)
+      recordManagedDownload(gameID: gameID)
       prioritizedResult = .downloaded
     case .failed(_, _, let message):
       progress.failedGameCount += 1
@@ -1162,6 +1188,8 @@ final class LibraryModel {
           in: session
         )
         removedGameIDs.append(game.id)
+        downloadedGameIDs.remove(game.id)
+        managedDownloadedGameIDs.remove(game.id)
       } catch is CancellationError {
         break
       } catch {

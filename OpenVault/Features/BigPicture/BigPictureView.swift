@@ -1469,7 +1469,8 @@ struct BigPictureView: View {
         return
       }
 
-      await model.reloadDownloadedGames()
+      model.recordManagedDownload(gameID: game.id)
+      await model.reloadDownloadedGames(reconcilingDuringDownloads: true)
       activePlayerRequest =
         (fromBeginning ? request.startingFresh() : request)
         .launched(from: .bigPicture)

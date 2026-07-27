@@ -2179,19 +2179,36 @@ actor RomMLibraryService: LibraryServing {
   }
 
   private func containsRegularFile(in directory: URL) -> Bool {
-    guard
-      let enumerator = FileManager.default.enumerator(
-        at: directory,
-        includingPropertiesForKeys: [.isRegularFileKey],
-        options: [.skipsHiddenFiles, .skipsPackageDescendants]
-      )
-    else {
-      return false
-    }
+    let fileManager = FileManager.default
+    let resourceKeys: Set<URLResourceKey> = [
+      .isDirectoryKey,
+      .isRegularFileKey,
+    ]
+    var pendingDirectories = [directory]
 
-    for case let url as URL in enumerator {
-      if (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true {
-        return true
+    while let currentDirectory = pendingDirectories.popLast() {
+      guard
+        let children = try? fileManager.contentsOfDirectory(
+          at: currentDirectory,
+          includingPropertiesForKeys: Array(resourceKeys),
+          options: [.skipsHiddenFiles]
+        )
+      else {
+        continue
+      }
+
+      for child in children {
+        guard
+          let values = try? child.resourceValues(forKeys: resourceKeys)
+        else {
+          continue
+        }
+        if values.isRegularFile == true {
+          return true
+        }
+        if values.isDirectory == true {
+          pendingDirectories.append(child)
+        }
       }
     }
     return false

@@ -399,7 +399,8 @@ private enum LibraryPlaybackPreparation {
       )
     }
 
-    await model.reloadDownloadedGames()
+    model.recordManagedDownload(gameID: game.id)
+    await model.reloadDownloadedGames(reconcilingDuringDownloads: true)
     return .ready(request)
   }
 }

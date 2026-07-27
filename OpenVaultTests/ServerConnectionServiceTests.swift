@@ -370,6 +370,34 @@ struct LibraryTests {
     }
 
     @MainActor
+    @Test("Reconciles local games during a bulk download when explicitly requested")
+    func reconcilesDownloadedMembershipDuringBulkDownload() async throws {
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let service = MockLibraryService(blockedDownloadID: 1)
+        let model = LibraryModel(session: session, service: service)
+        await model.load()
+        let queuedGame = try #require(model.games.first { $0.id == 1 })
+        let locallyPreparedGame = try #require(model.games.first { $0.id == 3 })
+
+        let bulkDownload = Task { @MainActor in
+            await model.downloadGames([queuedGame])
+        }
+        await service.waitUntilDownloadStarts(gameID: queuedGame.id)
+        await service.recordDownloadedGameID(locallyPreparedGame.id)
+
+        await model.reloadDownloadedGames(reconcilingDuringDownloads: true)
+
+        #expect(model.downloadedGameIDs.contains(locallyPreparedGame.id))
+        #expect(model.managedDownloadedGameIDs.contains(locallyPreparedGame.id))
+
+        await service.resumeBlockedDownload()
+        #expect((await bulkDownload.value).completedWithoutErrors)
+    }
+
+    @MainActor
     @Test("Starts a prioritized game as soon as a worker is available")
     func prioritizesLaunchedGameDownload() async throws {
         let session = ServerSession(
@@ -840,6 +868,60 @@ struct LibraryTests {
         #expect(await relaunchedService.managedDownloadedGameIDs(in: session).isEmpty)
         #expect(!FileManager.default.fileExists(atPath: firstURL.path))
         #expect(!FileManager.default.fileExists(atPath: offlineURL.path))
+    }
+
+    @Test("Finds every managed download in a large library")
+    func scansEveryManagedDownload() async throws {
+        let managedROMDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: managedROMDirectory)
+        }
+
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let serverKey = SHA256.hash(
+            data: Data(session.serverURL.value.absoluteString.utf8)
+        )
+        .map { String(format: "%02x", $0) }
+        .joined()
+        let serverDirectory = managedROMDirectory
+            .appending(path: serverKey, directoryHint: .isDirectory)
+
+        for gameID in 1...1_500 {
+            let gameDirectory = serverDirectory
+                .appending(path: String(gameID), directoryHint: .isDirectory)
+                .appending(path: "version", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(
+                at: gameDirectory,
+                withIntermediateDirectories: true
+            )
+            try Data([0x42]).write(
+                to: gameDirectory.appending(path: "Game \(gameID).rom")
+            )
+        }
+
+        let service = RomMLibraryService(
+            api: MockRomMClient(
+                token: try ClientToken(
+                    rawValue: "rmm_" + String(repeating: "a", count: 64)
+                ),
+                user: RomMUser(
+                    id: 1,
+                    username: "kenneth",
+                    scopes: ["roms.read"]
+                )
+            ),
+            credentialStore: MemoryCredentialStore(),
+            managedROMDirectory: managedROMDirectory
+        )
+
+        #expect(
+            await service.managedDownloadedGameIDs(in: session)
+                == Set(1...1_500)
+        )
     }
 
     @Test("Reuses a managed download after RomM metadata changes")
@@ -1878,6 +1960,10 @@ private actor MockLibraryService: LibraryServing {
 
     func downloadedMembershipReadCount() -> Int {
         downloadedMembershipReads
+    }
+
+    func recordDownloadedGameID(_ gameID: Int) {
+        downloadedIDs.insert(gameID)
     }
 
     func deleteGames(
