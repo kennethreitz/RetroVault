@@ -253,6 +253,10 @@ struct LibretroGameView: View {
                 .frame(height: 18)
             Text("Start + Select to exit")
 
+            Divider()
+                .frame(height: 18)
+            Text("Hold L3 to rewind · R3 to fast-forward")
+
             if let message = session.message {
                 Divider()
                     .frame(height: 18)

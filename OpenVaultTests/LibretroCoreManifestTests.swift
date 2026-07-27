@@ -90,6 +90,40 @@ struct LibretroCoreManifestTests {
         #expect(switchTop == xboxTop)
     }
 
+    @Test("Maps held stick buttons to transport controls")
+    func mapsHeldStickButtonsToTransportControls() {
+        #expect(
+            LibretroTransportControls.controller(
+                leftThumbstickButtonPressed: true,
+                rightThumbstickButtonPressed: false
+            )
+                == LibretroTransportControls(
+                    isRewinding: true,
+                    isFastForwarding: false
+                )
+        )
+        #expect(
+            LibretroTransportControls.controller(
+                leftThumbstickButtonPressed: false,
+                rightThumbstickButtonPressed: true
+            )
+                == LibretroTransportControls(
+                    isRewinding: false,
+                    isFastForwarding: true
+                )
+        )
+        #expect(
+            LibretroTransportControls.controller(
+                leftThumbstickButtonPressed: true,
+                rightThumbstickButtonPressed: true
+            )
+                == LibretroTransportControls(
+                    isRewinding: true,
+                    isFastForwarding: false
+                )
+        )
+    }
+
     @Test("Selects only reviewed cores for compatible RomM games")
     func selectsReviewedCore() throws {
         let manifestURL = URL(fileURLWithPath: #filePath)

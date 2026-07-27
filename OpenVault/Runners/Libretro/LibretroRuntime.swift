@@ -178,6 +178,23 @@ final class LibretroVideoBuffer: @unchecked Sendable {
     }
 }
 
+struct LibretroTransportControls: Equatable, Sendable {
+    var isRewinding = false
+    var isFastForwarding = false
+
+    static func controller(
+        leftThumbstickButtonPressed: Bool,
+        rightThumbstickButtonPressed: Bool
+    ) -> Self {
+        Self(
+            isRewinding: leftThumbstickButtonPressed,
+            isFastForwarding:
+                rightThumbstickButtonPressed
+                && !leftThumbstickButtonPressed
+        )
+    }
+}
+
 final class LibretroInputState: @unchecked Sendable {
     private let lock = NSLock()
     private var keyboardButtons: UInt16 = 0
@@ -192,6 +209,7 @@ final class LibretroInputState: @unchecked Sendable {
     private var pointerY: Int16 = 0
     private var pointerPressed = false
     private var pointerInside = false
+    private var transportControls = LibretroTransportControls()
     private var exitChord = LibretroControllerExitChord()
     private var exitRequested = false
 
@@ -248,6 +266,7 @@ final class LibretroInputState: @unchecked Sendable {
             )
             rightAnalogX = 0
             rightAnalogY = 0
+            transportControls = LibretroTransportControls()
             pendingKeyboardPresses = 0
             lock.unlock()
             return
@@ -293,6 +312,12 @@ final class LibretroInputState: @unchecked Sendable {
         leftAnalogY = analogAxis(-gamepad.leftThumbstick.yAxis.value)
         rightAnalogX = analogAxis(gamepad.rightThumbstick.xAxis.value)
         rightAnalogY = analogAxis(-gamepad.rightThumbstick.yAxis.value)
+        transportControls = .controller(
+            leftThumbstickButtonPressed:
+                gamepad.leftThumbstickButton?.isPressed == true,
+            rightThumbstickButtonPressed:
+                gamepad.rightThumbstickButton?.isPressed == true
+        )
         pendingKeyboardPresses = 0
         lock.unlock()
     }
@@ -329,6 +354,12 @@ final class LibretroInputState: @unchecked Sendable {
             lock.unlock()
         }
         return exitRequested
+    }
+
+    func currentTransportControls() -> LibretroTransportControls {
+        lock.lock()
+        defer { lock.unlock() }
+        return transportControls
     }
 
     func value(for id: UInt32) -> Int16 {
@@ -1295,6 +1326,7 @@ private final class LibretroAudioOutput: @unchecked Sendable {
     private let player = AVAudioPlayerNode()
     private var format: AVAudioFormat?
     private var individualSamples: [Int16] = []
+    private var suppressesAudio = false
 
     func configure(sampleRate: Double) throws {
         guard sampleRate > 0 else {
@@ -1318,6 +1350,9 @@ private final class LibretroAudioOutput: @unchecked Sendable {
     }
 
     func append(left: Int16, right: Int16) {
+        guard !suppressesAudio else {
+            return
+        }
         individualSamples.append(left)
         individualSamples.append(right)
         if individualSamples.count >= 1_024 {
@@ -1329,7 +1364,18 @@ private final class LibretroAudioOutput: @unchecked Sendable {
     }
 
     func append(samples: UnsafePointer<Int16>?, frames: Int) {
+        guard !suppressesAudio else {
+            return
+        }
         schedule(samples: samples, frames: frames)
+    }
+
+    func setFastForwarding(_ isFastForwarding: Bool) {
+        guard suppressesAudio != isFastForwarding else {
+            return
+        }
+        suppressesAudio = isFastForwarding
+        flush()
     }
 
     func flush() {
@@ -1347,6 +1393,7 @@ private final class LibretroAudioOutput: @unchecked Sendable {
             }
             individualSamples.removeAll()
         }
+        suppressesAudio = false
         player.stop()
         engine.stop()
     }
@@ -1897,8 +1944,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
     }
 
     private static let rewindCaptureInterval = 1.0
+    private static let heldRewindInterval = 0.12
     private static let rewindByteLimit = 128 * 1_024 * 1_024
     private static let rewindEntryLimit = 90
+    private static let fastForwardMultiplier = 3.0
 
     private struct Paths {
         let system: URL
@@ -2211,8 +2260,33 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
 
             let frameDuration = 1 / avInfo.framesPerSecond
             var nextFrame = ProcessInfo.processInfo.systemUptime
+            var nextHeldRewind = 0.0
+            var wasFastForwarding = false
 
             while !stopRequested {
+                let transportControls =
+                    inputState.currentTransportControls()
+                let now = ProcessInfo.processInfo.systemUptime
+                if
+                    transportControls.isRewinding,
+                    now >= nextHeldRewind
+                {
+                    enqueue(.rewind)
+                    nextHeldRewind = now + Self.heldRewindInterval
+                } else if !transportControls.isRewinding {
+                    nextHeldRewind = 0
+                }
+
+                if
+                    transportControls.isFastForwarding
+                        != wasFastForwarding
+                {
+                    wasFastForwarding =
+                        transportControls.isFastForwarding
+                    audioOutput.setFastForwarding(wasFastForwarding)
+                    nextFrame = now
+                }
+
                 let didRewind = processCommands(
                     using: loadedCore,
                     rewindBuffer: &rewindBuffer,
@@ -2243,12 +2317,19 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     stop()
                 }
 
-                nextFrame += frameDuration
-                let now = ProcessInfo.processInfo.systemUptime
-                if nextFrame > now {
-                    Thread.sleep(forTimeInterval: nextFrame - now)
-                } else if now - nextFrame > 0.25 {
-                    nextFrame = now
+                let activeFrameDuration =
+                    wasFastForwarding
+                    ? frameDuration / Self.fastForwardMultiplier
+                    : frameDuration
+                nextFrame += activeFrameDuration
+                let frameFinishedAt =
+                    ProcessInfo.processInfo.systemUptime
+                if nextFrame > frameFinishedAt {
+                    Thread.sleep(
+                        forTimeInterval: nextFrame - frameFinishedAt
+                    )
+                } else if frameFinishedAt - nextFrame > 0.25 {
+                    nextFrame = frameFinishedAt
                 }
             }
         } catch {
