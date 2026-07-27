@@ -757,6 +757,19 @@ struct LibretroCoreManifestTests {
         #expect(rewind.byteCount == 0)
     }
 
+    @Test("Can consume multiple rewind frames per rendered step")
+    func consumesMultipleRewindFrames() {
+        var rewind = LibretroRewindBuffer(byteLimit: 100, entryLimit: 10)
+        rewind.append(Data([1]))
+        rewind.append(Data([2]))
+        rewind.append(Data([3]))
+        rewind.append(Data([4]))
+
+        #expect(rewind.popLast(steps: 2) == Data([3]))
+        #expect(rewind.count == 2)
+        #expect(rewind.byteCount == 2)
+    }
+
     @Test("Captures small rewind states at frame cadence")
     func capturesSmallRewindStatesAtFrameCadence() {
         let cadence = LibretroRewindCadence(

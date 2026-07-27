@@ -177,6 +177,17 @@ struct LibretroRewindBuffer: Sendable {
         return state
     }
 
+    mutating func popLast(steps: Int) -> Data? {
+        var state: Data?
+        for _ in 0..<max(steps, 1) {
+            guard let previousState = popLast() else {
+                break
+            }
+            state = previousState
+        }
+        return state
+    }
+
     mutating func removeAll() {
         states.removeAll(keepingCapacity: true)
         byteCount = 0
@@ -2035,12 +2046,13 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         case saveQuickState
         case saveQuickStateAndStop
         case loadQuickState
-        case rewind
+        case rewind(steps: Int)
     }
 
     private static let rewindByteLimit = 128 * 1_024 * 1_024
     private static let rewindEntryLimit =
         LibretroRewindCadence.maximumEntryCount
+    private static let heldRewindMultiplier = 2
     private static let fastForwardMultiplier = 4.0
 
     private struct Paths {
@@ -2141,7 +2153,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
     }
 
     func rewind() {
-        enqueue(.rewind)
+        enqueue(.rewind(steps: 1))
     }
 
     func stop() {
@@ -2373,7 +2385,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     transportControls.isRewinding,
                     now >= nextHeldRewind
                 {
-                    enqueue(.rewind)
+                    enqueue(
+                        .rewind(steps: Self.heldRewindMultiplier)
+                    )
                     nextHeldRewind = now + rewindSnapshotInterval
                 } else if !transportControls.isRewinding {
                     nextHeldRewind = 0
@@ -2513,11 +2527,13 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     audioOutput.flush()
                     emit(.rewindAvailabilityChanged(false))
                     emit(.quickStateLoaded)
-                case .rewind:
+                case let .rewind(steps):
                     guard rewindIsSupported else {
                         continue
                     }
-                    guard let state = rewindBuffer.popLast() else {
+                    guard
+                        let state = rewindBuffer.popLast(steps: steps)
+                    else {
                         emit(.rewindAvailabilityChanged(false))
                         continue
                     }
