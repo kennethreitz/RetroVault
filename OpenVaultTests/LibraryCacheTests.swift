@@ -230,6 +230,71 @@ struct SidebarSystemSortTests {
   }
 }
 
+@Suite("Library keyboard navigation")
+struct LibraryKeyboardNavigationTests {
+  @Test("Maps unmodified arrows and Return to library navigation")
+  func mapsNavigationKeys() {
+    #expect(
+      LibraryKeyboardNavigation.command(
+        forKeyCode: 126,
+        modifierFlags: []
+      ) == .up
+    )
+    #expect(
+      LibraryKeyboardNavigation.command(
+        forKeyCode: 125,
+        modifierFlags: []
+      ) == .down
+    )
+    #expect(
+      LibraryKeyboardNavigation.command(
+        forKeyCode: 123,
+        modifierFlags: []
+      ) == .left
+    )
+    #expect(
+      LibraryKeyboardNavigation.command(
+        forKeyCode: 124,
+        modifierFlags: []
+      ) == .right
+    )
+    #expect(
+      LibraryKeyboardNavigation.command(
+        forKeyCode: 36,
+        modifierFlags: []
+      ) == .activate
+    )
+    #expect(
+      LibraryKeyboardNavigation.command(
+        forKeyCode: 76,
+        modifierFlags: [.numericPad]
+      ) == .activate
+    )
+  }
+
+  @Test("Leaves modified navigation keys to native controls")
+  func preservesModifiedKeys() {
+    #expect(
+      LibraryKeyboardNavigation.command(
+        forKeyCode: 125,
+        modifierFlags: [.shift]
+      ) == nil
+    )
+    #expect(
+      LibraryKeyboardNavigation.command(
+        forKeyCode: 123,
+        modifierFlags: [.command]
+      ) == nil
+    )
+    #expect(
+      LibraryKeyboardNavigation.command(
+        forKeyCode: 49,
+        modifierFlags: []
+      ) == nil
+    )
+  }
+}
+
 @Suite("Big Picture catalog")
 struct BigPictureCatalogTests {
   @Test("Uses immersive presentation only while fullscreen")

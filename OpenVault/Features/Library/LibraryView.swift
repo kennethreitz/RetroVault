@@ -91,6 +91,38 @@ struct LibraryControllerNavigation: Sendable {
   }
 }
 
+enum LibraryKeyboardNavigation {
+  static func command(
+    forKeyCode keyCode: UInt16,
+    modifierFlags: NSEvent.ModifierFlags
+  ) -> LibraryControllerCommand? {
+    let navigationModifiers: NSEvent.ModifierFlags = [
+      .command,
+      .control,
+      .option,
+      .shift,
+    ]
+    guard modifierFlags.intersection(navigationModifiers).isEmpty else {
+      return nil
+    }
+
+    return switch keyCode {
+    case 126:
+      .up
+    case 125:
+      .down
+    case 123:
+      .left
+    case 124:
+      .right
+    case 36, 76:
+      .activate
+    default:
+      nil
+    }
+  }
+}
+
 private enum LibraryPreferenceKey {
   static let hidesBIOSGames = "library.hides-bios-games.v1"
   static let hidesGamesWithoutArtwork = "library.hides-games-without-artwork"
@@ -757,8 +789,14 @@ struct LibraryView: View {
     }
     .coordinateSpace(name: LibraryCoordinateSpace.name)
     .background {
-      LibraryWindowProbe { window in
-        libraryWindow = window
+      ZStack {
+        LibraryWindowProbe { window in
+          libraryWindow = window
+        }
+
+        LibraryKeyboardMonitor { event in
+          handleKeyboardEvent(event)
+        }
       }
     }
     .task {
@@ -1410,6 +1448,20 @@ struct LibraryView: View {
     controllerRouter.send(command)
   }
 
+  private func handleKeyboardEvent(_ event: NSEvent) -> Bool {
+    guard
+      let command = LibraryKeyboardNavigation.command(
+        forKeyCode: event.keyCode,
+        modifierFlags: event.modifierFlags
+      )
+    else {
+      return false
+    }
+
+    handleControllerCommand(command)
+    return true
+  }
+
   private func handleControllerCommand(_ command: LibraryControllerCommand) {
     if command == .openBigPicture {
       onOpenBigPicture()
@@ -1690,6 +1742,80 @@ private final class LibraryProbeView: NSView {
     super.viewDidMoveToWindow()
     Task { @MainActor in
       didMoveToWindow?(window)
+    }
+  }
+}
+
+private struct LibraryKeyboardMonitor: NSViewRepresentable {
+  let handleKeyDown: @MainActor (NSEvent) -> Bool
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(handleKeyDown: handleKeyDown)
+  }
+
+  func makeNSView(context: Context) -> NSView {
+    let view = NSView()
+    context.coordinator.attach(to: view)
+    return view
+  }
+
+  func updateNSView(_ nsView: NSView, context: Context) {
+    context.coordinator.handleKeyDown = handleKeyDown
+    context.coordinator.attach(to: nsView)
+  }
+
+  static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+    coordinator.stopMonitoring()
+  }
+
+  @MainActor
+  final class Coordinator {
+    var handleKeyDown: @MainActor (NSEvent) -> Bool
+
+    private weak var view: NSView?
+    private var monitor: Any?
+
+    init(handleKeyDown: @escaping @MainActor (NSEvent) -> Bool) {
+      self.handleKeyDown = handleKeyDown
+    }
+
+    func attach(to view: NSView) {
+      self.view = view
+      guard monitor == nil else {
+        return
+      }
+
+      monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+        [weak self] event in
+        guard
+          let self,
+          let window = self.view?.window,
+          window.isKeyWindow,
+          event.window === window,
+          !Self.isEditingText(in: window),
+          self.handleKeyDown(event)
+        else {
+          return event
+        }
+        return nil
+      }
+    }
+
+    func stopMonitoring() {
+      if let monitor {
+        NSEvent.removeMonitor(monitor)
+      }
+      monitor = nil
+    }
+
+    private static func isEditingText(in window: NSWindow) -> Bool {
+      if let textView = window.firstResponder as? NSTextView {
+        return textView.isEditable
+      }
+      if let textField = window.firstResponder as? NSTextField {
+        return textField.isEditable
+      }
+      return false
     }
   }
 }
