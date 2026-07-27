@@ -500,6 +500,27 @@ struct BigPictureCatalogTests {
     #expect(reversed == .down)
   }
 
+  @Test("Repeats held Big Picture paging after a deliberate delay")
+  func repeatsHeldBigPicturePaging() {
+    var navigation = BigPictureControllerNavigation()
+    let left = BigPictureControllerState(isConnected: true, left: true)
+
+    #expect(navigation.command(for: left, at: 10) == .pageUp)
+    #expect(navigation.command(for: left, at: 10.2) == nil)
+    #expect(navigation.command(for: left, at: 10.35) == .pageUp)
+    #expect(
+      navigation.command(
+        for: BigPictureControllerState(isConnected: true),
+        at: 10.5
+      ) == nil
+    )
+
+    let right = BigPictureControllerState(isConnected: true, right: true)
+    #expect(navigation.command(for: right, at: 10.51) == .pageDown)
+    #expect(navigation.command(for: right, at: 10.7) == nil)
+    #expect(navigation.command(for: right, at: 10.86) == .pageDown)
+  }
+
   @Test("Maps regular library controller navigation with directional repeat")
   func mapsRegularLibraryControllerNavigation() {
     var navigation = LibraryControllerNavigation()

@@ -1874,6 +1874,12 @@ struct BigPictureControllerNavigation: Sendable {
     } else if state.down {
       repeatingCommand = .down
       nextRepeatTime = .greatestFiniteMagnitude
+    } else if state.left {
+      repeatingCommand = .pageUp
+      nextRepeatTime = .greatestFiniteMagnitude
+    } else if state.right {
+      repeatingCommand = .pageDown
+      nextRepeatTime = .greatestFiniteMagnitude
     } else {
       repeatingCommand = nil
       nextRepeatTime = 0
@@ -1909,18 +1915,15 @@ struct BigPictureControllerNavigation: Sendable {
     if state.pageDown, !previousState.pageDown {
       return .pageDown
     }
-    if state.left, !previousState.left {
-      return .pageUp
-    }
-    if state.right, !previousState.right {
-      return .pageDown
-    }
-
     let directionalCommand: BigPictureCommand? =
       if state.up {
         .up
       } else if state.down {
         .down
+      } else if state.left {
+        .pageUp
+      } else if state.right {
+        .pageDown
       } else {
         nil
       }
