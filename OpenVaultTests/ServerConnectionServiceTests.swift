@@ -772,7 +772,7 @@ struct LibraryTests {
         #expect(try Data(contentsOf: exportedURL) == expectedData)
     }
 
-    @Test("Reuses and promotes a cached game when RomM is unavailable")
+    @Test("Keeps playback downloads in the managed library for offline reuse")
     func reusesPlaybackCacheOffline() async throws {
         let token = try ClientToken(rawValue: "rmm_" + String(repeating: "a", count: 64))
         let credentials = MemoryCredentialStore()
@@ -809,7 +809,8 @@ struct LibraryTests {
             supportedFileExtensions: ["gb"]
         )
         #expect(await service.downloadedGameIDs(in: session) == [42])
-        #expect(await service.managedDownloadedGameIDs(in: session).isEmpty)
+        #expect(await service.managedDownloadedGameIDs(in: session) == [42])
+        #expect(firstURL.path.hasPrefix(managedROMDirectory.path))
         await credentials.removeToken()
         let relaunchedService = RomMLibraryService(
             api: MockRomMClient(
@@ -821,12 +822,6 @@ struct LibraryTests {
             runtimeCacheDirectory: runtimeCacheDirectory
         )
         #expect(await relaunchedService.downloadedGameIDs(in: session) == [42])
-        #expect(await relaunchedService.managedDownloadedGameIDs(in: session).isEmpty)
-        let promotedURL = try await relaunchedService.downloadGame(
-            game,
-            in: session
-        )
-        #expect(promotedURL.path.hasPrefix(managedROMDirectory.path))
         #expect(await relaunchedService.managedDownloadedGameIDs(in: session) == [42])
         let offlineURL = try await relaunchedService.prepareGameForPlay(
             game,
@@ -834,8 +829,7 @@ struct LibraryTests {
             supportedFileExtensions: ["gb"]
         )
 
-        #expect(firstURL.path.hasPrefix(runtimeCacheDirectory.path))
-        #expect(offlineURL == promotedURL)
+        #expect(offlineURL == firstURL)
         #expect(try Data(contentsOf: offlineURL) == expectedData)
         #expect(offlineURL.path.hasPrefix(managedROMDirectory.path))
 

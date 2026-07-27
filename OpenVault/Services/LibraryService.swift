@@ -196,8 +196,6 @@ extension LibraryServing {
 actor RomMLibraryService: LibraryServing {
   private static let artworkInspectionPageSize = 500
   private static let synchronizationPageSize = 500
-  private static let maximumRuntimeCacheBytes: Int64 = 20 * 1_024 * 1_024 * 1_024
-
   private let api: any RomMClient
   private let credentialStore: any CredentialStoring
   private let cache: any LibraryCaching
@@ -929,75 +927,18 @@ actor RomMLibraryService: LibraryServing {
     loadsArchivesDirectly: Bool = false,
     onProgress: @escaping @Sendable (RomMDownloadProgress) -> Void
   ) async throws -> URL {
-    if let managedURL = cachedGameURL(
-      for: game,
-      in: managedROMServerDirectory(in: session)
-    ) {
-      let contentURL = try playableContent(
+    let managedURL = try await downloadGame(
+      game,
+      in: session,
+      onProgress: onProgress
+    )
+
+    do {
+      return try playableContent(
         from: managedURL,
         supportedFileExtensions: supportedFileExtensions,
         loadsArchivesDirectly: loadsArchivesDirectly
       )
-      notifyDownloadedGamesDidChange()
-      return contentURL
-    }
-
-    let destination = runtimeCacheURL(for: game, in: session)
-    let fileManager = FileManager.default
-    let cachedRuntimeURL = cachedGameURL(
-      for: game,
-      in: runtimeCacheServerDirectory(in: session)
-    )
-    if cachedRuntimeURL == nil {
-      if fileManager.fileExists(atPath: destination.path) {
-        try? fileManager.removeItem(at: destination)
-      }
-
-      let download: RomMDownload
-      do {
-        download = try await api.downloadGame(
-          for: game.id,
-          fileName: game.fileName,
-          at: session.serverURL,
-          token: authenticationToken(),
-          onProgress: onProgress
-        )
-      } catch RomMAPIError.notFound {
-        throw LibraryServiceError.gameNotFound
-      }
-
-      defer {
-        try? fileManager.removeItem(at: download.temporaryFileURL)
-      }
-
-      do {
-        try fileManager.createDirectory(
-          at: destination.deletingLastPathComponent(),
-          withIntermediateDirectories: true
-        )
-        try fileManager.moveItem(
-          at: download.temporaryFileURL,
-          to: destination
-        )
-      } catch {
-        throw LibraryServiceError.couldNotCacheGame(reason: error.localizedDescription)
-      }
-    } else {
-      try? fileManager.setAttributes(
-        [.modificationDate: now()],
-        ofItemAtPath: cachedRuntimeURL?.path ?? destination.path
-      )
-    }
-
-    do {
-      let contentURL = try playableContent(
-        from: cachedRuntimeURL ?? destination,
-        supportedFileExtensions: supportedFileExtensions,
-        loadsArchivesDirectly: loadsArchivesDirectly
-      )
-      try pruneRuntimeCache(preserving: [destination, contentURL])
-      notifyDownloadedGamesDidChange()
-      return contentURL
     } catch let error as GameArchiveError {
       throw error
     } catch {
@@ -1653,16 +1594,6 @@ actor RomMLibraryService: LibraryServing {
     }
   }
 
-  private func runtimeCacheURL(
-    for game: GameDetails,
-    in session: ServerSession
-  ) -> URL {
-    storedGameURL(
-      for: game,
-      in: runtimeCacheServerDirectory(in: session)
-    )
-  }
-
   private func managedROMURL(
     for game: GameDetails,
     in session: ServerSession
@@ -2128,47 +2059,6 @@ actor RomMLibraryService: LibraryServing {
     return trimmed.isEmpty ? nil : trimmed
   }
 
-  private func pruneRuntimeCache(preserving preservedURLs: Set<URL>) throws {
-    let keys: Set<URLResourceKey> = [
-      .isRegularFileKey,
-      .fileSizeKey,
-      .contentModificationDateKey,
-    ]
-    guard
-      let enumerator = FileManager.default.enumerator(
-        at: runtimeCacheDirectory,
-        includingPropertiesForKeys: Array(keys),
-        options: [.skipsHiddenFiles, .skipsPackageDescendants]
-      )
-    else {
-      return
-    }
-
-    var files: [(url: URL, size: Int64, date: Date)] = []
-    var totalBytes: Int64 = 0
-
-    for case let url as URL in enumerator {
-      let values = try url.resourceValues(forKeys: keys)
-      guard values.isRegularFile == true else {
-        continue
-      }
-      let size = Int64(values.fileSize ?? 0)
-      files.append(
-        (
-          url: url,
-          size: size,
-          date: values.contentModificationDate ?? .distantPast
-        )
-      )
-      totalBytes += size
-    }
-
-    for file in files.sorted(by: { $0.date < $1.date })
-    where totalBytes > Self.maximumRuntimeCacheBytes && !preservedURLs.contains(file.url) {
-      try FileManager.default.removeItem(at: file.url)
-      totalBytes -= file.size
-    }
-  }
 }
 
 private struct CartridgeSaveSyncMetadata: Codable {

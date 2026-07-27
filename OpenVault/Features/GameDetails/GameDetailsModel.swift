@@ -261,6 +261,7 @@ final class GameDetailsModel {
                 systemDirectory,
                 saveSync
             )
+            isDownloaded = true
             isLocallyAvailable = true
             return LibretroRunRequest(
                 title: game.name,

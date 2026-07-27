@@ -392,6 +392,7 @@ private enum LibraryPlaybackPreparation {
       )
     }
 
+    await model.reloadDownloadedGames()
     return .ready(request)
   }
 }
