@@ -2001,7 +2001,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
     private static let heldRewindInterval = 0.12
     private static let rewindByteLimit = 128 * 1_024 * 1_024
     private static let rewindEntryLimit = 90
-    private static let fastForwardMultiplier = 3.0
+    private static let fastForwardMultiplier = 4.0
 
     private struct Paths {
         let system: URL
