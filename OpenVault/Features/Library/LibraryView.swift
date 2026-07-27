@@ -473,8 +473,7 @@ struct LibraryView: View {
             .tag(LibrarySelection.allGames)
 
           Section("Collections") {
-            Label("Downloaded", systemImage: "arrow.down.circle")
-              .badge(model.downloadedGameCount)
+            LibraryDownloadedSidebarLabel(model: model)
               .tag(LibrarySelection.downloaded)
 
             ForEach(regularCollections) { collection in
@@ -591,7 +590,7 @@ struct LibraryView: View {
         .focused($hasSidebarFocus)
 
         Divider()
-        sidebarStatus
+        LibrarySidebarStatus(model: model)
       }
       .navigationTitle("OpenVault")
       .navigationSplitViewColumnWidth(min: 200, ideal: 240)
@@ -930,9 +929,11 @@ struct LibraryView: View {
     _ system: LibrarySystem
   ) -> some View {
     let systemGames = model.games(inSystem: system.id)
-    let hasUndownloadedGames = systemGames.contains {
-      !model.managedDownloadedGameIDs.contains($0.id)
-    }
+    let hasUndownloadedGames =
+      !model.isDownloadingGames
+      && systemGames.contains {
+        !model.managedDownloadedGameIDs.contains($0.id)
+      }
 
     return Text(system.name)
       .badge(system.gameCount)
@@ -996,174 +997,6 @@ struct LibraryView: View {
       hidesGamesWithoutArtwork: persistedHidesGamesWithoutArtwork,
       synchronizedAt: model.lastSuccessfulSync
     )
-  }
-
-  @ViewBuilder
-  private var sidebarStatus: some View {
-    if model.isDownloadingGames, let progress = model.downloadProgress {
-      VStack(alignment: .leading, spacing: 5) {
-        HStack(spacing: 6) {
-          Image(systemName: "arrow.down.circle.fill")
-          Text(downloadStatusLabel(progress))
-            .lineLimit(1)
-          Spacer(minLength: 4)
-          Text(
-            Int(progress.fractionCompleted * 100)
-              .formatted()
-              + "%"
-          )
-          .monospacedDigit()
-        }
-
-        ProgressView(value: progress.fractionCompleted)
-          .progressViewStyle(.linear)
-          .tint(Color.accentColor)
-      }
-      .sidebarDownloadStatusStyle()
-      .help(downloadStatusHelp(progress))
-      .accessibilityElement(children: .combine)
-      .accessibilityLabel(downloadStatusLabel(progress))
-      .accessibilityValue(
-        "\(Int(progress.fractionCompleted * 100)) percent"
-      )
-    } else if model.isSynchronizing {
-      HStack(spacing: 7) {
-        ProgressView()
-          .controlSize(.small)
-        Text(
-          model.isPurgingLocalCache
-            ? "Purging local cache…"
-            : synchronizationLabel
-        )
-        .lineLimit(1)
-        Spacer(minLength: 0)
-        sidebarSyncButton
-      }
-      .sidebarStatusStyle()
-    } else if let refreshErrorMessage = model.refreshErrorMessage {
-      HStack(spacing: 7) {
-        Image(
-          systemName: model.isShowingStaleData
-            ? "wifi.slash"
-            : "exclamationmark.triangle.fill"
-        )
-        Text(
-          model.isShowingStaleData
-            ? "Offline · \(model.allGameCount.formatted()) games"
-            : "Sync failed"
-        )
-        .lineLimit(1)
-        Spacer(minLength: 0)
-        sidebarSyncButton
-      }
-      .sidebarStatusStyle()
-      .help("\(cachedLibraryHelp) \(refreshErrorMessage)")
-    } else if model.isShowingStaleData {
-      HStack(spacing: 7) {
-        Image(systemName: "wifi.slash")
-        Text("Cached · \(model.allGameCount.formatted()) games")
-          .lineLimit(1)
-        Spacer(minLength: 0)
-        sidebarSyncButton
-      }
-      .sidebarStatusStyle()
-      .help(cachedLibraryHelp)
-    } else {
-      HStack(spacing: 7) {
-        Image(systemName: "checkmark.circle")
-        Text(idleStatusLabel)
-          .lineLimit(1)
-        Spacer(minLength: 0)
-        sidebarSyncButton
-      }
-      .sidebarStatusStyle()
-      .help(cachedLibraryHelp)
-    }
-  }
-
-  private var sidebarSyncButton: some View {
-    Button {
-      Task {
-        await model.refresh()
-      }
-    } label: {
-      Image(systemName: "arrow.clockwise")
-    }
-    .buttonStyle(.borderless)
-    .controlSize(.small)
-    .disabled(model.isLoading || model.isSynchronizing)
-    .help("Sync Library with RomM")
-    .accessibilityLabel("Sync Library")
-  }
-
-  private func downloadStatusLabel(
-    _ progress: LibraryDownloadProgress
-  ) -> String {
-    "Downloading \(progress.currentGameNumber.formatted()) of "
-      + progress.totalGameCount.formatted()
-  }
-
-  private func downloadStatusHelp(
-    _ progress: LibraryDownloadProgress
-  ) -> String {
-    var components: [String] = []
-    if let currentGameName = progress.currentGameName {
-      components.append("Downloading \(currentGameName).")
-    }
-    components.append(
-      "\(progress.processedGameCount.formatted()) completed"
-        + (
-          progress.failedGameCount > 0
-          ? ", \(progress.failedGameCount.formatted()) failed."
-          : "."
-        )
-    )
-    if let transferProgress = progress.currentTransferProgress {
-      let received = transferProgress.bytesReceived.formatted(
-        .byteCount(style: .file)
-      )
-      if let total = transferProgress.totalBytesExpected {
-        components.append(
-          "\(received) of \(total.formatted(.byteCount(style: .file)))."
-        )
-      } else {
-        components.append("\(received) received.")
-      }
-    }
-    return components.joined(separator: " ")
-  }
-
-  private var synchronizationLabel: String {
-    guard model.synchronizationTotalGameCount > 0 else {
-      return "Syncing Library"
-    }
-
-    if model.synchronizedGameCount >= model.synchronizationTotalGameCount {
-      return "Finalizing Library"
-    }
-
-    return "Syncing \(model.synchronizedGameCount.formatted()) of "
-      + model.synchronizationTotalGameCount.formatted()
-  }
-
-  private var cachedLibraryHelp: String {
-    let timestamp =
-      model.lastSuccessfulSync.map {
-        "Last updated \($0.formatted(date: .abbreviated, time: .shortened))."
-      } ?? "No complete synchronization timestamp is available."
-
-    if let refreshErrorMessage = model.refreshErrorMessage {
-      return "\(timestamp) \(refreshErrorMessage)"
-    }
-    return timestamp
-  }
-
-  private var idleStatusLabel: String {
-    let gameCount = "\(model.allGameCount.formatted()) games"
-    guard let lastSuccessfulSync = model.lastSuccessfulSync else {
-      return gameCount
-    }
-    return "\(gameCount) · \(lastSuccessfulSync.formatted(date: .omitted, time: .shortened))"
   }
 
   private var hidesGamesWithoutArtworkBinding: Binding<Bool> {
@@ -1649,6 +1482,187 @@ struct LibraryView: View {
       }
       try? await Task.sleep(for: .milliseconds(30))
     }
+  }
+}
+
+private struct LibraryDownloadedSidebarLabel: View {
+  let model: LibraryModel
+
+  var body: some View {
+    Label("Downloaded", systemImage: "arrow.down.circle")
+      .badge(model.downloadedGameCount)
+  }
+}
+
+private struct LibrarySidebarStatus: View {
+  let model: LibraryModel
+
+  @ViewBuilder
+  var body: some View {
+    if model.isDownloadingGames, let progress = model.downloadProgress {
+      VStack(alignment: .leading, spacing: 5) {
+        HStack(spacing: 6) {
+          Image(systemName: "arrow.down.circle.fill")
+          Text(downloadStatusLabel(progress))
+            .lineLimit(1)
+          Spacer(minLength: 4)
+          Text(
+            Int(progress.fractionCompleted * 100)
+              .formatted()
+              + "%"
+          )
+          .monospacedDigit()
+        }
+
+        ProgressView(value: progress.fractionCompleted)
+          .progressViewStyle(.linear)
+          .tint(Color.accentColor)
+      }
+      .sidebarDownloadStatusStyle()
+      .help(downloadStatusHelp(progress))
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel(downloadStatusLabel(progress))
+      .accessibilityValue(
+        "\(Int(progress.fractionCompleted * 100)) percent"
+      )
+    } else if model.isSynchronizing {
+      HStack(spacing: 7) {
+        ProgressView()
+          .controlSize(.small)
+        Text(
+          model.isPurgingLocalCache
+            ? "Purging local cache…"
+            : synchronizationLabel
+        )
+        .lineLimit(1)
+        Spacer(minLength: 0)
+        sidebarSyncButton
+      }
+      .sidebarStatusStyle()
+    } else if let refreshErrorMessage = model.refreshErrorMessage {
+      HStack(spacing: 7) {
+        Image(
+          systemName: model.isShowingStaleData
+            ? "wifi.slash"
+            : "exclamationmark.triangle.fill"
+        )
+        Text(
+          model.isShowingStaleData
+            ? "Offline · \(model.allGameCount.formatted()) games"
+            : "Sync failed"
+        )
+        .lineLimit(1)
+        Spacer(minLength: 0)
+        sidebarSyncButton
+      }
+      .sidebarStatusStyle()
+      .help("\(cachedLibraryHelp) \(refreshErrorMessage)")
+    } else if model.isShowingStaleData {
+      HStack(spacing: 7) {
+        Image(systemName: "wifi.slash")
+        Text("Cached · \(model.allGameCount.formatted()) games")
+          .lineLimit(1)
+        Spacer(minLength: 0)
+        sidebarSyncButton
+      }
+      .sidebarStatusStyle()
+      .help(cachedLibraryHelp)
+    } else {
+      HStack(spacing: 7) {
+        Image(systemName: "checkmark.circle")
+        Text(idleStatusLabel)
+          .lineLimit(1)
+        Spacer(minLength: 0)
+        sidebarSyncButton
+      }
+      .sidebarStatusStyle()
+      .help(cachedLibraryHelp)
+    }
+  }
+
+  private var sidebarSyncButton: some View {
+    Button {
+      Task {
+        await model.refresh()
+      }
+    } label: {
+      Image(systemName: "arrow.clockwise")
+    }
+    .buttonStyle(.borderless)
+    .controlSize(.small)
+    .disabled(model.isLoading || model.isSynchronizing)
+    .help("Sync Library with RomM")
+    .accessibilityLabel("Sync Library")
+  }
+
+  private func downloadStatusLabel(
+    _ progress: LibraryDownloadProgress
+  ) -> String {
+    "Downloading \(progress.currentGameNumber.formatted()) of "
+      + progress.totalGameCount.formatted()
+  }
+
+  private func downloadStatusHelp(
+    _ progress: LibraryDownloadProgress
+  ) -> String {
+    var components: [String] = []
+    if let currentGameName = progress.currentGameName {
+      components.append("Downloading \(currentGameName).")
+    }
+    components.append(
+      "\(progress.processedGameCount.formatted()) completed"
+        + (
+          progress.failedGameCount > 0
+          ? ", \(progress.failedGameCount.formatted()) failed."
+          : "."
+        )
+    )
+    if let transferProgress = progress.currentTransferProgress {
+      let received = transferProgress.bytesReceived.formatted(
+        .byteCount(style: .file)
+      )
+      if let total = transferProgress.totalBytesExpected {
+        components.append(
+          "\(received) of \(total.formatted(.byteCount(style: .file)))."
+        )
+      } else {
+        components.append("\(received) received.")
+      }
+    }
+    return components.joined(separator: " ")
+  }
+
+  private var synchronizationLabel: String {
+    guard model.synchronizationTotalGameCount > 0 else {
+      return "Syncing Library"
+    }
+
+    if model.synchronizedGameCount >= model.synchronizationTotalGameCount {
+      return "Finalizing Library"
+    }
+
+    return "Syncing \(model.synchronizedGameCount.formatted()) of "
+      + model.synchronizationTotalGameCount.formatted()
+  }
+
+  private var cachedLibraryHelp: String {
+    let timestamp =
+      model.lastSuccessfulSync.map {
+        "Last updated \($0.formatted(date: .abbreviated, time: .shortened))."
+      } ?? "No complete synchronization timestamp is available."
+
+    if let refreshErrorMessage = model.refreshErrorMessage {
+      return "\(timestamp) \(refreshErrorMessage)"
+    }
+    return timestamp
+  }
+
+  private var idleStatusLabel: String {
+    let gameCount = "\(model.allGameCount.formatted()) games"
+    guard let lastSuccessfulSync = model.lastSuccessfulSync else {
+      return gameCount
+    }
+    return "\(gameCount) · \(lastSuccessfulSync.formatted(date: .omitted, time: .shortened))"
   }
 }
 
