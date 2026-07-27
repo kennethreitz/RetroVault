@@ -295,15 +295,18 @@ struct BigPictureCatalogTests {
 
     let hiddenRequest = gate.shouldRequest(
       isWindowVisible: false,
-      isFullScreen: false
+      isFullScreen: false,
+      preferenceEnabled: true
     )
     let initialRequest = gate.shouldRequest(
       isWindowVisible: true,
-      isFullScreen: false
+      isFullScreen: false,
+      preferenceEnabled: true
     )
     let repeatedRequest = gate.shouldRequest(
       isWindowVisible: true,
-      isFullScreen: false
+      isFullScreen: false,
+      preferenceEnabled: true
     )
     #expect(!hiddenRequest)
     #expect(initialRequest)
@@ -312,14 +315,30 @@ struct BigPictureCatalogTests {
     var alreadyFullScreen = BigPictureInitialFullScreenGate()
     let redundantRequest = alreadyFullScreen.shouldRequest(
       isWindowVisible: true,
-      isFullScreen: true
+      isFullScreen: true,
+      preferenceEnabled: true
     )
     let requestAfterExiting = alreadyFullScreen.shouldRequest(
       isWindowVisible: true,
-      isFullScreen: false
+      isFullScreen: false,
+      preferenceEnabled: true
     )
     #expect(!redundantRequest)
     #expect(!requestAfterExiting)
+
+    var windowed = BigPictureInitialFullScreenGate()
+    let disabledRequest = windowed.shouldRequest(
+      isWindowVisible: true,
+      isFullScreen: false,
+      preferenceEnabled: false
+    )
+    let requestAfterEnabling = windowed.shouldRequest(
+      isWindowVisible: true,
+      isFullScreen: false,
+      preferenceEnabled: true
+    )
+    #expect(!disabledRequest)
+    #expect(!requestAfterEnabling)
   }
 
   @Test("Builds recent, favorite, downloaded, system, and collection menus offline")

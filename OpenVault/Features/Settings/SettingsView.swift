@@ -5,6 +5,9 @@ struct SettingsView: View {
     @Environment(\.openWindow) private var openWindow
     @AppStorage(BigPictureScene.launchesAutomaticallyPreferenceKey)
     private var launchesBigPictureAutomatically = false
+    @AppStorage(BigPictureScene.opensInFullScreenPreferenceKey)
+    private var opensBigPictureInFullScreen =
+        BigPictureScene.opensInFullScreenByDefault
     @State private var showsPurgeConfirmation = false
 
     var body: some View {
@@ -118,11 +121,17 @@ struct SettingsView: View {
                     isOn: $launchesBigPictureAutomatically
                 )
 
+                Toggle(
+                    "Open Big Picture in Full Screen",
+                    isOn: $opensBigPictureInFullScreen
+                )
+
                 Text(
                     """
-                    Opens the controller-first fullscreen library automatically \
-                    after OpenVault restores its RomM connection. This takes effect \
-                    the next time OpenVault launches.
+                    OpenVault can launch the controller-first library automatically \
+                    after restoring its RomM connection. Big Picture opens in full \
+                    screen by default and can still switch between full screen and \
+                    a regular window with the green window control.
                     """
                 )
                 .font(.caption)

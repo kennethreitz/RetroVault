@@ -6,6 +6,9 @@ enum BigPictureScene {
   static let id = "big-picture"
   static let launchesAutomaticallyPreferenceKey =
     "big-picture.launches-automatically.v1"
+  static let opensInFullScreenPreferenceKey =
+    "big-picture.opens-in-full-screen.v1"
+  static let opensInFullScreenByDefault = true
 }
 
 struct BigPictureView: View {
@@ -16,6 +19,9 @@ struct BigPictureView: View {
 
   @Environment(\.dismissWindow) private var dismissWindow
   @Environment(\.accessibilityReduceMotion) private var reducesMotion
+  @AppStorage(BigPictureScene.opensInFullScreenPreferenceKey)
+  private var opensInFullScreen =
+    BigPictureScene.opensInFullScreenByDefault
 
   @State private var catalog = BigPictureCatalog.empty
   @State private var rows: [BigPictureRow] = []
@@ -58,7 +64,8 @@ struct BigPictureView: View {
     }
     .background {
       BigPictureWindowProbe(
-        isPlaybackActive: activePlayerRequest != nil
+        isPlaybackActive: activePlayerRequest != nil,
+        opensInFullScreen: opensInFullScreen
       ) { window in
         bigPictureWindow = window
       }
@@ -1919,11 +1926,13 @@ enum BigPictureSelectionNavigation {
 
 private struct BigPictureWindowProbe: NSViewRepresentable {
   let isPlaybackActive: Bool
+  let opensInFullScreen: Bool
   let didMoveToWindow: @MainActor (NSWindow?) -> Void
 
   func makeNSView(context: Context) -> BigPictureProbeView {
     let view = BigPictureProbeView()
     view.setPlaybackActive(isPlaybackActive)
+    view.setOpensInFullScreen(opensInFullScreen)
     view.didMoveToWindow = didMoveToWindow
     return view
   }
@@ -1931,6 +1940,7 @@ private struct BigPictureWindowProbe: NSViewRepresentable {
   func updateNSView(_ nsView: BigPictureProbeView, context: Context) {
     nsView.didMoveToWindow = didMoveToWindow
     nsView.setPlaybackActive(isPlaybackActive)
+    nsView.setOpensInFullScreen(opensInFullScreen)
     nsView.configureWindow()
     nsView.requestFullScreenIfNeeded()
   }
@@ -1941,14 +1951,15 @@ struct BigPictureInitialFullScreenGate: Sendable {
 
   mutating func shouldRequest(
     isWindowVisible: Bool,
-    isFullScreen: Bool
+    isFullScreen: Bool,
+    preferenceEnabled: Bool
   ) -> Bool {
     guard isWindowVisible, !hasHandledInitialPresentation else {
       return false
     }
 
     hasHandledInitialPresentation = true
-    return !isFullScreen
+    return preferenceEnabled && !isFullScreen
   }
 }
 
@@ -1985,6 +1996,7 @@ private final class BigPictureProbeView: NSView {
   private var previousPresentationOptions:
     NSApplication.PresentationOptions?
   private var isPlaybackActive = false
+  private var opensInFullScreen = true
 
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
@@ -2008,7 +2020,8 @@ private final class BigPictureProbeView: NSView {
       let window,
       initialFullScreenGate.shouldRequest(
         isWindowVisible: window.isVisible,
-        isFullScreen: window.styleMask.contains(.fullScreen)
+        isFullScreen: window.styleMask.contains(.fullScreen),
+        preferenceEnabled: opensInFullScreen
       ),
       fullScreenRequest == nil
     else {
@@ -2046,6 +2059,10 @@ private final class BigPictureProbeView: NSView {
     }
     self.isPlaybackActive = isPlaybackActive
     applyImmersivePresentation()
+  }
+
+  func setOpensInFullScreen(_ opensInFullScreen: Bool) {
+    self.opensInFullScreen = opensInFullScreen
   }
 
   deinit {
