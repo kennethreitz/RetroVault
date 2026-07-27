@@ -22,66 +22,74 @@ struct LibretroGameView: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.black
-                .ignoresSafeArea()
-
-            switch session.phase {
-            case .idle, .starting:
-                ProgressView("Starting \(session.request.title)…")
-                    .controlSize(.large)
-                    .foregroundStyle(.white)
-            case .running:
-                LibretroMetalView(
-                    videoBuffer: session.videoBuffer,
-                    input: session.input
-                )
+        VStack(spacing: 0) {
+            ZStack {
+                Color.black
                     .ignoresSafeArea()
-            case .stopped:
-                ContentUnavailableView {
-                    Label("Session Ended", systemImage: "stop.circle")
-                } description: {
-                    VStack(spacing: 8) {
-                        Text("Your local save memory has been preserved.")
-                        saveSyncStatus
-                    }
-                } actions: {
-                    if case .failed = session.saveSyncPhase {
-                        Button("Retry Save Sync") {
-                            session.retrySaveSync()
-                        }
-                    }
 
-                    Button("Play Again") {
-                        session.start()
+                switch session.phase {
+                case .idle, .starting:
+                    ProgressView("Starting \(session.request.title)…")
+                        .controlSize(.large)
+                        .foregroundStyle(.white)
+                case .running:
+                    LibretroMetalView(
+                        videoBuffer: session.videoBuffer,
+                        input: session.input
+                    )
+                        .ignoresSafeArea()
+                case .stopped:
+                    ContentUnavailableView {
+                        Label("Session Ended", systemImage: "stop.circle")
+                    } description: {
+                        VStack(spacing: 8) {
+                            Text("Your local save memory has been preserved.")
+                            saveSyncStatus
+                        }
+                    } actions: {
+                        if case .failed = session.saveSyncPhase {
+                            Button("Retry Save Sync") {
+                                session.retrySaveSync()
+                            }
+                        }
+
+                        Button("Play Again") {
+                            session.start()
+                        }
+                        .buttonStyle(.glassProminent)
+                        .disabled(session.saveSyncPhase == .syncing)
                     }
-                    .buttonStyle(.glassProminent)
-                    .disabled(session.saveSyncPhase == .syncing)
-                }
-                .foregroundStyle(.white)
-            case let .failed(message):
-                ContentUnavailableView {
-                    Label("Couldn’t Start Libretro", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(message)
-                        .frame(maxWidth: 520)
-                } actions: {
-                    Button("Try Again") {
-                        session.start()
+                    .foregroundStyle(.white)
+                case let .failed(message):
+                    ContentUnavailableView {
+                        Label(
+                            "Couldn’t Start Libretro",
+                            systemImage: "exclamationmark.triangle"
+                        )
+                    } description: {
+                        Text(message)
+                            .frame(maxWidth: 520)
+                    } actions: {
+                        Button("Try Again") {
+                            session.start()
+                        }
+                        .buttonStyle(.glassProminent)
                     }
-                    .buttonStyle(.glassProminent)
+                    .foregroundStyle(.white)
                 }
-                .foregroundStyle(.white)
+
+                LibretroKeyboardCapture(input: session.input)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.001)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
 
             if case .running = session.phase, !isFullScreen {
                 controls
             }
-
-            LibretroKeyboardCapture(input: session.input)
-                .frame(width: 1, height: 1)
-                .opacity(0.001)
         }
+        .background(Color.black)
         .navigationTitle(
             isImmersiveBigPicturePlayback ? "" : session.request.title
         )
@@ -233,44 +241,43 @@ struct LibretroGameView: View {
     }
 
     private var controls: some View {
-        VStack {
-            Spacer()
+        HStack(spacing: 14) {
+            if session.isPaused {
+                Label("Paused", systemImage: "pause.fill")
+                    .fontWeight(.semibold)
+            } else {
+                Text("Arrow keys or D-pad to move")
+            }
 
-            HStack(spacing: 14) {
-                if session.isPaused {
-                    Label("Paused", systemImage: "pause.fill")
-                        .fontWeight(.semibold)
-                } else {
-                    Text("Arrow keys or D-pad to move")
-                }
+            Divider()
+                .frame(height: 18)
+            Text("Start + Select to exit")
 
+            if let message = session.message {
                 Divider()
                     .frame(height: 18)
-                Text("Start + Select to exit")
-
-                if let message = session.message {
-                    Divider()
-                        .frame(height: 18)
-                    Text(message)
-                }
-
-                Spacer()
-
-                if case let .running(coreName, framesPerSecond) = session.phase {
-                    Text(coreName)
-                    Text("\(framesPerSecond.formatted(.number.precision(.fractionLength(0)))) FPS")
-                }
+                Text(message)
             }
-            .font(.caption)
-            .foregroundStyle(.white.opacity(0.82))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .openVaultGlass(
-                tint: .black.opacity(0.58),
-                in: Capsule()
-            )
-            .padding()
+
+            Spacer()
+
+            if case let .running(coreName, framesPerSecond) = session.phase {
+                Text(coreName)
+                Text(
+                    "\(framesPerSecond.formatted(.number.precision(.fractionLength(0)))) FPS"
+                )
+            }
         }
+        .font(.caption)
+        .foregroundStyle(.white.opacity(0.82))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .openVaultGlass(
+            tint: .black.opacity(0.58),
+            in: Capsule()
+        )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     @ViewBuilder
