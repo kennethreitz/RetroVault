@@ -2166,7 +2166,13 @@ func configureBigPictureWindow(_ window: NSWindow) {
     .closable,
     .miniaturizable,
     .resizable,
+    .fullSizeContentView,
   ])
+  window.backgroundColor = .black
+  window.isOpaque = true
+  window.hasShadow = false
+  window.titlebarAppearsTransparent = true
+  window.titleVisibility = .hidden
   let fullScreenButton = window.standardWindowButton(.zoomButton)
   fullScreenButton?.target = window
   fullScreenButton?.action = #selector(NSWindow.toggleFullScreen(_:))
