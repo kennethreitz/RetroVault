@@ -178,19 +178,31 @@ final class LibretroVideoBuffer: @unchecked Sendable {
     }
 }
 
+enum LibretroTransportPreferences {
+    static let enablesFastForwardKey =
+        "libretro.transport.fast-forward-r3.v1"
+    static let enablesRewindKey =
+        "libretro.transport.rewind-l3.v1"
+    static let enabledByDefault = true
+}
+
 struct LibretroTransportControls: Equatable, Sendable {
     var isRewinding = false
     var isFastForwarding = false
 
     static func controller(
         leftThumbstickButtonPressed: Bool,
-        rightThumbstickButtonPressed: Bool
+        rightThumbstickButtonPressed: Bool,
+        enablesRewind: Bool = true,
+        enablesFastForward: Bool = true
     ) -> Self {
         Self(
-            isRewinding: leftThumbstickButtonPressed,
+            isRewinding:
+                enablesRewind && leftThumbstickButtonPressed,
             isFastForwarding:
-                rightThumbstickButtonPressed
-                && !leftThumbstickButtonPressed
+                enablesFastForward
+                && rightThumbstickButtonPressed
+                && !(enablesRewind && leftThumbstickButtonPressed)
         )
     }
 }
@@ -210,6 +222,8 @@ final class LibretroInputState: @unchecked Sendable {
     private var pointerPressed = false
     private var pointerInside = false
     private var transportControls = LibretroTransportControls()
+    private var enablesRewind = true
+    private var enablesFastForward = true
     private var exitChord = LibretroControllerExitChord()
     private var exitRequested = false
 
@@ -293,6 +307,10 @@ final class LibretroInputState: @unchecked Sendable {
         buttons.set(.r2, when: gamepad.rightTrigger.isPressed)
         let selectPressed = gamepad.buttonOptions?.isPressed == true
         let startPressed = gamepad.buttonMenu.isPressed
+        let leftThumbstickButtonPressed =
+            gamepad.leftThumbstickButton?.isPressed == true
+        let rightThumbstickButtonPressed =
+            gamepad.rightThumbstickButton?.isPressed == true
 
         lock.lock()
         let isExitChordPressed = startPressed && selectPressed
@@ -306,6 +324,14 @@ final class LibretroInputState: @unchecked Sendable {
             buttons.set(.select, when: selectPressed)
             buttons.set(.start, when: startPressed)
         }
+        buttons.set(
+            .l3,
+            when: leftThumbstickButtonPressed && !enablesRewind
+        )
+        buttons.set(
+            .r3,
+            when: rightThumbstickButtonPressed && !enablesFastForward
+        )
         controllerButtons = buttons
         polledButtons = keyboardButtons | pendingKeyboardPresses | controllerButtons
         leftAnalogX = analogAxis(gamepad.leftThumbstick.xAxis.value)
@@ -314,9 +340,11 @@ final class LibretroInputState: @unchecked Sendable {
         rightAnalogY = analogAxis(-gamepad.rightThumbstick.yAxis.value)
         transportControls = .controller(
             leftThumbstickButtonPressed:
-                gamepad.leftThumbstickButton?.isPressed == true,
+                leftThumbstickButtonPressed,
             rightThumbstickButtonPressed:
-                gamepad.rightThumbstickButton?.isPressed == true
+                rightThumbstickButtonPressed,
+            enablesRewind: enablesRewind,
+            enablesFastForward: enablesFastForward
         )
         pendingKeyboardPresses = 0
         lock.unlock()
@@ -360,6 +388,22 @@ final class LibretroInputState: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return transportControls
+    }
+
+    func setTransportControlsEnabled(
+        rewind: Bool,
+        fastForward: Bool
+    ) {
+        lock.lock()
+        enablesRewind = rewind
+        enablesFastForward = fastForward
+        if !rewind {
+            transportControls.isRewinding = false
+        }
+        if !fastForward {
+            transportControls.isFastForwarding = false
+        }
+        lock.unlock()
     }
 
     func value(for id: UInt32) -> Int16 {
@@ -571,6 +615,16 @@ final class LibretroSession {
             return
         }
         engine.rewind()
+    }
+
+    func setTransportControlsEnabled(
+        rewind: Bool,
+        fastForward: Bool
+    ) {
+        input.setTransportControlsEnabled(
+            rewind: rewind,
+            fastForward: fastForward
+        )
     }
 
     func saveQuickState() {

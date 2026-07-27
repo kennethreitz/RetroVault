@@ -122,6 +122,14 @@ struct LibretroCoreManifestTests {
                     isFastForwarding: false
                 )
         )
+        #expect(
+            LibretroTransportControls.controller(
+                leftThumbstickButtonPressed: true,
+                rightThumbstickButtonPressed: true,
+                enablesRewind: false,
+                enablesFastForward: false
+            ) == LibretroTransportControls()
+        )
     }
 
     @Test("Selects only reviewed cores for compatible RomM games")

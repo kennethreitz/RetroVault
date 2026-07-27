@@ -8,6 +8,12 @@ struct SettingsView: View {
     @AppStorage(BigPictureScene.opensInFullScreenPreferenceKey)
     private var opensBigPictureInFullScreen =
         BigPictureScene.opensInFullScreenByDefault
+    @AppStorage(LibretroTransportPreferences.enablesFastForwardKey)
+    private var enablesR3FastForward =
+        LibretroTransportPreferences.enabledByDefault
+    @AppStorage(LibretroTransportPreferences.enablesRewindKey)
+    private var enablesL3Rewind =
+        LibretroTransportPreferences.enabledByDefault
     @State private var showsPurgeConfirmation = false
 
     var body: some View {
@@ -85,6 +91,16 @@ struct SettingsView: View {
 
             Section("Emulation") {
                 LabeledContent("Runtime", value: "Bundled Libretro")
+
+                Toggle(
+                    "Enable Fast Forward with R3",
+                    isOn: $enablesR3FastForward
+                )
+
+                Toggle(
+                    "Enable Rewind with L3",
+                    isOn: $enablesL3Rewind
+                )
 
                 Button("Open 2048 Runtime Test") {
                     openWindow(value: LibretroRunRequest.pipelineTest)

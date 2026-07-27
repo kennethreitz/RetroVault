@@ -6,6 +6,12 @@ struct LibretroGameView: View {
     @State private var session: LibretroSession
     @State private var playerWindow: NSWindow?
     @State private var isFullScreen = false
+    @AppStorage(LibretroTransportPreferences.enablesFastForwardKey)
+    private var enablesR3FastForward =
+        LibretroTransportPreferences.enabledByDefault
+    @AppStorage(LibretroTransportPreferences.enablesRewindKey)
+    private var enablesL3Rewind =
+        LibretroTransportPreferences.enabledByDefault
     private let onCloseRequested: (@MainActor () -> Void)?
 
     init(
@@ -102,7 +108,14 @@ struct LibretroGameView: View {
             .frame(width: 0, height: 0)
         }
         .task {
+            configureTransportControls()
             session.start()
+        }
+        .onChange(of: enablesR3FastForward) {
+            configureTransportControls()
+        }
+        .onChange(of: enablesL3Rewind) {
+            configureTransportControls()
         }
         .onDisappear {
             if session.shouldClosePlayer {
@@ -253,9 +266,11 @@ struct LibretroGameView: View {
                 .frame(height: 18)
             Text("Start + Select to exit")
 
-            Divider()
-                .frame(height: 18)
-            Text("Hold L3 to rewind · R3 to fast-forward")
+            if let transportControlsHint {
+                Divider()
+                    .frame(height: 18)
+                Text(transportControlsHint)
+            }
 
             if let message = session.message {
                 Divider()
@@ -320,6 +335,26 @@ struct LibretroGameView: View {
 
     private var isImmersiveBigPicturePlayback: Bool {
         session.request.playerOrigin == .bigPicture && isFullScreen
+    }
+
+    private var transportControlsHint: String? {
+        switch (enablesL3Rewind, enablesR3FastForward) {
+        case (true, true):
+            "Hold L3 to rewind · R3 to fast-forward"
+        case (true, false):
+            "Hold L3 to rewind"
+        case (false, true):
+            "Hold R3 to fast-forward"
+        case (false, false):
+            nil
+        }
+    }
+
+    private func configureTransportControls() {
+        session.setTransportControlsEnabled(
+            rewind: enablesL3Rewind,
+            fastForward: enablesR3FastForward
+        )
     }
 
     private func closePlayer() {
