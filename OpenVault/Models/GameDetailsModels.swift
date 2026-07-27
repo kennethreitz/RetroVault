@@ -247,12 +247,22 @@ struct GameSaveDataItem: Codable, Identifiable, Hashable, Sendable {
 /// Non-secret information carried into a Libretro session so battery-backed
 /// save memory can use OpenVault's stable, server-scoped local save file.
 struct CartridgeSaveSyncConfiguration: Codable, Hashable, Sendable {
+  enum Storage: String, Codable, Hashable, Sendable {
+    case saveRAM
+    case directoryBundle
+  }
+
   let serverURL: ServerURL
   let gameID: Int
   let localSaveURL: URL
   let uploadFileName: String
   let emulator: String
   let slot: String
+  let storage: Storage?
+
+  var effectiveStorage: Storage {
+    storage ?? .saveRAM
+  }
 }
 
 /// Result of reconciling a locally persisted cartridge save with RomM.

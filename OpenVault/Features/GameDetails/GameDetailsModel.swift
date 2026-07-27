@@ -253,7 +253,8 @@ final class GameDetailsModel {
             async let saveSync = service.prepareCartridgeSaveForPlay(
                 game,
                 in: session,
-                emulator: "OpenVault"
+                emulator: "OpenVault",
+                coreID: playbackCore.id
             )
             let prepared = try await (
                 contentURL,

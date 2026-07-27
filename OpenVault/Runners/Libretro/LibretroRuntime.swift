@@ -1903,6 +1903,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
     private struct Paths {
         let system: URL
         let saves: URL
+        let legacySaves: URL?
         let states: URL
         let assets: URL
     }
@@ -1944,9 +1945,14 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         let paths = Self.paths(for: request)
         self.paths = paths
         quickStateURL = paths.states.appending(path: "Quick.state")
-        saveMemoryURL =
-            request.saveSync?.localSaveURL
-            ?? paths.saves.appending(path: "SaveRAM.srm")
+        if
+            let saveSync = request.saveSync,
+            saveSync.effectiveStorage == .saveRAM
+        {
+            saveMemoryURL = saveSync.localSaveURL
+        } else {
+            saveMemoryURL = paths.saves.appending(path: "SaveRAM.srm")
+        }
         hasQuickState = FileManager.default.fileExists(atPath: quickStateURL.path)
     }
 
@@ -2427,6 +2433,24 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
     }
 
     private func prepareDirectories() throws {
+        if
+            let legacySaves = paths.legacySaves,
+            !FileManager.default.fileExists(atPath: paths.saves.path),
+            FileManager.default.fileExists(atPath: legacySaves.path)
+        {
+            try FileManager.default.createDirectory(
+                at: paths.saves.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.copyItem(
+                at: legacySaves,
+                to: paths.saves
+            )
+            OpenVaultLog.libretro.notice(
+                "Migrated this core's existing directory-based save into managed sync storage"
+            )
+        }
+
         for directory in [
             paths.system,
             paths.saves,
@@ -2471,11 +2495,31 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             FileManager.default.fileExists(atPath: $0.path) ? $0 : nil
         }
 
+        let coreSaveDirectory: URL
+        let legacySaveDirectory: URL?
+        if
+            let saveSync = request.saveSync,
+            saveSync.effectiveStorage == .directoryBundle
+        {
+            coreSaveDirectory = saveSync.localSaveURL
+            legacySaveDirectory = root.appending(
+                path: "Saves",
+                directoryHint: .isDirectory
+            )
+        } else {
+            coreSaveDirectory = root.appending(
+                path: "Saves",
+                directoryHint: .isDirectory
+            )
+            legacySaveDirectory = nil
+        }
+
         return Paths(
             system: request.systemDirectory
                 ?? readableBundledSystemDirectory
                 ?? root.appending(path: "System", directoryHint: .isDirectory),
-            saves: root.appending(path: "Saves", directoryHint: .isDirectory),
+            saves: coreSaveDirectory,
+            legacySaves: legacySaveDirectory,
             states: root.appending(path: "States", directoryHint: .isDirectory),
             assets: root.appending(path: "Assets", directoryHint: .isDirectory)
         )

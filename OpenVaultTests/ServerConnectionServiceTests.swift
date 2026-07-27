@@ -1071,7 +1071,8 @@ struct LibraryTests {
         let prepared = try await service.prepareCartridgeSaveForPlay(
             game,
             in: session,
-            emulator: "OpenVault"
+            emulator: "OpenVault",
+            coreID: "libretro-bsnes-mercury-balanced"
         )
         let configuration = try #require(prepared)
 
@@ -1111,7 +1112,8 @@ struct LibraryTests {
         _ = try await service.prepareCartridgeSaveForPlay(
             game,
             in: session,
-            emulator: "OpenVault"
+            emulator: "OpenVault",
+            coreID: "libretro-bsnes-mercury-balanced"
         )
         let refreshedLaunchCount = await api.gameDetailsRequestCount
         #expect(refreshedLaunchCount == refreshCountBeforeLaunch + 1)
@@ -1132,7 +1134,8 @@ struct LibraryTests {
         _ = try await service.prepareCartridgeSaveForPlay(
             game,
             in: session,
-            emulator: "OpenVault"
+            emulator: "OpenVault",
+            coreID: "libretro-bsnes-mercury-balanced"
         )
         let offlineSafeLaunchCount = await api.gameDetailsRequestCount
         #expect(
@@ -1145,6 +1148,140 @@ struct LibraryTests {
                 == unsynchronizedData
         )
     }
+
+    @Test("Synchronizes PPSSPP's directory-based save as one ZIP bundle")
+    func synchronizesPPSSPPSaveDirectory() async throws {
+        let token = try ClientToken(
+            rawValue: "rmm_" + String(repeating: "c", count: 64)
+        )
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let remoteDirectory = directory.appending(
+            path: "Remote",
+            directoryHint: .isDirectory
+        )
+        let remoteDataURL = remoteDirectory.appending(
+            path: "PSP/SAVEDATA/UCUS98662_GameData0/DATA.BIN"
+        )
+        try FileManager.default.createDirectory(
+            at: remoteDataURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let remoteSaveData = Data("remote-locoroco".utf8)
+        try remoteSaveData.write(to: remoteDataURL)
+        let remoteBundle = try #require(
+            try SaveBundleArchive().data(from: remoteDirectory)
+        )
+
+        let api = SaveSyncMockRomMClient(
+            token: token,
+            availableSaves: [501: remoteBundle]
+        )
+        let service = RomMLibraryService(
+            api: api,
+            credentialStore: credentials,
+            saveDirectory: directory.appending(
+                path: "Managed",
+                directoryHint: .isDirectory
+            )
+        )
+        let serverURL = try ServerURL("https://romm.example.com")
+        let session = ServerSession(
+            serverURL: serverURL,
+            username: "kenneth"
+        )
+        let save = GameSaveDataItem(
+            id: 501,
+            kind: .save,
+            fileName: "LocoRoco.ppsspp.zip",
+            fileExtension: "zip",
+            filePath: "saves/PSP",
+            fullPath: "saves/PSP/LocoRoco.ppsspp.zip",
+            downloadURL: serverURL.resourceURL(
+                for: "/api/saves/501/content"
+            ),
+            fileSizeBytes: Int64(remoteBundle.count),
+            isMissingFromFileSystem: false,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            updatedAt: Date(timeIntervalSince1970: 1_000),
+            emulator: "OpenVault",
+            slot: "autosave",
+            contentHash: "remote-501",
+            isPublic: false,
+            screenshotURL: nil
+        )
+        let game = mockGameDetails(
+            id: 34_856,
+            fileName: "LocoRoco (USA) (PSP) (PSN).iso",
+            systemName: "PlayStation Portable",
+            saves: [save]
+        )
+
+        let prepared = try await service.prepareCartridgeSaveForPlay(
+            game,
+            in: session,
+            emulator: "OpenVault",
+            coreID: "libretro-ppsspp"
+        )
+        let configuration = try #require(prepared)
+        #expect(configuration.effectiveStorage == .directoryBundle)
+        #expect(configuration.localSaveURL.lastPathComponent == "PPSSPP")
+        #expect(
+            configuration.uploadFileName
+                == "LocoRoco (USA) (PSP) (PSN).ppsspp.zip"
+        )
+
+        let localDataURL = configuration.localSaveURL.appending(
+            path: "PSP/SAVEDATA/UCUS98662_GameData0/DATA.BIN"
+        )
+        #expect(try Data(contentsOf: localDataURL) == remoteSaveData)
+        #expect(
+            try await service.syncCartridgeSaveAfterPlay(configuration)
+                == .unchanged
+        )
+
+        let changedData = Data("changed-locoroco".utf8)
+        try changedData.write(to: localDataURL, options: .atomic)
+        #expect(
+            try await service.syncCartridgeSaveAfterPlay(configuration)
+                == .uploaded
+        )
+        #expect(
+            await api.uploadedFileNames
+                == ["LocoRoco (USA) (PSP) (PSN).ppsspp.zip"]
+        )
+
+        let uploadedBundle = try #require(await api.uploadedSaves.first)
+        let uploadedURL = directory.appending(path: "Uploaded.zip")
+        try uploadedBundle.write(to: uploadedURL)
+        let restoredDirectory = directory.appending(
+            path: "Restored",
+            directoryHint: .isDirectory
+        )
+        try SaveBundleArchive().restore(
+            from: uploadedURL,
+            to: restoredDirectory
+        )
+        #expect(
+            try Data(
+                contentsOf: restoredDirectory.appending(
+                    path: "PSP/SAVEDATA/UCUS98662_GameData0/DATA.BIN"
+                )
+            ) == changedData
+        )
+
+        #expect(
+            try await service.syncCartridgeSaveAfterPlay(configuration)
+                == .unchanged
+        )
+        #expect(await api.uploadedSaves.count == 1)
+    }
 }
 
 private actor SaveSyncMockRomMClient: RomMClient {
@@ -1154,6 +1291,7 @@ private actor SaveSyncMockRomMClient: RomMClient {
     private(set) var gameDetailsRequestCount = 0
     private(set) var downloadedSaveIDs: [Int] = []
     private(set) var uploadedSaves: [Data] = []
+    private(set) var uploadedFileNames: [String] = []
 
     init(token: ClientToken, availableSaves: [Int: Data]) {
         self.token = token
@@ -1268,6 +1406,7 @@ private actor SaveSyncMockRomMClient: RomMClient {
         token: ClientToken
     ) -> GameSaveDataItem {
         uploadedSaves.append(data)
+        uploadedFileNames.append(fileName)
         let id = 900 + uploadedSaves.count
         return GameSaveDataItem(
             id: id,

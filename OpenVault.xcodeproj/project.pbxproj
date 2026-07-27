@@ -21,6 +21,8 @@
 		A40000000000000000000001 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 1A7600000000000000000001 /* ZIPFoundation */; };
 		A40000000000000000000002 /* GameArchiveExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000001 /* GameArchiveExtractor.swift */; };
 		A40000000000000000000003 /* GameArchiveExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000002 /* GameArchiveExtractorTests.swift */; };
+		A40000000000000000000004 /* SaveBundleArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000003 /* SaveBundleArchive.swift */; };
+		A40000000000000000000005 /* SaveBundleArchiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000004 /* SaveBundleArchiveTests.swift */; };
 		A20000000000000000000001 /* LibraryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* LibraryCache.swift */; };
 		A20000000000000000000002 /* SwiftDataLibraryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* SwiftDataLibraryCache.swift */; };
 		A20000000000000000000003 /* LibraryCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* LibraryCacheTests.swift */; };
@@ -81,6 +83,8 @@
 		B30000000000000000000004 /* LibretroCoreManifestTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroCoreManifestTests.swift; sourceTree = "<group>"; };
 		B40000000000000000000001 /* GameArchiveExtractor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameArchiveExtractor.swift; sourceTree = "<group>"; };
 		B40000000000000000000002 /* GameArchiveExtractorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameArchiveExtractorTests.swift; sourceTree = "<group>"; };
+		B40000000000000000000003 /* SaveBundleArchive.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SaveBundleArchive.swift; sourceTree = "<group>"; };
+		B40000000000000000000004 /* SaveBundleArchiveTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SaveBundleArchiveTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000001 /* LibraryCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryCache.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* SwiftDataLibraryCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SwiftDataLibraryCache.swift; sourceTree = "<group>"; };
 		B20000000000000000000003 /* LibraryCacheTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryCacheTests.swift; sourceTree = "<group>"; };
@@ -253,6 +257,7 @@
 			children = (
 				B40000000000000000000001 /* GameArchiveExtractor.swift */,
 				EEC227E0D83BB987A99EBE50 /* LibraryService.swift */,
+				B40000000000000000000003 /* SaveBundleArchive.swift */,
 				9AB5A810AC557942EDBE4D24 /* ServerConnectionService.swift */,
 			);
 			name = Services;
@@ -358,6 +363,7 @@
 				B20000000000000000000003 /* LibraryCacheTests.swift */,
 				B30000000000000000000004 /* LibretroCoreManifestTests.swift */,
 				7CE0812D0EFD1CE66AA1BF4E /* PairingValueTests.swift */,
+				B40000000000000000000004 /* SaveBundleArchiveTests.swift */,
 				A3C9E07B1356C2C0E592CE86 /* ServerConnectionServiceTests.swift */,
 				A21459D026178CE9B0974A8E /* ServerURLTests.swift */,
 			);
@@ -553,6 +559,7 @@
 				A30000000000000000000003 /* LibretroRuntime.swift in Sources */,
 				A40000000000000000000002 /* GameArchiveExtractor.swift in Sources */,
 				C482072FDFB5DCB0FF807D6C /* LibraryService.swift in Sources */,
+				A40000000000000000000004 /* SaveBundleArchive.swift in Sources */,
 				DABBCD69D1B0CDEE8B5BB01F /* ServerConnectionService.swift in Sources */,
 				A60000000000000000000001 /* LiquidGlass.swift in Sources */,
 				A50000000000000000000001 /* OpenVaultDiagnostics.swift in Sources */,
@@ -567,6 +574,7 @@
 				A20000000000000000000003 /* LibraryCacheTests.swift in Sources */,
 				A30000000000000000000004 /* LibretroCoreManifestTests.swift in Sources */,
 				FE03EEAF3465F1282D358BA8 /* PairingValueTests.swift in Sources */,
+				A40000000000000000000005 /* SaveBundleArchiveTests.swift in Sources */,
 				099606899B62ABB6D739ACF9 /* ServerConnectionServiceTests.swift in Sources */,
 				FFAD3767D2311D56DA00F120 /* ServerURLTests.swift in Sources */,
 			);

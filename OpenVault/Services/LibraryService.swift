@@ -74,7 +74,8 @@ protocol LibraryServing: Sendable {
   func prepareCartridgeSaveForPlay(
     _ game: GameDetails,
     in session: ServerSession,
-    emulator: String
+    emulator: String,
+    coreID: String
   ) async throws -> CartridgeSaveSyncConfiguration?
   func syncCartridgeSaveAfterPlay(
     _ configuration: CartridgeSaveSyncConfiguration
@@ -167,7 +168,8 @@ extension LibraryServing {
   func prepareCartridgeSaveForPlay(
     _ game: GameDetails,
     in session: ServerSession,
-    emulator: String
+    emulator: String,
+    coreID: String
   ) async throws -> CartridgeSaveSyncConfiguration? {
     nil
   }
@@ -1187,9 +1189,15 @@ actor RomMLibraryService: LibraryServing {
   func prepareCartridgeSaveForPlay(
     _ game: GameDetails,
     in session: ServerSession,
-    emulator: String
+    emulator: String,
+    coreID: String
   ) async throws -> CartridgeSaveSyncConfiguration? {
-    let localSaveURL = cartridgeSaveURL(for: game.id, in: session)
+    let storage = saveStorage(forCoreID: coreID)
+    let localSaveURL = saveURL(
+      for: game.id,
+      in: session,
+      storage: storage
+    )
     try FileManager.default.createDirectory(
       at: localSaveURL.deletingLastPathComponent(),
       withIntermediateDirectories: true
@@ -1199,11 +1207,12 @@ actor RomMLibraryService: LibraryServing {
       serverURL: session.serverURL,
       gameID: game.id,
       localSaveURL: localSaveURL,
-      uploadFileName: cartridgeSaveFileName(for: game),
+      uploadFileName: saveFileName(for: game, storage: storage),
       emulator: emulator,
-      slot: "autosave"
+      slot: "autosave",
+      storage: storage
     )
-    let localHash = saveContentHash(at: localSaveURL)
+    let localHash = saveContentHash(for: configuration)
     let metadata = loadSaveSyncMetadata(for: localSaveURL)
 
     let token: ClientToken
@@ -1247,7 +1256,10 @@ actor RomMLibraryService: LibraryServing {
       return configuration
     }
 
-    let candidates = remoteCartridgeSaves(in: launchGame)
+    let candidates = remoteSaves(
+      in: launchGame,
+      storage: configuration.effectiveStorage
+    )
     guard !candidates.isEmpty else {
       return configuration
     }
@@ -1292,10 +1304,27 @@ actor RomMLibraryService: LibraryServing {
           continue
         }
 
-        try data.write(to: localSaveURL, options: .atomic)
-        let importedHash = SHA256.hash(data: data)
-          .map { String(format: "%02x", $0) }
-          .joined()
+        let importedHash: String
+        switch configuration.effectiveStorage {
+        case .saveRAM:
+          try data.write(to: localSaveURL, options: .atomic)
+          importedHash = SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        case .directoryBundle:
+          try SaveBundleArchive().restore(
+            from: download.temporaryFileURL,
+            to: localSaveURL
+          )
+          guard
+            let directoryHash = try SaveBundleArchive().contentHash(
+              of: localSaveURL
+            )
+          else {
+            throw SaveBundleArchiveError.emptyArchive
+          }
+          importedHash = directoryHash
+        }
         try? writeSaveSyncMetadata(
           CartridgeSaveSyncMetadata(
             localContentHash: importedHash,
@@ -1333,19 +1362,36 @@ actor RomMLibraryService: LibraryServing {
       return .unchanged
     }
 
+    let localHash: String
     let data: Data
     do {
-      data = try Data(contentsOf: configuration.localSaveURL)
+      switch configuration.effectiveStorage {
+      case .saveRAM:
+        data = try Data(contentsOf: configuration.localSaveURL)
+        guard !data.isEmpty else {
+          return .unchanged
+        }
+        localHash = SHA256.hash(data: data)
+          .map { String(format: "%02x", $0) }
+          .joined()
+      case .directoryBundle:
+        let archive = SaveBundleArchive()
+        guard
+          let hash = try archive.contentHash(
+            of: configuration.localSaveURL
+          ),
+          let bundleData = try archive.data(
+            from: configuration.localSaveURL
+          )
+        else {
+          return .unchanged
+        }
+        localHash = hash
+        data = bundleData
+      }
     } catch {
       throw LibraryServiceError.couldNotSyncSave(reason: error.localizedDescription)
     }
-    guard !data.isEmpty else {
-      return .unchanged
-    }
-
-    let localHash = SHA256.hash(data: data)
-      .map { String(format: "%02x", $0) }
-      .joined()
     let previousMetadata = loadSaveSyncMetadata(
       for: configuration.localSaveURL
     )
@@ -1627,35 +1673,66 @@ actor RomMLibraryService: LibraryServing {
     )
   }
 
-  private func cartridgeSaveURL(
+  private func saveURL(
     for gameID: Int,
-    in session: ServerSession
+    in session: ServerSession,
+    storage: CartridgeSaveSyncConfiguration.Storage
   ) -> URL {
-    saveDirectory
+    let gameDirectory = saveDirectory
       .appending(path: serverKey(for: session), directoryHint: .isDirectory)
       .appending(path: String(gameID), directoryHint: .isDirectory)
-      .appending(path: "SaveRAM.srm")
+    switch storage {
+    case .saveRAM:
+      return gameDirectory.appending(path: "SaveRAM.srm")
+    case .directoryBundle:
+      return gameDirectory.appending(
+        path: "PPSSPP",
+        directoryHint: .isDirectory
+      )
+    }
   }
 
-  private func cartridgeSaveFileName(for game: GameDetails) -> String {
+  private func saveFileName(
+    for game: GameDetails,
+    storage: CartridgeSaveSyncConfiguration.Storage
+  ) -> String {
     let stem = URL(fileURLWithPath: game.fileName)
       .deletingPathExtension()
       .lastPathComponent
+    let suffix = switch storage {
+    case .saveRAM:
+      ".srm"
+    case .directoryBundle:
+      ".ppsspp.zip"
+    }
     return safeFileName(
-      "\(stem).srm",
-      fallback: "RomM Game \(game.id).srm",
+      "\(stem)\(suffix)",
+      fallback: "RomM Game \(game.id)\(suffix)",
       gameID: game.id
     )
   }
 
-  private func remoteCartridgeSaves(
-    in game: GameDetails
+  private func saveStorage(
+    forCoreID coreID: String
+  ) -> CartridgeSaveSyncConfiguration.Storage {
+    coreID.lowercased().contains("ppsspp")
+      ? .directoryBundle
+      : .saveRAM
+  }
+
+  private func remoteSaves(
+    in game: GameDetails,
+    storage: CartridgeSaveSyncConfiguration.Storage
   ) -> [GameSaveDataItem] {
     game.saves
       .filter {
         $0.kind == .save
           && !$0.isMissingFromFileSystem
           && $0.downloadURL != nil
+          && (
+            storage != .directoryBundle
+              || $0.fileExtension.lowercased() == "zip"
+          )
       }
       .sorted {
         let leftDate = $0.updatedAt ?? $0.createdAt ?? .distantPast
@@ -1667,13 +1744,25 @@ actor RomMLibraryService: LibraryServing {
       }
   }
 
-  private func saveContentHash(at url: URL) -> String? {
-    guard let data = try? Data(contentsOf: url), !data.isEmpty else {
-      return nil
+  private func saveContentHash(
+    for configuration: CartridgeSaveSyncConfiguration
+  ) -> String? {
+    switch configuration.effectiveStorage {
+    case .saveRAM:
+      guard
+        let data = try? Data(contentsOf: configuration.localSaveURL),
+        !data.isEmpty
+      else {
+        return nil
+      }
+      return SHA256.hash(data: data)
+        .map { String(format: "%02x", $0) }
+        .joined()
+    case .directoryBundle:
+      return try? SaveBundleArchive().contentHash(
+        of: configuration.localSaveURL
+      )
     }
-    return SHA256.hash(data: data)
-      .map { String(format: "%02x", $0) }
-      .joined()
   }
 
   private func loadSaveSyncMetadata(
