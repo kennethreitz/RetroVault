@@ -346,6 +346,8 @@ private struct LibretroMetalView: NSViewRepresentable {
 }
 
 private final class LibretroMTKView: MTKView, MTKViewDelegate {
+    private static let cursorIdleInterval: TimeInterval = 1.5
+
     private let videoBuffer: LibretroVideoBuffer
     private let input: LibretroInputState
     private let commandQueue: MTLCommandQueue
@@ -354,6 +356,8 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
     private var sourceSize = CGSize.zero
     private var pointerPressed = false
     private var pointerTrackingArea: NSTrackingArea?
+    private var cursorHideTask: Task<Void, Never>?
+    private var isPointerInside = false
 
     init(videoBuffer: LibretroVideoBuffer, input: LibretroInputState) {
         guard
@@ -404,6 +408,11 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {
+        cursorHideTask?.cancel()
+        NSCursor.setHiddenUntilMouseMoves(false)
+    }
+
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     override var acceptsFirstResponder: Bool {
@@ -421,30 +430,85 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         }
         let trackingArea = NSTrackingArea(
             rect: bounds,
-            options: [.activeInKeyWindow, .inVisibleRect, .mouseMoved],
+            options: [
+                .activeInKeyWindow,
+                .inVisibleRect,
+                .mouseEnteredAndExited,
+                .mouseMoved,
+            ],
             owner: self
         )
         addTrackingArea(trackingArea)
         pointerTrackingArea = trackingArea
     }
 
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil {
+            restoreCursor()
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isPointerInside = true
+        recordPointerActivity()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isPointerInside = false
+        restoreCursor()
+    }
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         pointerPressed = true
+        recordPointerActivity()
         updatePointer(with: event)
     }
 
     override func mouseDragged(with event: NSEvent) {
+        recordPointerActivity()
         updatePointer(with: event)
     }
 
     override func mouseMoved(with event: NSEvent) {
+        recordPointerActivity()
         updatePointer(with: event)
     }
 
     override func mouseUp(with event: NSEvent) {
         pointerPressed = false
+        recordPointerActivity()
         updatePointer(with: event)
+    }
+
+    private func recordPointerActivity() {
+        NSCursor.setHiddenUntilMouseMoves(false)
+        cursorHideTask?.cancel()
+        guard isPointerInside, window?.isKeyWindow == true else {
+            return
+        }
+
+        cursorHideTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(
+                for: .seconds(Self.cursorIdleInterval)
+            )
+            guard
+                let self,
+                !Task.isCancelled,
+                self.isPointerInside,
+                self.window?.isKeyWindow == true
+            else {
+                return
+            }
+            NSCursor.setHiddenUntilMouseMoves(true)
+        }
+    }
+
+    private func restoreCursor() {
+        cursorHideTask?.cancel()
+        cursorHideTask = nil
+        NSCursor.setHiddenUntilMouseMoves(false)
     }
 
     func draw(in view: MTKView) {
