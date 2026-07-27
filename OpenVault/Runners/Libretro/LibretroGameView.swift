@@ -213,7 +213,7 @@ struct LibretroGameView: View {
                     .disabled(!isRunning || !session.canRewind)
                     .help(
                         session.allowsRewind
-                            ? "Rewind about one second; hold to continue rewinding"
+                            ? "Step backward; hold for continuous rewind"
                             : "Rewind is disabled for Nintendo 64 games"
                     )
 

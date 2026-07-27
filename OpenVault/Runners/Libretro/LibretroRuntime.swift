@@ -90,6 +90,43 @@ enum LibretroRewindPolicy {
     }
 }
 
+struct LibretroRewindCadence: Sendable {
+    static let targetHistoryDuration = 8.0
+    static let minimumSnapshotsPerSecond = 12.0
+    static let maximumSnapshotsPerSecond = 60.0
+    static let maximumEntryCount = 3_600
+
+    let framesPerSecond: Double
+    let byteLimit: Int
+
+    var initialSnapshotInterval: TimeInterval {
+        1 / maximumSnapshotRate
+    }
+
+    func snapshotInterval(forStateByteCount stateByteCount: Int) -> TimeInterval {
+        guard stateByteCount > 0 else {
+            return initialSnapshotInterval
+        }
+
+        let memoryBoundRate =
+            Double(byteLimit)
+            / Double(stateByteCount)
+            / Self.targetHistoryDuration
+        let snapshotRate = min(
+            maximumSnapshotRate,
+            max(Self.minimumSnapshotsPerSecond, memoryBoundRate)
+        )
+        return 1 / snapshotRate
+    }
+
+    private var maximumSnapshotRate: Double {
+        min(
+            Self.maximumSnapshotsPerSecond,
+            max(framesPerSecond, 1)
+        )
+    }
+}
+
 struct LibretroVideoFrame: Sendable {
     let pixels: Data
     let width: Int
@@ -1424,12 +1461,16 @@ private final class LibretroAudioOutput: @unchecked Sendable {
         schedule(samples: samples, frames: frames)
     }
 
-    func setFastForwarding(_ isFastForwarding: Bool) {
-        guard suppressesAudio != isFastForwarding else {
+    func setTransportAudioSuppressed(_ shouldSuppressAudio: Bool) {
+        guard suppressesAudio != shouldSuppressAudio else {
             return
         }
-        suppressesAudio = isFastForwarding
+        suppressesAudio = shouldSuppressAudio
         flush()
+    }
+
+    func discardPendingSamples() {
+        individualSamples.removeAll(keepingCapacity: true)
     }
 
     func flush() {
@@ -1997,10 +2038,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         case rewind
     }
 
-    private static let rewindCaptureInterval = 1.0
-    private static let heldRewindInterval = 0.12
     private static let rewindByteLimit = 128 * 1_024 * 1_024
-    private static let rewindEntryLimit = 90
+    private static let rewindEntryLimit =
+        LibretroRewindCadence.maximumEntryCount
     private static let fastForwardMultiplier = 4.0
 
     private struct Paths {
@@ -2213,6 +2253,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         )
         var rewindIsSupported = request.allowsRewind
         var nextRewindCapture = 0.0
+        var rewindSnapshotInterval = 1.0 / 60.0
 
         defer {
             if loaded, let core {
@@ -2313,9 +2354,16 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             }
 
             let frameDuration = 1 / avInfo.framesPerSecond
+            let rewindCadence = LibretroRewindCadence(
+                framesPerSecond: avInfo.framesPerSecond,
+                byteLimit: Self.rewindByteLimit
+            )
+            rewindSnapshotInterval =
+                rewindCadence.initialSnapshotInterval
             var nextFrame = ProcessInfo.processInfo.systemUptime
             var nextHeldRewind = 0.0
             var wasFastForwarding = false
+            var wasRewinding = false
 
             while !stopRequested {
                 let transportControls =
@@ -2326,7 +2374,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     now >= nextHeldRewind
                 {
                     enqueue(.rewind)
-                    nextHeldRewind = now + Self.heldRewindInterval
+                    nextHeldRewind = now + rewindSnapshotInterval
                 } else if !transportControls.isRewinding {
                     nextHeldRewind = 0
                 }
@@ -2334,10 +2382,15 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 if
                     transportControls.isFastForwarding
                         != wasFastForwarding
+                        || transportControls.isRewinding
+                            != wasRewinding
                 {
                     wasFastForwarding =
                         transportControls.isFastForwarding
-                    audioOutput.setFastForwarding(wasFastForwarding)
+                    wasRewinding = transportControls.isRewinding
+                    audioOutput.setTransportAudioSuppressed(
+                        wasFastForwarding || wasRewinding
+                    )
                     nextFrame = now
                 }
 
@@ -2345,7 +2398,8 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     using: loadedCore,
                     rewindBuffer: &rewindBuffer,
                     rewindIsSupported: &rewindIsSupported,
-                    nextRewindCapture: &nextRewindCapture
+                    nextRewindCapture: &nextRewindCapture,
+                    rewindSnapshotInterval: rewindSnapshotInterval
                 )
 
                 if paused {
@@ -2361,18 +2415,24 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
 
                 runtimeEnvironment.makeHardwareContextCurrent()
                 loadedCore.run()
-                captureRewindStateIfNeeded(
-                    using: loadedCore,
-                    rewindBuffer: &rewindBuffer,
-                    rewindIsSupported: &rewindIsSupported,
-                    nextRewindCapture: &nextRewindCapture
-                )
+                if !didRewind {
+                    captureRewindStateIfNeeded(
+                        using: loadedCore,
+                        cadence: rewindCadence,
+                        rewindBuffer: &rewindBuffer,
+                        rewindIsSupported: &rewindIsSupported,
+                        nextRewindCapture: &nextRewindCapture,
+                        rewindSnapshotInterval: &rewindSnapshotInterval
+                    )
+                }
                 if runtimeEnvironment.requestedShutdown {
                     stop()
                 }
 
                 let activeFrameDuration =
-                    wasFastForwarding
+                    wasRewinding
+                    ? rewindSnapshotInterval
+                    : wasFastForwarding
                     ? frameDuration / Self.fastForwardMultiplier
                     : frameDuration
                 nextFrame += activeFrameDuration
@@ -2416,7 +2476,8 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         using core: LibretroCore,
         rewindBuffer: inout LibretroRewindBuffer,
         rewindIsSupported: inout Bool,
-        nextRewindCapture: inout TimeInterval
+        nextRewindCapture: inout TimeInterval,
+        rewindSnapshotInterval: TimeInterval
     ) -> Bool {
         controlLock.lock()
         let pending = commands
@@ -2461,10 +2522,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                         continue
                     }
                     try core.loadState(state)
-                    audioOutput.flush()
+                    audioOutput.discardPendingSamples()
                     nextRewindCapture =
                         ProcessInfo.processInfo.systemUptime
-                        + Self.rewindCaptureInterval
+                        + rewindSnapshotInterval
                     didRewind = true
                     emit(.rewound(canContinue: !rewindBuffer.isEmpty))
                 }
@@ -2483,19 +2544,23 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
 
     private func captureRewindStateIfNeeded(
         using core: LibretroCore,
+        cadence: LibretroRewindCadence,
         rewindBuffer: inout LibretroRewindBuffer,
         rewindIsSupported: inout Bool,
-        nextRewindCapture: inout TimeInterval
+        nextRewindCapture: inout TimeInterval,
+        rewindSnapshotInterval: inout TimeInterval
     ) {
         let now = ProcessInfo.processInfo.systemUptime
         guard rewindIsSupported, now >= nextRewindCapture else {
             return
         }
-        nextRewindCapture = now + Self.rewindCaptureInterval
 
         do {
             let wasEmpty = rewindBuffer.isEmpty
             let state = try core.saveState()
+            rewindSnapshotInterval =
+                cadence.snapshotInterval(forStateByteCount: state.count)
+            nextRewindCapture = now + rewindSnapshotInterval
             guard rewindBuffer.append(state) else {
                 rewindIsSupported = false
                 emit(.rewindAvailabilityChanged(false))

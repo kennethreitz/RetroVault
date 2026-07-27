@@ -757,6 +757,39 @@ struct LibretroCoreManifestTests {
         #expect(rewind.byteCount == 0)
     }
 
+    @Test("Captures small rewind states at frame cadence")
+    func capturesSmallRewindStatesAtFrameCadence() {
+        let cadence = LibretroRewindCadence(
+            framesPerSecond: 60,
+            byteLimit: 128 * 1_024 * 1_024
+        )
+
+        #expect(
+            cadence.snapshotInterval(forStateByteCount: 128 * 1_024)
+                == 1.0 / 60.0
+        )
+    }
+
+    @Test("Adapts rewind cadence for larger states")
+    func adaptsRewindCadenceForLargerStates() {
+        let cadence = LibretroRewindCadence(
+            framesPerSecond: 60,
+            byteLimit: 128 * 1_024 * 1_024
+        )
+        let interval =
+            cadence.snapshotInterval(forStateByteCount: 1 * 1_024 * 1_024)
+
+        #expect(interval > 1.0 / 60.0)
+        #expect(interval < 1.0 / 12.0)
+        #expect(
+            abs(
+                (1 / interval) * LibretroRewindCadence.targetHistoryDuration
+                    * Double(1 * 1_024 * 1_024)
+                    - Double(128 * 1_024 * 1_024)
+            ) < 1
+        )
+    }
+
     @Test("Disables rewind for Nintendo 64 cores")
     func disablesNintendo64Rewind() {
         #expect(
