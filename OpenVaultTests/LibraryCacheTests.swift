@@ -257,6 +257,11 @@ struct BigPictureCatalogTests {
     #expect(window.collectionBehavior.contains(.fullScreenPrimary))
     #expect(!window.collectionBehavior.contains(.fullScreenNone))
     #expect(window.standardWindowButton(.zoomButton)?.isEnabled == true)
+    #expect(window.standardWindowButton(.zoomButton)?.target === window)
+    #expect(
+      window.standardWindowButton(.zoomButton)?.action
+        == #selector(NSWindow.toggleFullScreen(_:))
+    )
   }
 
   @Test("Requests fullscreen only for the initial visible presentation")

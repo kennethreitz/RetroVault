@@ -51,7 +51,6 @@ struct OpenVaultApp: App {
             }
         }
         .defaultSize(width: 1_280, height: 720)
-        .windowResizability(.contentMinSize)
         .commands {
             DiagnosticsCommands()
         }

@@ -1926,6 +1926,7 @@ private struct BigPictureWindowProbe: NSViewRepresentable {
 
   func updateNSView(_ nsView: BigPictureProbeView, context: Context) {
     nsView.didMoveToWindow = didMoveToWindow
+    nsView.configureWindow()
     nsView.requestFullScreenIfNeeded()
   }
 }
@@ -1978,7 +1979,7 @@ private final class BigPictureProbeView: NSView {
 
     observe(window)
     window.backgroundColor = .black
-    configureBigPictureWindow(window)
+    configureWindow()
     if window.styleMask.contains(.fullScreen) {
       beginImmersivePresentation()
     }
@@ -2013,6 +2014,13 @@ private final class BigPictureProbeView: NSView {
       configureBigPictureWindow(window)
       window.toggleFullScreen(nil)
     }
+  }
+
+  func configureWindow() {
+    guard let window else {
+      return
+    }
+    configureBigPictureWindow(window)
   }
 
   deinit {
@@ -2068,16 +2076,19 @@ private final class BigPictureProbeView: NSView {
 
   @objc
   private func windowDidBecomeKey(_ notification: Notification) {
+    configureWindow()
     requestFullScreenIfNeeded()
   }
 
   @objc
   private func windowDidEnterFullScreen(_ notification: Notification) {
+    configureWindow()
     beginImmersivePresentation()
   }
 
   @objc
   private func windowDidExitFullScreen(_ notification: Notification) {
+    configureWindow()
     endImmersivePresentation()
   }
 
@@ -2118,5 +2129,8 @@ func configureBigPictureWindow(_ window: NSWindow) {
     .miniaturizable,
     .resizable,
   ])
-  window.standardWindowButton(.zoomButton)?.isEnabled = true
+  let fullScreenButton = window.standardWindowButton(.zoomButton)
+  fullScreenButton?.target = window
+  fullScreenButton?.action = #selector(NSWindow.toggleFullScreen(_:))
+  fullScreenButton?.isEnabled = true
 }
