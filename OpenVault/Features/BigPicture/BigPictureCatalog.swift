@@ -11,6 +11,7 @@ struct BigPictureLibrarySource: Sendable {
 
 enum BigPictureScope: Hashable, Sendable {
   case recentlyAdded
+  case favorites
   case downloaded
   case system(Int)
   case collection(LibraryCollection.ID)
@@ -33,6 +34,7 @@ struct BigPictureCatalog: Sendable {
   let systems: [LibrarySystem]
   let collections: [LibraryCollection]
   let recentlyAddedGames: [GameSummary]
+  let favoriteGames: [GameSummary]
   let downloadedGames: [GameSummary]
   let favoriteGameIDs: Set<Int>
 
@@ -118,6 +120,9 @@ struct BigPictureCatalog: Sendable {
     downloadedGames = alphabeticalGames.filter {
       source.downloadedGameIDs.contains($0.id)
     }
+    favoriteGames = alphabeticalGames.filter {
+      favoriteIDs.contains($0.id)
+    }
     recentlyAddedGames = Array(
       Self.sortByDateAdded(alphabeticalGames).prefix(50)
     )
@@ -127,6 +132,8 @@ struct BigPictureCatalog: Sendable {
     switch scope {
     case .recentlyAdded:
       recentlyAddedGames
+    case .favorites:
+      favoriteGames
     case .downloaded:
       downloadedGames
     case .system(let systemID):
@@ -140,6 +147,8 @@ struct BigPictureCatalog: Sendable {
     switch scope {
     case .recentlyAdded:
       "Recently Added"
+    case .favorites:
+      "Favorites"
     case .downloaded:
       "Downloaded"
     case .system(let systemID):

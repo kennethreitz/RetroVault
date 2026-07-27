@@ -220,7 +220,7 @@ struct SidebarSystemSortTests {
 
 @Suite("Big Picture catalog")
 struct BigPictureCatalogTests {
-  @Test("Builds recent, downloaded, system, and collection menus offline")
+  @Test("Builds recent, favorite, downloaded, system, and collection menus offline")
   func buildsControllerFirstCatalog() {
     let collectionID = LibraryCollection.ID.virtual("mario")
     let favoritesID = LibraryCollection.ID.regular(10)
@@ -294,10 +294,13 @@ struct BigPictureCatalogTests {
         "Super Nintendo Entertainment System",
       ])
     #expect(catalog.recentlyAddedGames.map(\.id) == [2, 1, 3])
+    #expect(catalog.favoriteGames.map(\.id) == [1])
     #expect(catalog.downloadedGames.map(\.id) == [3])
+    #expect(catalog.games(in: .favorites).map(\.id) == [1])
     #expect(catalog.games(in: .system(1)).map(\.id) == [1, 2])
     #expect(catalog.games(in: .collection(collectionID)).map(\.id) == [2, 1])
     #expect(catalog.favoriteGameIDs == [1])
+    #expect(catalog.title(for: .favorites) == "Favorites")
     #expect(catalog.title(for: .collection(collectionID)) == "Mario")
   }
 
