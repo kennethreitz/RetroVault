@@ -1330,6 +1330,31 @@ struct LibraryCacheTests {
   }
 
   @MainActor
+  @Test("Prepares downloaded game metadata without contacting RomM")
+  func loadsDownloadedPlaybackMetadataOffline() async throws {
+    let snapshot = testLibrarySnapshot()
+    let session = ServerSession(
+      serverURL: try ServerURL("https://romm.example.com"),
+      username: "kenneth"
+    )
+    let model = GameDetailsModel(
+      game: try #require(snapshot.games.first),
+      session: session,
+      service: OfflineLibraryService(
+        snapshot: snapshot,
+        downloadedGameIDs: [1]
+      )
+    )
+
+    await model.loadForPlayback(allowsRemoteAccess: false)
+
+    #expect(model.details?.name == "Tetris")
+    #expect(model.dataSource == .librarySummary)
+    #expect(model.refreshErrorMessage == nil)
+    #expect(model.errorMessage == nil)
+  }
+
+  @MainActor
   @Test("Filters the cached library to games downloaded on this Mac")
   func filtersDownloadedGames() async throws {
     let snapshot = testLibrarySnapshot()

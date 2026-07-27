@@ -826,7 +826,9 @@ struct LibraryTests {
         let offlineURL = try await relaunchedService.prepareGameForPlay(
             game,
             in: session,
-            supportedFileExtensions: ["gb"]
+            supportedFileExtensions: ["gb"],
+            allowsRemoteAccess: false,
+            onProgress: { _ in }
         )
 
         #expect(offlineURL == firstURL)

@@ -358,7 +358,9 @@ private enum LibraryPlaybackPreparation {
       session: model.session,
       service: model.service
     )
-    await detailsModel.load()
+    await detailsModel.loadForPlayback(
+      allowsRemoteAccess: !model.isShowingStaleData
+    )
 
     guard let details = detailsModel.details else {
       return .failed(
@@ -381,7 +383,12 @@ private enum LibraryPlaybackPreparation {
       )
     }
 
-    guard let request = await detailsModel.prepareToPlay(details) else {
+    guard
+      let request = await detailsModel.prepareToPlay(
+        details,
+        synchronizesWithServer: !model.isShowingStaleData
+      )
+    else {
       return .failed(
         LibraryAlert(
           title: "Couldn’t Start Game",

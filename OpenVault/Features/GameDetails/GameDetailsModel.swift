@@ -53,10 +53,38 @@ final class GameDetailsModel {
         guard !hasLoaded else {
             return
         }
-        await reload()
+        await reload(
+            refreshesFromServer: true,
+            stopsAfterFindingLocalGame: false
+        )
     }
 
     func reload() async {
+        await reload(
+            refreshesFromServer: true,
+            stopsAfterFindingLocalGame: false
+        )
+    }
+
+    /// Loads only the metadata required to start playback.
+    ///
+    /// Already-downloaded games use cached metadata immediately. RomM remains
+    /// the source of truth for non-local games, while save synchronization is
+    /// handled separately during playback preparation.
+    func loadForPlayback(allowsRemoteAccess: Bool) async {
+        guard !hasLoaded else {
+            return
+        }
+        await reload(
+            refreshesFromServer: allowsRemoteAccess,
+            stopsAfterFindingLocalGame: true
+        )
+    }
+
+    private func reload(
+        refreshesFromServer: Bool,
+        stopsAfterFindingLocalGame: Bool
+    ) async {
         isLoading = details == nil
         errorMessage = nil
         refreshErrorMessage = nil
@@ -88,6 +116,14 @@ final class GameDetailsModel {
                 apply(.cachedSummary(game), source: .librarySummary)
             }
             refreshErrorMessage = error.localizedDescription
+        }
+
+        if !refreshesFromServer
+            || (stopsAfterFindingLocalGame && isLocallyAvailable)
+        {
+            hasLoaded = true
+            isLoading = false
+            return
         }
 
         do {
@@ -210,7 +246,10 @@ final class GameDetailsModel {
         exportErrorMessage = nil
     }
 
-    func prepareToPlay(_ game: GameDetails) async -> LibretroRunRequest? {
+    func prepareToPlay(
+        _ game: GameDetails,
+        synchronizesWithServer: Bool = true
+    ) async -> LibretroRunRequest? {
         guard !isPreparingToPlay, let playbackCore else {
             return nil
         }
@@ -229,6 +268,7 @@ final class GameDetailsModel {
                 in: session,
                 supportedFileExtensions: playbackCore.fileExtensions,
                 loadsArchivesDirectly: playbackCore.loadsArchivesDirectly == true,
+                allowsRemoteAccess: synchronizesWithServer,
                 onProgress: { [weak self] progress in
                     Task { @MainActor [weak self] in
                         guard let self, self.isPreparingToPlay else {
@@ -248,13 +288,15 @@ final class GameDetailsModel {
             async let systemDirectory = service.prepareFirmwareForPlay(
                 for: game.systemID,
                 requirements: playbackCore.firmware,
-                in: session
+                in: session,
+                allowsRemoteAccess: synchronizesWithServer
             )
             async let saveSync = service.prepareCartridgeSaveForPlay(
                 game,
                 in: session,
                 emulator: "OpenVault",
-                coreID: playbackCore.id
+                coreID: playbackCore.id,
+                allowsRemoteAccess: synchronizesWithServer
             )
             let prepared = try await (
                 contentURL,

@@ -191,6 +191,12 @@ struct LibretroCoreManifestTests {
         )
         #expect(
             manifest.compatibleCore(
+                systemName: "Game Boy",
+                fileExtension: ""
+            )?.id == "libretro-gambatte"
+        )
+        #expect(
+            manifest.compatibleCore(
                 systemName: "Nintendo Entertainment System",
                 fileExtension: "fds"
             ) == nil

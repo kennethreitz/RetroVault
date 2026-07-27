@@ -66,16 +66,37 @@ protocol LibraryServing: Sendable {
     loadsArchivesDirectly: Bool,
     onProgress: @escaping @Sendable (RomMDownloadProgress) -> Void
   ) async throws -> URL
+  func prepareGameForPlay(
+    _ game: GameDetails,
+    in session: ServerSession,
+    supportedFileExtensions: [String],
+    loadsArchivesDirectly: Bool,
+    allowsRemoteAccess: Bool,
+    onProgress: @escaping @Sendable (RomMDownloadProgress) -> Void
+  ) async throws -> URL
   func prepareFirmwareForPlay(
     for platformID: Int,
     requirements: [LibretroCoreManifest.Core.Firmware],
     in session: ServerSession
+  ) async throws -> URL?
+  func prepareFirmwareForPlay(
+    for platformID: Int,
+    requirements: [LibretroCoreManifest.Core.Firmware],
+    in session: ServerSession,
+    allowsRemoteAccess: Bool
   ) async throws -> URL?
   func prepareCartridgeSaveForPlay(
     _ game: GameDetails,
     in session: ServerSession,
     emulator: String,
     coreID: String
+  ) async throws -> CartridgeSaveSyncConfiguration?
+  func prepareCartridgeSaveForPlay(
+    _ game: GameDetails,
+    in session: ServerSession,
+    emulator: String,
+    coreID: String,
+    allowsRemoteAccess: Bool
   ) async throws -> CartridgeSaveSyncConfiguration?
   func syncCartridgeSaveAfterPlay(
     _ configuration: CartridgeSaveSyncConfiguration
@@ -165,6 +186,23 @@ extension LibraryServing {
     )
   }
 
+  func prepareGameForPlay(
+    _ game: GameDetails,
+    in session: ServerSession,
+    supportedFileExtensions: [String],
+    loadsArchivesDirectly: Bool = false,
+    allowsRemoteAccess: Bool,
+    onProgress: @escaping @Sendable (RomMDownloadProgress) -> Void
+  ) async throws -> URL {
+    try await prepareGameForPlay(
+      game,
+      in: session,
+      supportedFileExtensions: supportedFileExtensions,
+      loadsArchivesDirectly: loadsArchivesDirectly,
+      onProgress: onProgress
+    )
+  }
+
   func prepareCartridgeSaveForPlay(
     _ game: GameDetails,
     in session: ServerSession,
@@ -172,6 +210,21 @@ extension LibraryServing {
     coreID: String
   ) async throws -> CartridgeSaveSyncConfiguration? {
     nil
+  }
+
+  func prepareCartridgeSaveForPlay(
+    _ game: GameDetails,
+    in session: ServerSession,
+    emulator: String,
+    coreID: String,
+    allowsRemoteAccess: Bool
+  ) async throws -> CartridgeSaveSyncConfiguration? {
+    try await prepareCartridgeSaveForPlay(
+      game,
+      in: session,
+      emulator: emulator,
+      coreID: coreID
+    )
   }
 
   func prepareFirmwareForPlay(
@@ -183,6 +236,19 @@ extension LibraryServing {
       throw LibraryServiceError.firmwareCacheUnavailable
     }
     return nil
+  }
+
+  func prepareFirmwareForPlay(
+    for platformID: Int,
+    requirements: [LibretroCoreManifest.Core.Firmware],
+    in session: ServerSession,
+    allowsRemoteAccess: Bool
+  ) async throws -> URL? {
+    try await prepareFirmwareForPlay(
+      for: platformID,
+      requirements: requirements,
+      in: session
+    )
   }
 
   func syncCartridgeSaveAfterPlay(
@@ -669,37 +735,12 @@ actor RomMLibraryService: LibraryServing {
     let destination = managedROMURL(for: game, in: session)
     let fileManager = FileManager.default
 
-    if let cachedURL = cachedGameURL(
-      for: game,
-      in: managedROMServerDirectory(in: session)
-    ) {
-      try? fileManager.setAttributes(
-        [.modificationDate: now()],
-        ofItemAtPath: cachedURL.path
-      )
-      notifyDownloadedGamesDidChange()
-      return cachedURL
+    if let localURL = try locallyAvailableGameURL(for: game, in: session) {
+      return localURL
     }
 
     if fileManager.fileExists(atPath: destination.path) {
       try? fileManager.removeItem(at: destination)
-    }
-
-    if let runtimeURL = cachedGameURL(
-      for: game,
-      in: runtimeCacheServerDirectory(in: session)
-    ) {
-      do {
-        try fileManager.createDirectory(
-          at: destination.deletingLastPathComponent(),
-          withIntermediateDirectories: true
-        )
-        try fileManager.copyItem(at: runtimeURL, to: destination)
-        notifyDownloadedGamesDidChange()
-        return destination
-      } catch {
-        throw LibraryServiceError.couldNotCacheGame(reason: error.localizedDescription)
-      }
     }
 
     let download: RomMDownload
@@ -927,11 +968,39 @@ actor RomMLibraryService: LibraryServing {
     loadsArchivesDirectly: Bool = false,
     onProgress: @escaping @Sendable (RomMDownloadProgress) -> Void
   ) async throws -> URL {
-    let managedURL = try await downloadGame(
+    try await prepareGameForPlay(
       game,
       in: session,
+      supportedFileExtensions: supportedFileExtensions,
+      loadsArchivesDirectly: loadsArchivesDirectly,
+      allowsRemoteAccess: true,
       onProgress: onProgress
     )
+  }
+
+  func prepareGameForPlay(
+    _ game: GameDetails,
+    in session: ServerSession,
+    supportedFileExtensions: [String],
+    loadsArchivesDirectly: Bool = false,
+    allowsRemoteAccess: Bool,
+    onProgress: @escaping @Sendable (RomMDownloadProgress) -> Void
+  ) async throws -> URL {
+    let managedURL: URL
+    if allowsRemoteAccess {
+      managedURL = try await downloadGame(
+        game,
+        in: session,
+        onProgress: onProgress
+      )
+    } else if let localURL = try locallyAvailableGameURL(
+      for: game,
+      in: session
+    ) {
+      managedURL = localURL
+    } else {
+      throw LibraryServiceError.gameNotDownloaded
+    }
 
     do {
       return try playableContent(
@@ -967,6 +1036,20 @@ actor RomMLibraryService: LibraryServing {
     requirements: [LibretroCoreManifest.Core.Firmware],
     in session: ServerSession
   ) async throws -> URL? {
+    try await prepareFirmwareForPlay(
+      for: platformID,
+      requirements: requirements,
+      in: session,
+      allowsRemoteAccess: true
+    )
+  }
+
+  func prepareFirmwareForPlay(
+    for platformID: Int,
+    requirements: [LibretroCoreManifest.Core.Firmware],
+    in session: ServerSession,
+    allowsRemoteAccess: Bool
+  ) async throws -> URL? {
     guard !requirements.isEmpty else {
       return nil
     }
@@ -986,6 +1069,16 @@ actor RomMLibraryService: LibraryServing {
       )
     }
     guard !missingRequirements.isEmpty else {
+      return directory
+    }
+
+    guard allowsRemoteAccess else {
+      if let required = missingRequirements.first(where: \.required) {
+        throw LibraryServiceError.offlineFirmwareUnavailable(
+          fileName: required.fileName,
+          description: required.description
+        )
+      }
       return directory
     }
 
@@ -1133,6 +1226,22 @@ actor RomMLibraryService: LibraryServing {
     emulator: String,
     coreID: String
   ) async throws -> CartridgeSaveSyncConfiguration? {
+    try await prepareCartridgeSaveForPlay(
+      game,
+      in: session,
+      emulator: emulator,
+      coreID: coreID,
+      allowsRemoteAccess: true
+    )
+  }
+
+  func prepareCartridgeSaveForPlay(
+    _ game: GameDetails,
+    in session: ServerSession,
+    emulator: String,
+    coreID: String,
+    allowsRemoteAccess: Bool
+  ) async throws -> CartridgeSaveSyncConfiguration? {
     let storage = saveStorage(forCoreID: coreID)
     let localSaveURL = saveURL(
       for: game.id,
@@ -1155,6 +1264,13 @@ actor RomMLibraryService: LibraryServing {
     )
     let localHash = saveContentHash(for: configuration)
     let metadata = loadSaveSyncMetadata(for: localSaveURL)
+
+    guard allowsRemoteAccess else {
+      OpenVaultLog.libretro.info(
+        "Launching game \(game.id, privacy: .public) with its local save while RomM is offline"
+      )
+      return configuration
+    }
 
     let token: ClientToken
     do {
@@ -1602,6 +1718,49 @@ actor RomMLibraryService: LibraryServing {
       for: game,
       in: managedROMServerDirectory(in: session)
     )
+  }
+
+  private func locallyAvailableGameURL(
+    for game: GameDetails,
+    in session: ServerSession
+  ) throws -> URL? {
+    let fileManager = FileManager.default
+    if let cachedURL = cachedGameURL(
+      for: game,
+      in: managedROMServerDirectory(in: session)
+    ) {
+      try? fileManager.setAttributes(
+        [.modificationDate: now()],
+        ofItemAtPath: cachedURL.path
+      )
+      notifyDownloadedGamesDidChange()
+      return cachedURL
+    }
+
+    guard let runtimeURL = cachedGameURL(
+      for: game,
+      in: runtimeCacheServerDirectory(in: session)
+    ) else {
+      return nil
+    }
+
+    let destination = managedROMURL(for: game, in: session)
+    do {
+      if fileManager.fileExists(atPath: destination.path) {
+        try fileManager.removeItem(at: destination)
+      }
+      try fileManager.createDirectory(
+        at: destination.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try fileManager.copyItem(at: runtimeURL, to: destination)
+      notifyDownloadedGamesDidChange()
+      return destination
+    } catch {
+      throw LibraryServiceError.couldNotCacheGame(
+        reason: error.localizedDescription
+      )
+    }
   }
 
   private func saveURL(
@@ -2077,6 +2236,7 @@ extension Notification.Name {
 enum LibraryServiceError: LocalizedError {
   case notAuthenticated
   case gameNotFound
+  case gameNotDownloaded
   case incompleteSynchronization
   case couldNotExportGame(reason: String)
   case userMetadataWritePermissionRequired
@@ -2086,6 +2246,7 @@ enum LibraryServiceError: LocalizedError {
   case playbackCacheUnavailable
   case firmwareCacheUnavailable
   case firmwareReadPermissionRequired
+  case offlineFirmwareUnavailable(fileName: String, description: String)
   case missingFirmware(fileName: String, description: String)
   case invalidFirmware(fileName: String)
   case couldNotPrepareFirmware(fileName: String, reason: String)
@@ -2104,6 +2265,8 @@ enum LibraryServiceError: LocalizedError {
       "OpenVault could not find the RomM client token. Reconnect the server and try again."
     case .gameNotFound:
       "This game is no longer available on the connected RomM server."
+    case .gameNotDownloaded:
+      "This game is not downloaded on this Mac. Connect to RomM and download it before playing offline."
     case .incompleteSynchronization:
       "RomM returned an incomplete library page. OpenVault kept the previous offline library."
     case .couldNotExportGame(let reason):
@@ -2122,6 +2285,8 @@ enum LibraryServiceError: LocalizedError {
       "This library service cannot prepare system firmware for playback."
     case .firmwareReadPermissionRequired:
       "This client token cannot download system firmware. Reconnect with a token that includes firmware.read."
+    case .offlineFirmwareUnavailable(let fileName, let description):
+      "Required firmware \(fileName) (\(description)) is not cached on this Mac. Connect to RomM once to download it."
     case .missingFirmware(let fileName, let description):
       "RomM does not have the required system firmware \(fileName) (\(description)). Upload it to this system in RomM and try again."
     case .invalidFirmware(let fileName):

@@ -68,6 +68,15 @@ struct LibretroCoreManifest: Decodable, Sendable {
             guard core.status == .bundled, core.systems.contains(system) else {
                 return false
             }
+            if fileExtension.isEmpty,
+               contentFileExtensions.isEmpty,
+               archiveMemberNames.isEmpty
+            {
+                // Offline library summaries intentionally omit file metadata.
+                // A reviewed system/core mapping is still enough to locate the
+                // already-downloaded file before playback.
+                return true
+            }
             guard fileExtension == "zip" else {
                 return core.fileExtensions.contains(fileExtension)
                     || !contentFileExtensions.isDisjoint(

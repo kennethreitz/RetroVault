@@ -1436,7 +1436,9 @@ struct BigPictureView: View {
         return
       }
 
-      await detailsModel.load()
+      await detailsModel.loadForPlayback(
+        allowsRemoteAccess: !model.isShowingStaleData
+      )
       guard !Task.isCancelled else {
         finishPlaybackPreparation()
         return
@@ -1450,7 +1452,12 @@ struct BigPictureView: View {
         finishPlaybackPreparation(keepingError: true)
         return
       }
-      guard let request = await detailsModel.prepareToPlay(details) else {
+      guard
+        let request = await detailsModel.prepareToPlay(
+          details,
+          synchronizesWithServer: !model.isShowingStaleData
+        )
+      else {
         playbackErrorMessage =
           detailsModel.playbackErrorMessage
           ?? "No bundled core supports this game file."
