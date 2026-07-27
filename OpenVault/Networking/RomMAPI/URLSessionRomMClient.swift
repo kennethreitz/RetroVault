@@ -6,6 +6,8 @@ private final class RomMDownloadProgressDelegate:
   URLSessionDownloadDelegate,
   @unchecked Sendable
 {
+  private static let minimumProgressInterval: TimeInterval = 0.25
+
   private let onProgress: @Sendable (RomMDownloadProgress) -> Void
   private let configuration: URLSessionConfiguration
   private let lock = NSLock()
@@ -17,6 +19,7 @@ private final class RomMDownloadProgressDelegate:
   private var fileMoveError: (any Error)?
   private var isCancelled = false
   private var isFinished = false
+  private var lastProgressEmissionUptime: TimeInterval?
 
   init(
     configuration: URLSessionConfiguration,
@@ -32,6 +35,7 @@ private final class RomMDownloadProgressDelegate:
         let delegateQueue = OperationQueue()
         delegateQueue.maxConcurrentOperationCount = 1
         delegateQueue.name = "org.kennethreitz.OpenVault.rom-download"
+        delegateQueue.qualityOfService = .utility
 
         let session = URLSession(
           configuration: configuration,
@@ -72,6 +76,18 @@ private final class RomMDownloadProgressDelegate:
     totalBytesWritten: Int64,
     totalBytesExpectedToWrite: Int64
   ) {
+    let now = ProcessInfo.processInfo.systemUptime
+    let isComplete =
+      totalBytesExpectedToWrite > 0
+      && totalBytesWritten >= totalBytesExpectedToWrite
+    if let lastProgressEmissionUptime,
+      !isComplete,
+      now - lastProgressEmissionUptime < Self.minimumProgressInterval
+    {
+      return
+    }
+    lastProgressEmissionUptime = now
+
     onProgress(
       RomMDownloadProgress(
         bytesReceived: totalBytesWritten,
