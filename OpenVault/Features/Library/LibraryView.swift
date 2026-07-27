@@ -3793,9 +3793,7 @@ private struct LibraryGridView: View {
                 service: model.service,
                 isSelected: selectedGameIDs.contains(game.id),
                 isPlayable: isPlayable(game),
-                isFavorite:
-                  model.prioritizesFavoritesInCurrentView
-                  && model.favoriteGameIDs.contains(game.id),
+                isFavorite: model.favoriteGameIDs.contains(game.id),
                 isDownloaded: model.downloadedGameIDs.contains(game.id),
                 hasSaveState: game.hasState == true,
                 secondaryText: cardSecondaryText(for: game),
@@ -4518,8 +4516,10 @@ private struct GameCard: View {
           .lineLimit(2)
 
         if isFavorite {
+          Spacer(minLength: 4)
+
           Image(systemName: "star.fill")
-            .font(.system(size: 10, weight: .semibold))
+            .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(.yellow)
             .accessibilityLabel("Favorite")
         }
