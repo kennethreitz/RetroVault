@@ -119,8 +119,11 @@ The detailed scope and acceptance criteria live in
 ### Native playback
 
 - A Swift-owned Libretro frontend with reviewed, bundled ARM64 cores
-- Software and OpenGL video presented through a nearest-neighbor Metal pipeline
+- Software and OpenGL video presented through a Metal pipeline
+- Optional upscaling—sharp bilinear, xBR, or a CRT treatment—off by default
+- Higher internal resolution for the 3D cores that can render one
 - Core Audio output and native GameController support
+- Full keyboard input for the cores that ask for a keyboard, such as DOS
 - Windowed and immersive fullscreen play
 - Automatic local quick-state resume with a **Start Fresh** option
 - Bounded in-memory rewind
@@ -170,6 +173,11 @@ still varies by title while OpenVault is in development.
 | Other | Pokémon Mini | PokeMini |
 | Other | Arduboy | Arduous |
 | Other | Pico-8 | FAKE-08 |
+
+A few cores ship without having met that bar. Their systems stay hidden until
+experimental cores are enabled in Settings, and their video, audio, input,
+firmware, and save behavior may be incomplete. Dreamcast, through Flycast, is
+the current example.
 
 Core revisions, licenses, hashes, build instructions, and frontend requirements
 are recorded in [`Libretro/CoreManifest.json`](Libretro/CoreManifest.json).
@@ -260,6 +268,15 @@ The Libretro build pipeline is separate from normal app development. See
 ```shell
 Scripts/build-libretro-cores.sh
 ```
+
+To produce a standalone `OpenVault.app` that runs without Xcode:
+
+```shell
+Scripts/build-app.sh
+```
+
+That build is signed ad-hoc, so it runs on the machine that produced it and
+is not a substitute for a signed, notarized release.
 
 ## Roadmap
 
