@@ -406,18 +406,28 @@ struct BigPictureView: View {
             label: "OPTIONS"
           )
         }
-        if page.isGameList {
+        if
+          let selectedGame,
+          BigPictureGameLaunchPresentation.showsPlayFromBeginning(
+            hasSaveState: selectedGame.hasState == true
+          )
+        {
           actionHint(
             key: controllerState.playFromBeginningButtonPrompt.label,
             systemImage:
               controllerState.playFromBeginningButtonPrompt.systemImage,
-            label: "RESTART"
+            label: "PLAY"
           )
         }
         actionHint(
           key: controllerState.activateButtonPrompt.label,
           systemImage: controllerState.activateButtonPrompt.systemImage,
-          label: page.isGameList ? "RESUME" : "OPEN"
+          label:
+            selectedGame.map {
+              BigPictureGameLaunchPresentation.primaryActionTitle(
+                hasSaveState: $0.hasState == true
+              ).uppercased()
+            } ?? "OPEN"
         )
       }
     }
@@ -609,12 +619,16 @@ struct BigPictureView: View {
     _ system: LibrarySystem
   ) -> some View {
     let systemGames = model.games(inSystem: system.id)
-    let hasUndownloadedGames = systemGames.contains {
-      !model.managedDownloadedGameIDs.contains($0.id)
+    let downloadedGameCount = systemGames.count {
+      model.managedDownloadedGameIDs.contains($0.id)
     }
-    let gameLabel =
-      "Download All \(systemGames.count.formatted()) "
-      + (systemGames.count == 1 ? "Game" : "Games")
+    let presentation = BigPictureSystemDownloadPresentation.make(
+      totalGameCount: systemGames.count,
+      downloadedGameCount: downloadedGameCount
+    )
+    let isBusy =
+      model.isDownloadingGames
+      || model.isRemovingDownloads
 
     return VStack(alignment: .leading, spacing: 18) {
       VStack(alignment: .leading, spacing: 5) {
@@ -628,12 +642,15 @@ struct BigPictureView: View {
       }
 
       Button {
-        downloadAllGames(in: system)
+        performSystemDownloadAction(
+          presentation.action,
+          for: system
+        )
       } label: {
         HStack(spacing: 13) {
-          Image(systemName: "arrow.down.circle")
+          Image(systemName: presentation.systemImage)
             .frame(width: 24)
-          Text(gameLabel)
+          Text(presentation.title)
           Spacer()
         }
         .font(.system(size: 19, weight: .bold, design: .rounded))
@@ -646,18 +663,8 @@ struct BigPictureView: View {
         .contentShape(Capsule())
       }
       .buttonStyle(.plain)
-      .disabled(
-        systemGames.isEmpty
-          || !hasUndownloadedGames
-          || model.isDownloadingGames
-      )
-      .opacity(
-        systemGames.isEmpty
-          || !hasUndownloadedGames
-          || model.isDownloadingGames
-          ? 0.34
-          : 1
-      )
+      .disabled(presentation.action == .unavailable || isBusy)
+      .opacity(presentation.action == .unavailable || isBusy ? 0.34 : 1)
 
       HStack(spacing: 12) {
         actionHint(
@@ -876,18 +883,29 @@ struct BigPictureView: View {
   ) -> [BigPictureGameOption] {
     let isFavorite = model.favoriteGameIDs.contains(game.id)
     let isDownloaded = model.downloadedGameIDs.contains(game.id)
+    let hasSaveState = game.hasState == true
 
-    return [
+    var options = [
       BigPictureGameOption(
         action: .play,
-        title: "Play",
+        title: BigPictureGameLaunchPresentation.primaryActionTitle(
+          hasSaveState: hasSaveState
+        ),
         systemImage: "play.fill"
-      ),
-      BigPictureGameOption(
-        action: .playFromBeginning,
-        title: "Play from Beginning",
-        systemImage: "forward.end.fill"
-      ),
+      )
+    ]
+    if BigPictureGameLaunchPresentation.showsPlayFromBeginning(
+      hasSaveState: hasSaveState
+    ) {
+      options.append(
+        BigPictureGameOption(
+          action: .playFromBeginning,
+          title: "Play from Beginning",
+          systemImage: "forward.end.fill"
+        )
+      )
+    }
+    options.append(
       BigPictureGameOption(
         action: .setFavorite(!isFavorite),
         title:
@@ -898,7 +916,9 @@ struct BigPictureView: View {
         isEnabled:
           model.favoriteCollectionID != nil
           && !model.isUpdatingFavorites
-      ),
+      )
+    )
+    options.append(
       BigPictureGameOption(
         action: .setDownloaded(!isDownloaded),
         title: isDownloaded ? "Remove Download" : "Download",
@@ -910,7 +930,9 @@ struct BigPictureView: View {
           !model.isDownloadingGames
           && !model.isRemovingDownloads
           && (isDownloaded || game.isMissingFromFileSystem != true)
-      ),
+      )
+    )
+    options.append(
       BigPictureGameOption(
         action: .export,
         title: "Export",
@@ -921,8 +943,9 @@ struct BigPictureView: View {
             game.isMissingFromFileSystem != true
               || isDownloaded
           )
-      ),
-    ]
+      )
+    )
+    return options
   }
 
   private var pageTitle: String {
@@ -1052,7 +1075,17 @@ struct BigPictureView: View {
     if let optionsSystem {
       switch command {
       case .activate, .playFromBeginning:
-        downloadAllGames(in: optionsSystem)
+        let systemGames = model.games(inSystem: optionsSystem.id)
+        let presentation = BigPictureSystemDownloadPresentation.make(
+          totalGameCount: systemGames.count,
+          downloadedGameCount: systemGames.count {
+            model.managedDownloadedGameIDs.contains($0.id)
+          }
+        )
+        performSystemDownloadAction(
+          presentation.action,
+          for: optionsSystem
+        )
       case .back, .openGameOptions:
         self.optionsSystem = nil
       case .up, .down, .pageUp, .pageDown, .exit:
@@ -1331,6 +1364,55 @@ struct BigPictureView: View {
                 ?? "OpenVault couldn’t complete this action."
             ),
           systemImage: "exclamationmark.triangle"
+        )
+      }
+    }
+  }
+
+  private func performSystemDownloadAction(
+    _ action: BigPictureSystemDownloadAction,
+    for system: LibrarySystem
+  ) {
+    switch action {
+    case .download:
+      downloadAllGames(in: system)
+    case .remove:
+      removeAllDownloads(in: system)
+    case .unavailable:
+      break
+    }
+  }
+
+  private func removeAllDownloads(in system: LibrarySystem) {
+    let downloadedGames = model.games(inSystem: system.id).filter {
+      model.managedDownloadedGameIDs.contains($0.id)
+    }
+    guard !downloadedGames.isEmpty, !model.isRemovingDownloads else {
+      return
+    }
+
+    optionsSystem = nil
+    actionProgressTitle =
+      "Removing \(downloadedGames.count.formatted()) "
+      + (downloadedGames.count == 1 ? "Download" : "Downloads")
+    Task {
+      defer {
+        actionProgressTitle = nil
+      }
+      let result = await model.removeDownloads(downloadedGames)
+      if result.completedWithoutErrors {
+        actionNotice = BigPictureActionNotice(
+          title: "System Downloads Removed",
+          message:
+            "Removed \(result.successfulItemCount.formatted()) "
+            + (result.successfulItemCount == 1 ? "game" : "games")
+            + " from OpenVault’s local library.",
+          systemImage: "checkmark.circle"
+        )
+      } else {
+        actionNotice = operationFailureNotice(
+          title: "Some Downloads Couldn’t Be Removed",
+          errors: result.errors
         )
       }
     }
@@ -1688,6 +1770,64 @@ enum BigPictureCommand: Equatable, Sendable {
   case openGameOptions
   case back
   case exit
+}
+
+enum BigPictureGameLaunchPresentation {
+  static func primaryActionTitle(hasSaveState: Bool) -> String {
+    hasSaveState ? "Resume" : "Play"
+  }
+
+  static func showsPlayFromBeginning(hasSaveState: Bool) -> Bool {
+    hasSaveState
+  }
+}
+
+enum BigPictureSystemDownloadAction: Equatable, Sendable {
+  case download
+  case remove
+  case unavailable
+}
+
+struct BigPictureSystemDownloadPresentation: Equatable, Sendable {
+  let action: BigPictureSystemDownloadAction
+  let title: String
+  let systemImage: String
+
+  static func make(
+    totalGameCount: Int,
+    downloadedGameCount: Int
+  ) -> Self {
+    guard totalGameCount > 0 else {
+      return Self(
+        action: .unavailable,
+        title: "No Games Available",
+        systemImage: "nosign"
+      )
+    }
+
+    let localCount = min(max(downloadedGameCount, 0), totalGameCount)
+    if localCount == totalGameCount {
+      return Self(
+        action: .remove,
+        title:
+          "Remove All \(totalGameCount.formatted()) "
+          + (totalGameCount == 1 ? "Download" : "Downloads"),
+        systemImage: "trash"
+      )
+    }
+
+    let remainingCount = totalGameCount - localCount
+    return Self(
+      action: .download,
+      title:
+        localCount == 0
+        ? "Download All \(totalGameCount.formatted()) "
+          + (totalGameCount == 1 ? "Game" : "Games")
+        : "Download \(remainingCount.formatted()) Remaining "
+          + (remainingCount == 1 ? "Game" : "Games"),
+      systemImage: "arrow.down.circle"
+    )
+  }
 }
 
 enum BigPictureKeyboardNavigation {

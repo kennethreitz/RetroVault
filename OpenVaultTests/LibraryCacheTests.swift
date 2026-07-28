@@ -297,6 +297,74 @@ struct LibraryKeyboardNavigationTests {
 
 @Suite("Big Picture catalog")
 struct BigPictureCatalogTests {
+  @Test("Only advertises separate resume and play actions for save states")
+  func presentsGameLaunchActions() {
+    #expect(
+      BigPictureGameLaunchPresentation.primaryActionTitle(
+        hasSaveState: false
+      ) == "Play"
+    )
+    #expect(
+      !BigPictureGameLaunchPresentation.showsPlayFromBeginning(
+        hasSaveState: false
+      )
+    )
+    #expect(
+      BigPictureGameLaunchPresentation.primaryActionTitle(
+        hasSaveState: true
+      ) == "Resume"
+    )
+    #expect(
+      BigPictureGameLaunchPresentation.showsPlayFromBeginning(
+        hasSaveState: true
+      )
+    )
+  }
+
+  @Test("Presents a useful system download action for every cache state")
+  func presentsSystemDownloadActions() {
+    #expect(
+      BigPictureSystemDownloadPresentation.make(
+        totalGameCount: 0,
+        downloadedGameCount: 0
+      ) == BigPictureSystemDownloadPresentation(
+        action: .unavailable,
+        title: "No Games Available",
+        systemImage: "nosign"
+      )
+    )
+    #expect(
+      BigPictureSystemDownloadPresentation.make(
+        totalGameCount: 10,
+        downloadedGameCount: 0
+      ) == BigPictureSystemDownloadPresentation(
+        action: .download,
+        title: "Download All 10 Games",
+        systemImage: "arrow.down.circle"
+      )
+    )
+    #expect(
+      BigPictureSystemDownloadPresentation.make(
+        totalGameCount: 10,
+        downloadedGameCount: 4
+      ) == BigPictureSystemDownloadPresentation(
+        action: .download,
+        title: "Download 6 Remaining Games",
+        systemImage: "arrow.down.circle"
+      )
+    )
+    #expect(
+      BigPictureSystemDownloadPresentation.make(
+        totalGameCount: 10,
+        downloadedGameCount: 10
+      ) == BigPictureSystemDownloadPresentation(
+        action: .remove,
+        title: "Remove All 10 Downloads",
+        systemImage: "trash"
+      )
+    )
+  }
+
   @Test("Uses immersive presentation only while fullscreen")
   func createsImmersivePresentationOptions() {
     let original: NSApplication.PresentationOptions = [
