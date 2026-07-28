@@ -2181,8 +2181,15 @@ enum LibretroCoreOptionPreferences {
         // multithreaded Angrylion renderer is CPU-based, accurate, and avoids
         // that hardware-context compatibility boundary on Apple Silicon.
         "parallel-n64-gfxplugin": "angrylion",
-        "parallel-n64-rspplugin": "cxd4",
         "parallel-n64-angrylion-multithread": "all threads",
+
+        // The RSP runs the N64's audio microcode as well as its graphics
+        // tasks, so the plugin chosen for video decides how audio is
+        // produced. Pinning cxd4 put audio through instruction-level RSP
+        // emulation, a far less travelled path than the high-level default,
+        // and left it pitched up. Angrylion does not require cxd4, so the
+        // core is left to choose.
+        "parallel-n64-rspplugin": "auto",
 
         // Flycast defaults to running its GPU on a second thread. The runtime
         // owns one CGL context, and a CGL context can only be current on one
