@@ -21,6 +21,24 @@ struct LibretroCoreManifestTests {
         )
     }
 
+    @Test("Attaches a Memory Pak to the first N64 controller")
+    func attachesNintendo64MemoryPak() {
+        #expect(
+            LibretroCoreOptionPreferences.value(
+                for: "parallel-n64-pak1",
+                default: "none",
+                availableValues: ["none", "memory", "rumble"]
+            ) == "memory"
+        )
+        #expect(
+            LibretroCoreOptionPreferences.value(
+                for: "parallel-n64-pak2",
+                default: "none",
+                availableValues: ["none", "memory", "rumble"]
+            ) == "none"
+        )
+    }
+
     @Test("Maps Xbox and Nintendo face buttons to matching positions")
     func mapsControllerFaceButtonPositions() {
         let xboxBottom = LibretroInputState.faceButtonMask(

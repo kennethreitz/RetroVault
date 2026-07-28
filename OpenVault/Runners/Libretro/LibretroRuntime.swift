@@ -2183,6 +2183,14 @@ enum LibretroCoreOptionPreferences {
         "parallel-n64-gfxplugin": "angrylion",
         "parallel-n64-angrylion-multithread": "all threads",
 
+        // ParaLLEl-N64 leaves every controller accessory slot empty by
+        // default. Games that save to a Controller Pak therefore report that
+        // no memory card is inserted even though the core exposes its mempak
+        // bytes through RETRO_MEMORY_SAVE_RAM. Attach a Memory Pak to player
+        // one so the existing save-memory persistence and RomM sync path can
+        // preserve it.
+        "parallel-n64-pak1": "memory",
+
         // The RSP runs the N64's audio microcode as well as its graphics
         // tasks, so the plugin chosen for video decides how audio is
         // produced. Pinning cxd4 put audio through instruction-level RSP
