@@ -386,6 +386,7 @@ struct RomMAPIClientTests {
       token: token,
       matching: .systems([2, 3]),
       searchTerm: "Chrono",
+      ordering: .name,
       offset: 0,
       limit: 60
     )
@@ -595,6 +596,7 @@ struct RomMAPIClientTests {
       token: token,
       matching: .collection(.smart(11)),
       searchTerm: nil,
+      ordering: .name,
       offset: 0,
       limit: 60
     )
@@ -658,6 +660,7 @@ struct RomMAPIClientTests {
       token: token,
       matching: .collection(.virtual("virtual-chrono")),
       searchTerm: nil,
+      ordering: .name,
       offset: 0,
       limit: 60
     )

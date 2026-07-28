@@ -12,6 +12,11 @@ protocol LibraryCaching: Sendable {
         _ state: LocalFavoriteState,
         for serverURL: ServerURL
     ) async throws
+    func localPlayHistory(for serverURL: ServerURL) async throws -> LocalPlayHistory?
+    func replaceLocalPlayHistory(
+        _ history: LocalPlayHistory,
+        for serverURL: ServerURL
+    ) async throws
     func removeAll() async throws
 }
 
@@ -20,6 +25,7 @@ actor InMemoryLibraryCache: LibraryCaching {
     private var snapshots: [ServerURL: LibrarySnapshot] = [:]
     private var details: [ServerURL: [Int: GameDetails]] = [:]
     private var favorites: [ServerURL: LocalFavoriteState] = [:]
+    private var playHistories: [ServerURL: LocalPlayHistory] = [:]
 
     func snapshot(for serverURL: ServerURL) -> LibrarySnapshot? {
         snapshots[serverURL]
@@ -57,6 +63,8 @@ actor InMemoryLibraryCache: LibraryCaching {
                 }
             )
         }
+        playHistories[serverURL] = playHistories[serverURL]?
+            .removingGames(withIDs: gameIDs)
     }
 
     func localFavorites(for serverURL: ServerURL) -> LocalFavoriteState? {
@@ -70,9 +78,21 @@ actor InMemoryLibraryCache: LibraryCaching {
         favorites[serverURL] = state
     }
 
+    func localPlayHistory(for serverURL: ServerURL) -> LocalPlayHistory? {
+        playHistories[serverURL]
+    }
+
+    func replaceLocalPlayHistory(
+        _ history: LocalPlayHistory,
+        for serverURL: ServerURL
+    ) {
+        playHistories[serverURL] = history
+    }
+
     func removeAll() {
         snapshots.removeAll()
         details.removeAll()
         favorites.removeAll()
+        playHistories.removeAll()
     }
 }

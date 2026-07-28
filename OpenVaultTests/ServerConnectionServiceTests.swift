@@ -1515,6 +1515,7 @@ private actor SaveSyncMockRomMClient: RomMClient {
         token: ClientToken,
         matching filter: LibraryFilter,
         searchTerm: String?,
+        ordering: GamePageOrdering,
         offset: Int,
         limit: Int
     ) -> GamePage {
@@ -1639,6 +1640,7 @@ private struct MockRomMClient: RomMClient {
         token: ClientToken,
         matching filter: LibraryFilter,
         searchTerm: String?,
+        ordering: GamePageOrdering,
         offset: Int,
         limit: Int
     ) async throws -> GamePage {
@@ -1717,6 +1719,8 @@ private struct MockRomMClient: RomMClient {
 }
 
 private actor MockLibraryService: LibraryServing {
+    private var playHistory = LocalPlayHistory()
+
     private static let defaultGames: [GameSummary] = (1 ... 61).map { id in
         let systemID = id.isMultiple(of: 2) ? 2 : 1
         return GameSummary(
@@ -1831,6 +1835,15 @@ private actor MockLibraryService: LibraryServing {
         [
             LibraryCollection(id: .regular(1), name: "Favorites", gameCount: 5),
         ]
+    }
+
+    func playHistory(in session: ServerSession) -> LocalPlayHistory {
+        playHistory
+    }
+
+    func recordPlay(gameID: Int, in session: ServerSession) -> LocalPlayHistory {
+        playHistory.recordPlay(gameID: gameID, at: .now)
+        return playHistory
     }
 
     func games(

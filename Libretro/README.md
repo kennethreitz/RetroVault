@@ -3,14 +3,23 @@
 `CoreManifest.json` is the reviewed source of truth for every libretro binary
 that may ship with OpenVault.
 
-The manifest includes a content-free 2048 pipeline test plus 25 reviewed
-user-facing cores. The current catalog supports Game Boy, Game Boy Color,
+The manifest includes a content-free 2048 pipeline test, 25 reviewed
+user-facing cores, and 2 experimental cores. The current catalog supports Game Boy, Game Boy Color,
 Game Boy Advance, NES, SNES, Master System, Game Gear, SG-1000, Atari 2600,
 Atari 5200, Atari 7800, ColecoVision, Nintendo 64, Arcade, Virtual Boy, Neo Geo
 Pocket and Pocket Color, WonderSwan and WonderSwan Color, Pokémon Mini,
 PlayStation, Nintendo DS, PC Engine /
 TurboGrafx-16, SuperGrafx, PC Engine CD / TurboGrafx-CD, Genesis / Mega Drive,
 Sega CD / Mega CD, Sega 32X, DOS, Arduboy, Pico-8, GameCube, Wii, and PSP.
+Dreamcast is experimental and stays hidden until experimental cores are
+enabled in Settings.
+
+Nintendo 3DS is not supported. The only maintained libretro core, Azahar,
+ships Vulkan and software renderers and has dropped OpenGL; its Vulkan path
+asks the frontend for a Vulkan hardware context that this runtime does not
+provide, and being refused makes the core fail to load the game at all.
+Restoring 3DS support means adding a Vulkan render path, not re-adding the
+core.
 
 The test core proves source pinning, ARM64 compilation, license collection,
 hashing, signing, and the frontend lifecycle. User-facing cores additionally
@@ -26,15 +35,20 @@ content.
 - `pipelineTest`: built and packaged to validate the toolchain, but never
   selected for a user's RomM game.
 - `bundled`: a reviewed, user-facing core that is included in OpenVault.
+- `experimental`: built and shipped like a bundled core, but only offered once
+  the user enables experimental cores in Settings. Used for cores that work but
+  have not met the reviewed bar.
 - `planned`: recorded for review but excluded from build artifacts.
 - `excluded`: documented but prohibited from build artifacts.
 
 A `bundled` entry must have approved redistribution status, a full source
 revision, a license notice, deterministic build arguments, and a declared set
 of frontend capabilities. When a pinned release needs a narrowly scoped
-upstream fix, `source.patches` may list full commits from the same repository;
-the build tool fetches, verifies, and applies them without creating a new
-source revision, and records them in the build receipt.
+upstream fix, `source.patches` may list full commits from the same repository.
+For a small OpenVault integration patch that does not belong upstream,
+`source.localPatches` records a manifest-relative patch and its SHA-256.
+The build tool verifies and applies both forms without creating a new source
+revision, and records them in the build receipt.
 
 ## Commands
 
@@ -155,7 +169,10 @@ ColecoVision content.
 Dolphin provides GameCube playback through an OpenGL 4.1 Libretro hardware
 context, with OpenVault presenting the completed frame through its native Metal
 view. Its upstream `Data/Sys` tree is pinned, built, and bundled as runtime
-system data; it is not console firmware or game content.
+system data; it is not console firmware or game content. Apple OpenGL does not
+provide ARB buffer storage, so Dolphin uses its compatible streaming fallback.
+OpenVault's reviewed integration patch records that expected condition in the
+Libretro log instead of drawing a long-lived warning over the game.
 
 PPSSPP provides PSP playback through the same hardware-rendering frontend and
 accepts ISO, CSO, PBP, CHD, ELF, and PRX content. Its pinned `assets` tree is

@@ -92,6 +92,15 @@ enum LibretroRewindPolicy {
 
 struct LibretroRewindCadence: Sendable {
     static let targetHistoryDuration = 8.0
+    /// The shortest history worth keeping rewind on for.
+    ///
+    /// A core whose states are too large for `targetHistoryDuration` used to
+    /// lose rewind outright. Trading history length for keeping the feature is
+    /// the better deal: the PlayStation's roughly 3.5 MB states cannot hold
+    /// eight seconds inside the budget, but they hold about three, which still
+    /// covers the mistake the button gets pressed for. Below this the window
+    /// is too short to aim at and rewind stays off.
+    static let minimumHistoryDuration = 2.5
     static let minimumSnapshotsPerSecond = 12.0
     static let maximumSnapshotsPerSecond = 60.0
     static let maximumEntryCount = 3_600
@@ -103,20 +112,62 @@ struct LibretroRewindCadence: Sendable {
         1 / maximumSnapshotRate
     }
 
+    /// The longest history the budget affords at the slowest useful capture
+    /// rate, capped at what the runtime actually wants.
+    ///
+    /// Serialization runs on the emulation thread inside the frame budget, so
+    /// the capture rate is never allowed below
+    /// `minimumSnapshotsPerSecond`; what gives instead, for a core with large
+    /// states, is how far back the history reaches.
+    func sustainableHistoryDuration(
+        forStateByteCount stateByteCount: Int
+    ) -> TimeInterval {
+        guard stateByteCount > 0 else {
+            return Self.targetHistoryDuration
+        }
+        let affordable =
+            Double(byteLimit)
+            / Double(stateByteCount)
+            / Self.minimumSnapshotsPerSecond
+        return min(affordable, Self.targetHistoryDuration)
+    }
+
+    /// Whether the budget affords a history long enough to be worth keeping.
+    func canSustainRewind(forStateByteCount stateByteCount: Int) -> Bool {
+        guard stateByteCount > 0 else {
+            return true
+        }
+        return sustainableHistoryDuration(forStateByteCount: stateByteCount)
+            >= Self.minimumHistoryDuration
+    }
+
     func snapshotInterval(forStateByteCount stateByteCount: Int) -> TimeInterval {
         guard stateByteCount > 0 else {
             return initialSnapshotInterval
         }
 
-        let memoryBoundRate =
-            Double(byteLimit)
-            / Double(stateByteCount)
-            / Self.targetHistoryDuration
         let snapshotRate = min(
             maximumSnapshotRate,
-            max(Self.minimumSnapshotsPerSecond, memoryBoundRate)
+            max(
+                Self.minimumSnapshotsPerSecond,
+                memoryBoundRate(forStateByteCount: stateByteCount)
+            )
         )
         return 1 / snapshotRate
+    }
+
+    /// The rate at which the affordable history fits the budget.
+    ///
+    /// For a core small enough to reach `targetHistoryDuration` this is the
+    /// rate that fills the budget over those eight seconds, exactly as before.
+    /// For a core held to a shorter history it works out to the minimum rate,
+    /// which is what keeps the per-frame serialization cost bounded.
+    private func memoryBoundRate(
+        forStateByteCount stateByteCount: Int
+    ) -> Double {
+        Double(byteLimit)
+            / Double(stateByteCount)
+            / sustainableHistoryDuration(forStateByteCount: stateByteCount)
     }
 
     private var maximumSnapshotRate: Double {
@@ -160,6 +211,9 @@ struct LibretroVideoFrame: Sendable {
     let pixels: Data
     let width: Int
     let height: Int
+    /// The display shape the core asked for, or 0 when it never said and the
+    /// buffer's own proportions should be used.
+    var aspectRatio: Float = 0
 }
 
 struct LibretroRewindBuffer: Sendable {
@@ -255,6 +309,12 @@ final class LibretroVideoBuffer: @unchecked Sendable {
     }
 }
 
+enum LibretroPlayerPreferences {
+    static let opensInFullScreenKey =
+        "libretro.player.opens-in-full-screen.v1"
+    static let opensInFullScreenByDefault = false
+}
+
 enum LibretroTransportPreferences {
     static let enablesFastForwardKey =
         "libretro.transport.fast-forward-r3.v1"
@@ -285,9 +345,20 @@ struct LibretroTransportControls: Equatable, Sendable {
 }
 
 final class LibretroInputState: @unchecked Sendable {
+    struct KeyEvent: Equatable, Sendable {
+        let key: UInt32
+        let pressed: Bool
+        let modifiers: UInt16
+    }
+
     private let lock = NSLock()
     private var keyboardButtons: UInt16 = 0
     private var pendingKeyboardPresses: UInt16 = 0
+    private var keyboardEnabled = false
+    private var pointerRead = false
+    private var pressedKeys: Set<UInt32> = []
+    private var keyModifiers: UInt16 = 0
+    private var pendingKeyEvents: [KeyEvent] = []
     private var controllerButtons: UInt16 = 0
     private var polledButtons: UInt16 = 0
     private var leftAnalogX: Int16 = 0
@@ -303,6 +374,25 @@ final class LibretroInputState: @unchecked Sendable {
     private var enablesFastForward = true
     private var exitChord = LibretroControllerExitChord()
     private var exitRequested = false
+    private var padSource: (any DSUPadReading)?
+    private var touchCalibration = DSUTouchCalibration()
+    private var dsuPointer: LibretroDSUInput.Pointer?
+    private var sensors = LibretroSensorValues()
+    private var readsAccelerometer = false
+    private var readsGyroscope = false
+
+    /// Attaches an optional network pad, currently a DSU ("cemuhook") server,
+    /// whose state is merged with the locally attached controller.
+    func setPadSource(_ source: (any DSUPadReading)?) {
+        lock.lock()
+        padSource = source
+        if source == nil {
+            dsuPointer = nil
+            sensors = LibretroSensorValues()
+            touchCalibration = DSUTouchCalibration()
+        }
+        lock.unlock()
+    }
 
     func setKeyboardButton(_ button: LibretroButton, pressed: Bool) {
         lock.lock()
@@ -315,11 +405,92 @@ final class LibretroInputState: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Whether the running core asked for a keyboard.
+    ///
+    /// A core that did takes every key as a key, and the RetroPad shortcuts
+    /// the other cores get from the keyboard are switched off: in DOS a game
+    /// reading the arrow keys and Return wants those keys, not a d-pad and
+    /// Start synthesised from them.
+    var readsKeyboard: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return keyboardEnabled
+    }
+
+    /// Whether the running core has actually read the pointer.
+    ///
+    /// Taken from the core's own behaviour rather than from what the manifest
+    /// says it supports, because this decides whether the mouse cursor is
+    /// worth showing, and only a core that reads the pointer can put it to
+    /// use. A core that never asks leaves this false and gets the cursor kept
+    /// out of the way.
+    var readsPointer: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return pointerRead
+    }
+
+    func setKeyboardEnabled(_ enabled: Bool) {
+        lock.lock()
+        keyboardEnabled = enabled
+        if !enabled {
+            pressedKeys.removeAll()
+        } else {
+            // The RetroPad shortcuts stop applying, so drop anything they
+            // had latched rather than leave a button stuck down.
+            keyboardButtons = 0
+            pendingKeyboardPresses = 0
+        }
+        lock.unlock()
+    }
+
+    func setKey(_ retroKey: UInt32, pressed: Bool, modifiers: UInt16) {
+        guard retroKey < UInt32(LibretroKeyboard.keyCount) else {
+            return
+        }
+        lock.lock()
+        if pressed {
+            pressedKeys.insert(retroKey)
+        } else {
+            pressedKeys.remove(retroKey)
+        }
+        keyModifiers = modifiers
+        pendingKeyEvents.append(
+            KeyEvent(key: retroKey, pressed: pressed, modifiers: modifiers)
+        )
+        lock.unlock()
+    }
+
+    func keyValue(for retroKey: UInt32) -> Int16 {
+        lock.lock()
+        defer { lock.unlock() }
+        return pressedKeys.contains(retroKey) ? 1 : 0
+    }
+
+    /// Hands over the key presses seen since the last call, for delivery to a
+    /// core's `retro_keyboard_callback`.
+    func drainKeyEvents() -> [KeyEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        let events = pendingKeyEvents
+        pendingKeyEvents.removeAll(keepingCapacity: true)
+        return events
+    }
+
     func releaseKeyboard() {
         lock.lock()
         keyboardButtons = 0
         pendingKeyboardPresses = 0
         polledButtons = controllerButtons
+        // Losing focus with keys held would otherwise leave the core holding
+        // them forever, so report the release rather than just forgetting.
+        for key in pressedKeys {
+            pendingKeyEvents.append(
+                KeyEvent(key: key, pressed: false, modifiers: 0)
+            )
+        }
+        pressedKeys.removeAll()
+        keyModifiers = 0
         lock.unlock()
     }
 
@@ -338,12 +509,29 @@ final class LibretroInputState: @unchecked Sendable {
     }
 
     func pollController() {
+        lock.lock()
+        let padSource = self.padSource
+        lock.unlock()
+        // Read the network pad outside our own lock so a busy DSU server can
+        // never stall the emulator thread behind it.
+        let dsuState = padSource?.currentPad()
+
         let controllers = GCController.controllers()
-        guard
-            let controller = GCController.current ?? controllers.first,
-            let gamepad = controller.extendedGamepad
-        else {
-            lock.lock()
+        let controller = GCController.current ?? controllers.first
+        let local = controller.flatMap(LibretroGamepadInput.init(controller:))
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        let remote = dsuState.map {
+            LibretroDSUInput.pad(
+                from: $0,
+                layout: padSource?.padLayout ?? .standard,
+                calibration: &touchCalibration
+            )
+        }
+
+        guard local != nil || remote != nil else {
             _ = exitChord.update(startPressed: false, selectPressed: false)
             controllerButtons = 0
             polledButtons = keyboardButtons | pendingKeyboardPresses
@@ -358,38 +546,24 @@ final class LibretroInputState: @unchecked Sendable {
             rightAnalogX = 0
             rightAnalogY = 0
             transportControls = LibretroTransportControls()
+            dsuPointer = nil
+            sensors = LibretroSensorValues()
             pendingKeyboardPresses = 0
-            lock.unlock()
             return
         }
 
-        var buttons: UInt16 = 0
-        buttons.set(.up, when: gamepad.dpad.up.isPressed)
-        buttons.set(.down, when: gamepad.dpad.down.isPressed)
-        buttons.set(.left, when: gamepad.dpad.left.isPressed)
-        buttons.set(.right, when: gamepad.dpad.right.isPressed)
-        buttons |= Self.faceButtonMask(
-            buttonAPressed: gamepad.buttonA.isPressed,
-            buttonBPressed: gamepad.buttonB.isPressed,
-            buttonXPressed: gamepad.buttonX.isPressed,
-            buttonYPressed: gamepad.buttonY.isPressed,
-            layout: ControllerFaceButtonLayout.resolve(
-                vendorName: controller.vendorName,
-                productCategory: controller.productCategory
-            )
-        )
-        buttons.set(.l, when: gamepad.leftShoulder.isPressed)
-        buttons.set(.r, when: gamepad.rightShoulder.isPressed)
-        buttons.set(.l2, when: gamepad.leftTrigger.isPressed)
-        buttons.set(.r2, when: gamepad.rightTrigger.isPressed)
-        let selectPressed = gamepad.buttonOptions?.isPressed == true
-        let startPressed = gamepad.buttonMenu.isPressed
+        // Both pads drive the same Libretro port, so their buttons combine and
+        // whichever stick is pushed further wins.
+        var buttons = (local?.buttons ?? 0) | (remote?.buttons ?? 0)
+        let selectPressed =
+            local?.isSelectPressed == true || remote?.isSelectPressed == true
+        let startPressed =
+            local?.isStartPressed == true || remote?.isStartPressed == true
         let leftThumbstickButtonPressed =
-            gamepad.leftThumbstickButton?.isPressed == true
+            local?.isLeftStickPressed == true || remote?.isLeftStickPressed == true
         let rightThumbstickButtonPressed =
-            gamepad.rightThumbstickButton?.isPressed == true
+            local?.isRightStickPressed == true || remote?.isRightStickPressed == true
 
-        lock.lock()
         let isExitChordPressed = startPressed && selectPressed
         if exitChord.update(
             startPressed: startPressed,
@@ -411,10 +585,22 @@ final class LibretroInputState: @unchecked Sendable {
         )
         controllerButtons = buttons
         polledButtons = keyboardButtons | pendingKeyboardPresses | controllerButtons
-        leftAnalogX = analogAxis(gamepad.leftThumbstick.xAxis.value)
-        leftAnalogY = analogAxis(-gamepad.leftThumbstick.yAxis.value)
-        rightAnalogX = analogAxis(gamepad.rightThumbstick.xAxis.value)
-        rightAnalogY = analogAxis(-gamepad.rightThumbstick.yAxis.value)
+        leftAnalogX = dominantAxis(
+            analogAxis(local?.leftStickX ?? 0),
+            remote?.leftAnalogX ?? 0
+        )
+        leftAnalogY = dominantAxis(
+            analogAxis(local?.leftStickY ?? 0),
+            remote?.leftAnalogY ?? 0
+        )
+        rightAnalogX = dominantAxis(
+            analogAxis(local?.rightStickX ?? 0),
+            remote?.rightAnalogX ?? 0
+        )
+        rightAnalogY = dominantAxis(
+            analogAxis(local?.rightStickY ?? 0),
+            remote?.rightAnalogY ?? 0
+        )
         transportControls = .controller(
             leftThumbstickButtonPressed:
                 leftThumbstickButtonPressed,
@@ -423,8 +609,9 @@ final class LibretroInputState: @unchecked Sendable {
             enablesRewind: enablesRewind,
             enablesFastForward: enablesFastForward
         )
+        dsuPointer = remote?.pointer
+        sensors = remote?.sensors ?? LibretroSensorValues()
         pendingKeyboardPresses = 0
-        lock.unlock()
     }
 
     static func faceButtonMask(
@@ -501,6 +688,22 @@ final class LibretroInputState: @unchecked Sendable {
     func pointerValue(for id: UInt32) -> Int16 {
         lock.lock()
         defer { lock.unlock() }
+        pointerRead = true
+
+        // A live touchpad contact takes over the pointer; otherwise the mouse
+        // keeps it.
+        if let dsuPointer {
+            return switch id {
+            case LibretroABI.pointerXID:
+                dsuPointer.x
+            case LibretroABI.pointerYID:
+                dsuPointer.y
+            case LibretroABI.pointerPressedID:
+                dsuPointer.isPressed ? 1 : 0
+            default:
+                0
+            }
+        }
 
         return switch id {
         case LibretroABI.pointerXID:
@@ -509,6 +712,40 @@ final class LibretroInputState: @unchecked Sendable {
             pointerY
         case LibretroABI.pointerPressedID:
             pointerPressed && pointerInside ? 1 : 0
+        default:
+            0
+        }
+    }
+
+    /// Cores opt in through `RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE` before
+    /// reading, so a sensor that was never enabled stays silent.
+    func setSensorEnabled(_ enabled: Bool, accelerometer: Bool) {
+        lock.lock()
+        if accelerometer {
+            readsAccelerometer = enabled
+        } else {
+            readsGyroscope = enabled
+        }
+        lock.unlock()
+    }
+
+    func sensorValue(for id: UInt32) -> Float {
+        lock.lock()
+        defer { lock.unlock() }
+
+        return switch id {
+        case LibretroABI.accelerometerXID:
+            readsAccelerometer ? sensors.accelerationX : 0
+        case LibretroABI.accelerometerYID:
+            readsAccelerometer ? sensors.accelerationY : 0
+        case LibretroABI.accelerometerZID:
+            readsAccelerometer ? sensors.accelerationZ : 0
+        case LibretroABI.gyroscopeXID:
+            readsGyroscope ? sensors.gyroscopeX : 0
+        case LibretroABI.gyroscopeYID:
+            readsGyroscope ? sensors.gyroscopeY : 0
+        case LibretroABI.gyroscopeZID:
+            readsGyroscope ? sensors.gyroscopeZ : 0
         default:
             0
         }
@@ -546,6 +783,60 @@ final class LibretroInputState: @unchecked Sendable {
         default:
             0
         }
+    }
+
+    private func dominantAxis(_ first: Int16, _ second: Int16) -> Int16 {
+        abs(Int(first)) >= abs(Int(second)) ? first : second
+    }
+}
+
+/// A single frame of state read from a locally attached controller, captured
+/// before the input lock is taken so the GameController framework is never
+/// queried while the emulator thread holds it.
+private struct LibretroGamepadInput {
+    var buttons: UInt16 = 0
+    var isSelectPressed = false
+    var isStartPressed = false
+    var isLeftStickPressed = false
+    var isRightStickPressed = false
+    var leftStickX: Float = 0
+    var leftStickY: Float = 0
+    var rightStickX: Float = 0
+    var rightStickY: Float = 0
+
+    init?(controller: GCController) {
+        guard let gamepad = controller.extendedGamepad else {
+            return nil
+        }
+
+        buttons.set(.up, when: gamepad.dpad.up.isPressed)
+        buttons.set(.down, when: gamepad.dpad.down.isPressed)
+        buttons.set(.left, when: gamepad.dpad.left.isPressed)
+        buttons.set(.right, when: gamepad.dpad.right.isPressed)
+        buttons |= LibretroInputState.faceButtonMask(
+            buttonAPressed: gamepad.buttonA.isPressed,
+            buttonBPressed: gamepad.buttonB.isPressed,
+            buttonXPressed: gamepad.buttonX.isPressed,
+            buttonYPressed: gamepad.buttonY.isPressed,
+            layout: ControllerFaceButtonLayout.resolve(
+                vendorName: controller.vendorName,
+                productCategory: controller.productCategory
+            )
+        )
+        buttons.set(.l, when: gamepad.leftShoulder.isPressed)
+        buttons.set(.r, when: gamepad.rightShoulder.isPressed)
+        buttons.set(.l2, when: gamepad.leftTrigger.isPressed)
+        buttons.set(.r2, when: gamepad.rightTrigger.isPressed)
+
+        isSelectPressed = gamepad.buttonOptions?.isPressed == true
+        isStartPressed = gamepad.buttonMenu.isPressed
+        isLeftStickPressed = gamepad.leftThumbstickButton?.isPressed == true
+        isRightStickPressed = gamepad.rightThumbstickButton?.isPressed == true
+
+        leftStickX = gamepad.leftThumbstick.xAxis.value
+        leftStickY = -gamepad.leftThumbstick.yAxis.value
+        rightStickX = gamepad.rightThumbstick.xAxis.value
+        rightStickY = -gamepad.rightThumbstick.yAxis.value
     }
 }
 
@@ -611,6 +902,7 @@ final class LibretroSession {
     let request: LibretroRunRequest
     let videoBuffer = LibretroVideoBuffer()
     let input = LibretroInputState()
+    private let displaySleep = DisplaySleepAssertion()
 
     private(set) var phase: Phase = .idle
     private(set) var isPaused = false
@@ -645,6 +937,9 @@ final class LibretroSession {
             installation: installation
         )
         hasQuickState = engine.hasQuickState
+        // The DSU connection is owned by the app, not the session, so the same
+        // pad drives Big Picture and the running game.
+        input.setPadSource(DSUConnection.shared)
     }
 
     func start() {
@@ -676,6 +971,13 @@ final class LibretroSession {
         }
         isPaused.toggle()
         engine.setPaused(isPaused)
+        // A paused game left on screen is someone who walked away, so let the
+        // display dim as it normally would.
+        if isPaused {
+            displaySleep.end()
+        } else {
+            displaySleep.begin(reason: "Playing \(request.title)")
+         }
     }
 
     func reset() {
@@ -721,6 +1023,7 @@ final class LibretroSession {
     func stop() {
         engine.stop()
         input.releaseKeyboard()
+        displaySleep.end()
     }
 
     func exitPlayer(mode: LibretroExitMode = .automatic) {
@@ -758,6 +1061,7 @@ final class LibretroSession {
         case let .running(coreName, framesPerSecond):
             phase = .running(coreName: coreName, framesPerSecond: framesPerSecond)
             saveSyncPhase = .idle
+            displaySleep.begin(reason: "Playing \(request.title)")
             OpenVaultLog.libretro.notice(
                 "Core \(coreName, privacy: .public) is running at \(framesPerSecond, privacy: .public) FPS"
             )
@@ -765,6 +1069,7 @@ final class LibretroSession {
             phase = .stopped
             isPaused = false
             canRewind = false
+            displaySleep.end()
             if request.saveSync != nil, saveSyncPhase == .idle {
                 synchronizeCartridgeSave()
             }
@@ -773,6 +1078,7 @@ final class LibretroSession {
             phase = .failed(error)
             isPaused = false
             canRewind = false
+            displaySleep.end()
             OpenVaultLog.libretro.error("Libretro session failed: \(error)")
         case .quickStateSaved:
             hasQuickState = true
@@ -1007,7 +1313,22 @@ private enum LibretroABI {
     static let pointerXID: UInt32 = 0
     static let pointerYID: UInt32 = 1
     static let pointerPressedID: UInt32 = 2
+    static let accelerometerXID: UInt32 = 0
+    static let accelerometerYID: UInt32 = 1
+    static let accelerometerZID: UInt32 = 2
+    static let gyroscopeXID: UInt32 = 3
+    static let gyroscopeYID: UInt32 = 4
+    static let gyroscopeZID: UInt32 = 5
     static let saveRAM: UInt32 = 0
+    /// Commands above this bit are still marked experimental in `libretro.h`.
+    static let experimentalCommand: UInt32 = 0x1_0000
+
+    enum SensorAction: UInt32 {
+        case enableAccelerometer = 0
+        case disableAccelerometer = 1
+        case enableGyroscope = 2
+        case disableGyroscope = 3
+    }
 
     enum PixelFormat: Int32 {
         case zeroRGB1555 = 0
@@ -1023,6 +1344,7 @@ private enum LibretroABI {
         case setPixelFormat = 10
         case setInputDescriptors = 11
         case setHardwareRender = 14
+        case setKeyboardCallback = 12
         case getVariable = 15
         case setVariables = 16
         case getVariableUpdate = 17
@@ -1039,6 +1361,9 @@ private enum LibretroABI {
         case getTargetRefreshRate = 50
         case getInputBitmasks = 51
         case getPreferredHardwareRender = 56
+        /// `28 | RETRO_ENVIRONMENT_EXPERIMENTAL`, which is how `libretro.h`
+        /// spells the sensor interface.
+        case getSensorInterface = 65_564
     }
 
     enum HardwareContext: Int32 {
@@ -1058,8 +1383,15 @@ private typealias RetroAudioBatchCallback =
     @convention(c) (UnsafePointer<Int16>?, Int) -> Int
 private typealias RetroInputPollCallback =
     @convention(c) () -> Void
+typealias RetroKeyboardEventCallback =
+    @convention(c) (Bool, UInt32, UInt32, UInt16) -> Void
+
 private typealias RetroInputStateCallback =
     @convention(c) (UInt32, UInt32, UInt32, UInt32) -> Int16
+private typealias RetroSetSensorStateCallback =
+    @convention(c) (UInt32, UInt32, UInt32) -> Bool
+private typealias RetroSensorGetInputCallback =
+    @convention(c) (UInt32, UInt32) -> Float
 private typealias RetroHardwareContextCallback =
     @convention(c) () -> Void
 private typealias RetroHardwareFramebufferCallback =
@@ -1068,6 +1400,12 @@ private typealias RetroHardwareProc =
     @convention(c) () -> Void
 private typealias RetroHardwareProcAddressCallback =
     @convention(c) (UnsafePointer<CChar>?) -> RetroHardwareProc?
+
+/// `struct retro_sensor_interface`, filled in for the core on request.
+private struct RetroSensorInterface {
+    var setSensorState: RetroSetSensorStateCallback?
+    var getSensorInput: RetroSensorGetInputCallback?
+}
 
 private struct RetroHardwareRenderCallback {
     var contextType: Int32
@@ -1091,6 +1429,8 @@ private protocol LibretroCallbackTarget: AnyObject {
     func audio(data: UnsafePointer<Int16>?, frames: Int) -> Int
     func pollInput()
     func input(port: UInt32, device: UInt32, index: UInt32, id: UInt32) -> Int16
+    func setSensorState(port: UInt32, action: UInt32, rate: UInt32) -> Bool
+    func sensorInput(port: UInt32, id: UInt32) -> Float
     func currentHardwareFramebuffer() -> UInt
     func hardwareProcAddress(_ name: UnsafePointer<CChar>?) -> RetroHardwareProc?
 }
@@ -1154,6 +1494,16 @@ private let libretroInputStateCallback: RetroInputStateCallback = { port, device
         .input(port: port, device: device, index: index, id: id) ?? 0
 }
 
+private let libretroSetSensorStateCallback: RetroSetSensorStateCallback = { port, action, rate in
+    LibretroCallbackRouter.shared.currentTarget()?
+        .setSensorState(port: port, action: action, rate: rate) ?? false
+}
+
+private let libretroSensorInputCallback: RetroSensorGetInputCallback = { port, id in
+    LibretroCallbackRouter.shared.currentTarget()?
+        .sensorInput(port: port, id: id) ?? 0
+}
+
 private let libretroHardwareFramebufferCallback: RetroHardwareFramebufferCallback = {
     LibretroCallbackRouter.shared.currentTarget()?.currentHardwareFramebuffer() ?? 0
 }
@@ -1192,6 +1542,8 @@ private final class LibretroCore {
         @convention(c) (RetroInputPollCallback) -> Void
     private typealias SetInputState =
         @convention(c) (RetroInputStateCallback) -> Void
+    private typealias SetControllerPortDevice =
+        @convention(c) (UInt32, UInt32) -> Void
     private typealias VoidFunction = @convention(c) () -> Void
     private typealias APIVersion = @convention(c) () -> UInt32
     private typealias WriteInfo = @convention(c) (UnsafeMutableRawPointer) -> Void
@@ -1212,6 +1564,7 @@ private final class LibretroCore {
     private let setAudioBatchFunction: SetAudioBatch
     private let setInputPollFunction: SetInputPoll
     private let setInputStateFunction: SetInputState
+    private let setControllerPortDeviceFunction: SetControllerPortDevice
     private let initializeFunction: VoidFunction
     private let deinitializeFunction: VoidFunction
     private let apiVersionFunction: APIVersion
@@ -1253,6 +1606,10 @@ private final class LibretroCore {
             )
             setInputPollFunction = try symbol("retro_set_input_poll", as: SetInputPoll.self)
             setInputStateFunction = try symbol("retro_set_input_state", as: SetInputState.self)
+            setControllerPortDeviceFunction = try symbol(
+                "retro_set_controller_port_device",
+                as: SetControllerPortDevice.self
+            )
             initializeFunction = try symbol("retro_init", as: VoidFunction.self)
             deinitializeFunction = try symbol("retro_deinit", as: VoidFunction.self)
             apiVersionFunction = try symbol("retro_api_version", as: APIVersion.self)
@@ -1381,6 +1738,20 @@ private final class LibretroCore {
 
     func unloadGame() {
         unloadGameFunction()
+    }
+
+    /// Declares which device is attached to a controller port.
+    ///
+    /// Cores with a single fixed controller layout read the RetroPad
+    /// unconditionally and ignore this, but cores that emulate real port
+    /// hardware bind their input only in response to it. Dolphin, for example,
+    /// installs the GameCube Serial Interface device and every pad control
+    /// expression here; without the call it leaves the port empty and no input
+    /// reaches the emulated console. Content must already be loaded, because
+    /// the device a port accepts depends on whether the title is GameCube or
+    /// Wii.
+    func setControllerPortDevice(port: UInt32, device: UInt32) {
+        setControllerPortDeviceFunction(port, device)
     }
 
     func avInfo() throws -> AVInfo {
@@ -1574,12 +1945,22 @@ private final class LibretroOpenGLRenderer: @unchecked Sendable {
     private var colorTexture: GLuint = 0
     private var depthStencilBuffer: GLuint = 0
 
-    init?() {
+    /// Creates a context matching the version the core asked for.
+    ///
+    /// macOS tops out at OpenGL 4.1, so a 4.x context is missing the direct
+    /// state access entry points that 4.2 and later define. A core that asks
+    /// for 3.2 but is handed a 4.x context can conclude those functions exist,
+    /// look them up, receive nothing, and call through the null pointer on its
+    /// first frame. Honouring the requested version keeps such a core on the
+    /// path it asked for.
+    init?(majorVersion: UInt32) {
+        let profile =
+            majorVersion >= 4
+            ? kCGLOGLPVersion_GL4_Core
+            : kCGLOGLPVersion_3_2_Core
         var attributes: [CGLPixelFormatAttribute] = [
             kCGLPFAOpenGLProfile,
-            CGLPixelFormatAttribute(
-                rawValue: UInt32(kCGLOGLPVersion_GL4_Core.rawValue)
-            ),
+            CGLPixelFormatAttribute(rawValue: UInt32(profile.rawValue)),
             kCGLPFAAccelerated,
             CGLPixelFormatAttribute(rawValue: 0),
         ]
@@ -1695,6 +2076,17 @@ private final class LibretroOpenGLRenderer: @unchecked Sendable {
             let library = openGLLibrary,
             let address = dlsym(library, name)
         else {
+            // A core that asks for an entry point and gets nothing back will
+            // call through the null pointer on its first frame, so record
+            // exactly which symbol was missing.
+            if let name {
+                OpenVaultLog.libretro.error(
+                    """
+                    Core requested an unavailable OpenGL entry point: \
+                    \(String(cString: name), privacy: .public)
+                    """
+                )
+            }
             return nil
         }
         return unsafeBitCast(address, to: RetroHardwareProc.self)
@@ -1791,10 +2183,47 @@ enum LibretroCoreOptionPreferences {
         "parallel-n64-gfxplugin": "angrylion",
         "parallel-n64-rspplugin": "cxd4",
         "parallel-n64-angrylion-multithread": "all threads",
+
+        // Flycast defaults to running its GPU on a second thread. The runtime
+        // owns one CGL context, and a CGL context can only be current on one
+        // thread at a time, so the render thread would issue GL calls with no
+        // context current at all. Keeping the GPU on the emulation thread,
+        // where `makeCurrent` actually bound the context, costs speed and is
+        // the only correct arrangement here.
+        "reicast_threaded_rendering": "disabled",
+
+        // A Dreamcast title that renders every second field presents at half
+        // the field rate. Flycast only tells the frontend about that when
+        // this is on; left off, it keeps reporting the full rate while
+        // handing over one frame per call, and the frontend paces a 30 Hz
+        // game at 60 Hz, running it at double speed.
+        "reicast_detect_vsync_swap_interval": "enabled",
     ]
 
-    static func value(for key: String, default defaultValue: String) -> String {
-        values[key] ?? defaultValue
+    /// Resolves the value to hand a core for `key`.
+    ///
+    /// The compatibility overrides above win outright: they exist because a
+    /// core misbehaves on this stack without them, which is not something a
+    /// preference should be able to undo. Everything else falls through to the
+    /// internal-resolution preference, which can only pick from the values
+    /// `availableValues` says the core will accept.
+    static func value(
+        for key: String,
+        default defaultValue: String,
+        availableValues: [String] = [],
+        internalResolution: LibretroInternalResolution = .native
+    ) -> String {
+        if let override = values[key] {
+            return override
+        }
+        if let resolutionValue = LibretroInternalResolutionOption.value(
+            forKey: key,
+            resolution: internalResolution,
+            availableValues: availableValues
+        ) {
+            return resolutionValue
+        }
+        return defaultValue
     }
 }
 
@@ -1803,20 +2232,51 @@ private final class LibretroEnvironment {
     private let systemDirectory: UnsafePointer<CChar>
     private let saveDirectory: UnsafePointer<CChar>
     private let assetsDirectory: UnsafePointer<CChar>
+    /// Read once when the session is built rather than per option, so a core
+    /// cannot see the preference change midway through publishing its list.
+    private let internalResolution: LibretroInternalResolution
     private var variables: [String: UnsafePointer<CChar>] = [:]
+    private(set) var wantsKeyboard = false
+    private(set) var keyboardEvent: RetroKeyboardEventCallback?
     private var hardwareRenderer: LibretroOpenGLRenderer?
     private var hardwareContextReset: RetroHardwareContextCallback?
     private var hardwareContextDestroy: RetroHardwareContextCallback?
     private var isHardwareContextActive = false
 
     private(set) var pixelFormat = LibretroABI.PixelFormat.zeroRGB1555
+    /// Updated by SET_GEOMETRY and SET_SYSTEM_AV_INFO, which N64 cores use to
+    /// change resolution mid-game without changing the picture's shape.
+    private(set) var requestedAspectRatio: Float = 0
+    /// The frame rate the core last asked to be paced at, or 0 while it is
+    /// still content with the rate it reported at load.
+    private(set) var requestedFramesPerSecond: Double = 0
+
+    /// Takes the ratio from `retro_get_system_av_info` for cores that report
+    /// it once at load. A core that already announced its own geometry keeps
+    /// what it chose.
+    func seedAspectRatio(_ aspectRatio: Float) {
+        guard
+            requestedAspectRatio == 0,
+            aspectRatio.isFinite,
+            aspectRatio > 0
+        else {
+            return
+        }
+        requestedAspectRatio = aspectRatio
+    }
     private(set) var supportsNoGame = false
     private(set) var requestedShutdown = false
 
-    init(systemDirectory: URL, saveDirectory: URL, assetsDirectory: URL) {
+    init(
+        systemDirectory: URL,
+        saveDirectory: URL,
+        assetsDirectory: URL,
+        internalResolution: LibretroInternalResolution
+    ) {
         self.systemDirectory = strings.store(systemDirectory.path)
         self.saveDirectory = strings.store(saveDirectory.path)
         self.assetsDirectory = strings.store(assetsDirectory.path)
+        self.internalResolution = internalResolution
     }
 
     func handle(command rawCommand: UInt32, data: UnsafeMutableRawPointer?) -> Bool {
@@ -1830,6 +2290,8 @@ private final class LibretroEnvironment {
             return data != nil
         case .setMessage:
             return true
+        case .setKeyboardCallback:
+            return captureKeyboardCallback(from: data)
         case .shutdown:
             requestedShutdown = true
             return true
@@ -1877,7 +2339,44 @@ private final class LibretroEnvironment {
             return write(assetsDirectory, to: data)
         case .getSaveDirectory:
             return write(saveDirectory, to: data)
-        case .setSystemAVInfo, .setGeometry:
+        case .setGeometry:
+            // retro_game_geometry, whose aspect ratio sits after four
+            // unsigned dimensions. It carries no timing, so nothing beyond
+            // this structure may be read here.
+            if let data {
+                let aspectRatio = data.load(
+                    fromByteOffset: 16,
+                    as: Float.self
+                )
+                if aspectRatio.isFinite, aspectRatio > 0 {
+                    requestedAspectRatio = aspectRatio
+                }
+            }
+            return true
+        case .setSystemAVInfo:
+            // retro_system_av_info begins with the same geometry and then adds
+            // retro_system_timing, whose frame rate is what separates this
+            // command from SET_GEOMETRY. A core changes it when the emulated
+            // machine changes how often it presents: a Dreamcast game running
+            // its renderer every second field reports half the field rate, and
+            // pacing it at the original rate would run the game at double
+            // speed.
+            if let data {
+                let aspectRatio = data.load(
+                    fromByteOffset: 16,
+                    as: Float.self
+                )
+                if aspectRatio.isFinite, aspectRatio > 0 {
+                    requestedAspectRatio = aspectRatio
+                }
+                let framesPerSecond = data.load(
+                    fromByteOffset: 24,
+                    as: Double.self
+                )
+                if framesPerSecond.isFinite, framesPerSecond > 0 {
+                    requestedFramesPerSecond = framesPerSecond
+                }
+            }
             return true
         case .getLanguage:
             data?.storeBytes(of: UInt32(0), as: UInt32.self)
@@ -1890,6 +2389,18 @@ private final class LibretroEnvironment {
             data?.storeBytes(of: Float(60), as: Float.self)
             return data != nil
         case .getInputBitmasks:
+            return true
+        case .getSensorInterface:
+            guard let data else {
+                return false
+            }
+            data.storeBytes(
+                of: RetroSensorInterface(
+                    setSensorState: libretroSetSensorStateCallback,
+                    getSensorInput: libretroSensorInputCallback
+                ),
+                as: RetroSensorInterface.self
+            )
             return true
         case .getPreferredHardwareRender:
             guard let data else {
@@ -1962,7 +2473,10 @@ private final class LibretroEnvironment {
             callback.pointee.contextType
                 == LibretroABI.HardwareContext.openGLCore.rawValue,
             callback.pointee.versionMajor <= 4,
-            let renderer = hardwareRenderer ?? LibretroOpenGLRenderer()
+            let renderer = hardwareRenderer
+                ?? LibretroOpenGLRenderer(
+                    majorVersion: callback.pointee.versionMajor
+                )
         else {
             return false
         }
@@ -1995,6 +2509,23 @@ private final class LibretroEnvironment {
         return true
     }
 
+    /// Records a core's `retro_keyboard_callback`.
+    ///
+    /// A core registering one is the runtime's signal that it wants real keys
+    /// rather than the RetroPad the other cores are driven with. DOSBox Pure
+    /// registers one, which is what puts a DOS game in front of a full
+    /// keyboard.
+    private func captureKeyboardCallback(
+        from data: UnsafeMutableRawPointer?
+    ) -> Bool {
+        guard let data else {
+            return false
+        }
+        keyboardEvent = data.load(as: RetroKeyboardEventCallback?.self)
+        wantsKeyboard = true
+        return true
+    }
+
     private func captureVariables(from data: UnsafeMutableRawPointer?) -> Bool {
         guard let data else {
             return false
@@ -2024,13 +2555,27 @@ private final class LibretroEnvironment {
                     .map {
                         $0.trimmingCharacters(in: .whitespacesAndNewlines)
                     }
-                if let defaultValue = values?.first, !defaultValue.isEmpty {
-                    variables[key] = strings.store(
-                        LibretroCoreOptionPreferences.value(
-                            for: key,
-                            default: defaultValue
-                        )
+                if let values, let defaultValue = values.first,
+                   !defaultValue.isEmpty
+                {
+                    let resolved = LibretroCoreOptionPreferences.value(
+                        for: key,
+                        default: defaultValue,
+                        availableValues: values,
+                        internalResolution: internalResolution
                     )
+                    if
+                        resolved != defaultValue,
+                        LibretroInternalResolutionOption.isResolutionKey(key)
+                    {
+                        OpenVaultLog.libretro.info(
+                            """
+                            Internal resolution: set \(key, privacy: .public) \
+                            to \(resolved, privacy: .public)
+                            """
+                        )
+                    }
+                    variables[key] = strings.store(resolved)
                 }
             }
             index += 1
@@ -2215,7 +2760,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 )
                 return
             }
-            videoBuffer.publish(frame)
+            videoBuffer.publish(stamped(frame))
             return
         }
 
@@ -2227,7 +2772,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 pitch: pitch,
                 format: environment?.pixelFormat ?? .zeroRGB1555
             )
-            videoBuffer.publish(frame)
+            videoBuffer.publish(stamped(frame))
         } catch {
             stop()
             emit(.failed(error.localizedDescription))
@@ -2245,8 +2790,30 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
 
     func pollInput() {
         inputState.pollController()
+        deliverKeyEvents()
         if inputState.consumeExitRequest() {
             emit(.controllerExitRequested)
+        }
+    }
+
+    /// Passes queued key presses to the core's keyboard callback.
+    ///
+    /// Called from `pollInput`, so the core is re-entered on the emulation
+    /// thread at the point in the frame it expects input, rather than from
+    /// whichever thread AppKit delivered the key on.
+    private func deliverKeyEvents() {
+        guard let keyboardEvent = environment?.keyboardEvent else {
+            return
+        }
+        for event in inputState.drainKeyEvents() {
+            keyboardEvent(
+                event.pressed,
+                event.key,
+                // The character a key produces is layout-dependent and
+                // nothing bundled reads it; the keycode carries the meaning.
+                0,
+                event.modifiers
+            )
         }
     }
 
@@ -2267,9 +2834,51 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             return inputState.analogValue(index: index, id: id)
         case LibretroABI.pointerDevice:
             return index == 0 ? inputState.pointerValue(for: id) : 0
+        case LibretroKeyboard.device:
+            return inputState.keyValue(for: id)
         default:
             return 0
         }
+    }
+
+    /// Records the display shape alongside the pixels, so a core that changes
+    /// resolution mid-game keeps the picture it asked for.
+    private func stamped(_ frame: LibretroVideoFrame) -> LibretroVideoFrame {
+        var frame = frame
+        frame.aspectRatio = environment?.requestedAspectRatio ?? 0
+        return frame
+    }
+
+    func setSensorState(port: UInt32, action rawAction: UInt32, rate: UInt32) -> Bool {
+        guard
+            port == 0,
+            let action = LibretroABI.SensorAction(rawValue: rawAction)
+        else {
+            return false
+        }
+
+        switch action {
+        case .enableAccelerometer:
+            inputState.setSensorEnabled(true, accelerometer: true)
+        case .disableAccelerometer:
+            inputState.setSensorEnabled(false, accelerometer: true)
+        case .enableGyroscope:
+            inputState.setSensorEnabled(true, accelerometer: false)
+        case .disableGyroscope:
+            inputState.setSensorEnabled(false, accelerometer: false)
+        }
+
+        OpenVaultLog.libretro.info(
+            """
+            Core sensor request \(String(describing: action), privacy: .public) \
+            at \(rate, privacy: .public) Hz
+            """
+        )
+        return true
+    }
+
+    func sensorInput(port: UInt32, id: UInt32) -> Float {
+        port == 0 ? inputState.sensorValue(for: id) : 0
     }
 
     func currentHardwareFramebuffer() -> UInt {
@@ -2337,7 +2946,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             let runtimeEnvironment = LibretroEnvironment(
                 systemDirectory: paths.system,
                 saveDirectory: paths.saves,
-                assetsDirectory: paths.assets
+                assetsDirectory: paths.assets,
+                internalResolution:
+                    LibretroInternalResolutionPreferences.resolution()
             )
             environment = runtimeEnvironment
 
@@ -2360,7 +2971,19 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             guard runtimeEnvironment.activateHardwareRenderer() else {
                 throw LibretroRuntimeError.couldNotInitializeHardwareContext
             }
+            // Cores that emulate real port hardware bind their input only when
+            // the frontend declares what is plugged in, and the device a port
+            // accepts can depend on the loaded title.
+            loadedCore.setControllerPortDevice(
+                port: 0,
+                device: LibretroABI.joypadDevice
+            )
+            // A core that registered a keyboard callback while loading wants
+            // real keys, so hand it the whole keyboard instead of the RetroPad
+            // shortcuts the keyboard otherwise stands in for.
+            inputState.setKeyboardEnabled(runtimeEnvironment.wantsKeyboard)
             let avInfo = try loadedCore.avInfo()
+            runtimeEnvironment.seedAspectRatio(avInfo.aspectRatio)
             try audioOutput.configure(sampleRate: avInfo.sampleRate)
             restoreSaveMemory(into: loadedCore)
             runtimeEnvironment.makeHardwareContextCurrent()
@@ -2393,7 +3016,8 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 )
             }
 
-            let frameDuration = 1 / avInfo.framesPerSecond
+            var pacedFramesPerSecond = avInfo.framesPerSecond
+            var frameDuration = 1 / pacedFramesPerSecond
             let rewindCadence = LibretroRewindCadence(
                 framesPerSecond: avInfo.framesPerSecond,
                 byteLimit: Self.rewindByteLimit
@@ -2408,10 +3032,38 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             var wasRewinding = false
 
             while !stopRequested {
+                // A core may change its frame rate mid-game through
+                // SET_SYSTEM_AV_INFO. Pacing keeps using the rate reported at
+                // load until it does, and follows it from then on.
+                let requestedFramesPerSecond =
+                    runtimeEnvironment.requestedFramesPerSecond
+                if
+                    requestedFramesPerSecond > 0,
+                    requestedFramesPerSecond != pacedFramesPerSecond
+                {
+                    OpenVaultLog.libretro.info(
+                        """
+                        Core changed its frame rate from \
+                        \(pacedFramesPerSecond, privacy: .public) to \
+                        \(requestedFramesPerSecond, privacy: .public) FPS
+                        """
+                    )
+                    pacedFramesPerSecond = requestedFramesPerSecond
+                    frameDuration = 1 / pacedFramesPerSecond
+                    nextFrame = ProcessInfo.processInfo.systemUptime
+                }
+
                 let transportControls =
                     inputState.currentTransportControls()
                 let now = ProcessInfo.processInfo.systemUptime
-                if transportControls.isRewinding {
+                // Rewinding suspends `run()` so the loop can step backwards
+                // through history instead of forwards. A core with no history
+                // to offer must therefore never enter the rewinding state, or
+                // holding the button would stall gameplay rather than do
+                // nothing.
+                let isRewinding =
+                    transportControls.isRewinding && rewindIsSupported
+                if isRewinding {
                     enqueue(
                         .rewind(steps: Self.heldRewindMultiplier)
                     )
@@ -2420,12 +3072,11 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 if
                     transportControls.isFastForwarding
                         != wasFastForwarding
-                        || transportControls.isRewinding
-                            != wasRewinding
+                        || isRewinding != wasRewinding
                 {
                     wasFastForwarding =
                         transportControls.isFastForwarding
-                    wasRewinding = transportControls.isRewinding
+                    wasRewinding = isRewinding
                     audioOutput.setTransportAudioSuppressed(
                         wasFastForwarding || wasRewinding
                     )
@@ -2596,6 +3247,20 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         do {
             let wasEmpty = rewindBuffer.isEmpty
             let state = try core.saveState()
+            guard cadence.canSustainRewind(forStateByteCount: state.count) else {
+                rewindIsSupported = false
+                rewindBuffer.removeAll()
+                emit(.rewindAvailabilityChanged(false))
+                emit(
+                    .notice(
+                        "Rewind is unavailable because this core’s states are too large to keep a useful history."
+                    )
+                )
+                OpenVaultLog.libretro.notice(
+                    "Disabled rewind: \(state.count, privacy: .public) byte states cannot sustain \(Int(LibretroRewindCadence.targetHistoryDuration), privacy: .public) seconds of history within the \(Self.rewindByteLimit, privacy: .public) byte budget"
+                )
+                return
+            }
             rewindSnapshotInterval =
                 cadence.snapshotInterval(forStateByteCount: state.count)
             rewindCaptureSchedule.didCapture(

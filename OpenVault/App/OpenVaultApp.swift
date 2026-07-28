@@ -4,6 +4,9 @@ import SwiftUI
 @MainActor
 private final class OpenVaultApplicationDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        DSUConnection.shared.apply(layout: DSUPreferences.layout())
+        DSUConnection.shared.apply(DSUPreferences.activeConfiguration())
+
         guard
             let iconURL = Bundle.main.url(
                 forResource: "AppIcon",

@@ -38,6 +38,19 @@ private final class CachedGameDetailsRecord {
 }
 
 @Model
+private final class LocalPlayHistoryRecord {
+    @Attribute(.unique) var serverKey: String
+    var updatedAt: Date
+    @Attribute(.externalStorage) var payload: Data
+
+    init(serverKey: String, updatedAt: Date, payload: Data) {
+        self.serverKey = serverKey
+        self.updatedAt = updatedAt
+        self.payload = payload
+    }
+}
+
+@Model
 private final class LocalFavoriteStateRecord {
     @Attribute(.unique) var serverKey: String
     var updatedAt: Date
@@ -204,6 +217,13 @@ actor SwiftDataLibraryCache: LibraryCaching {
             )
         }
 
+        if let history = try localPlayHistory(for: serverURL) {
+            try replaceLocalPlayHistory(
+                history.removingGames(withIDs: gameIDs),
+                for: serverURL
+            )
+        }
+
         try context.save()
     }
 
@@ -259,11 +279,64 @@ actor SwiftDataLibraryCache: LibraryCaching {
         try context.save()
     }
 
+    func localPlayHistory(
+        for serverURL: ServerURL
+    ) throws -> LocalPlayHistory? {
+        let context = try modelContext()
+        let serverKey = key(for: serverURL)
+        var descriptor = FetchDescriptor<LocalPlayHistoryRecord>(
+            predicate: #Predicate { $0.serverKey == serverKey }
+        )
+        descriptor.fetchLimit = 1
+
+        guard let record = try context.fetch(descriptor).first else {
+            return nil
+        }
+        do {
+            return try JSONDecoder().decode(
+                LocalPlayHistory.self,
+                from: record.payload
+            )
+        } catch {
+            context.delete(record)
+            try context.save()
+            return nil
+        }
+    }
+
+    func replaceLocalPlayHistory(
+        _ history: LocalPlayHistory,
+        for serverURL: ServerURL
+    ) throws {
+        let context = try modelContext()
+        let serverKey = key(for: serverURL)
+        let payload = try JSONEncoder().encode(history)
+        var descriptor = FetchDescriptor<LocalPlayHistoryRecord>(
+            predicate: #Predicate { $0.serverKey == serverKey }
+        )
+        descriptor.fetchLimit = 1
+
+        if let record = try context.fetch(descriptor).first {
+            record.updatedAt = .now
+            record.payload = payload
+        } else {
+            context.insert(
+                LocalPlayHistoryRecord(
+                    serverKey: serverKey,
+                    updatedAt: .now,
+                    payload: payload
+                )
+            )
+        }
+        try context.save()
+    }
+
     func removeAll() throws {
         let context = try modelContext()
         try context.delete(model: CachedLibrarySnapshotRecord.self)
         try context.delete(model: CachedGameDetailsRecord.self)
         try context.delete(model: LocalFavoriteStateRecord.self)
+        try context.delete(model: LocalPlayHistoryRecord.self)
         try context.save()
     }
 
@@ -276,6 +349,7 @@ actor SwiftDataLibraryCache: LibraryCaching {
             CachedLibrarySnapshotRecord.self,
             CachedGameDetailsRecord.self,
             LocalFavoriteStateRecord.self,
+            LocalPlayHistoryRecord.self,
         ])
         let configuration = ModelConfiguration(
             "OpenVaultLibrary",

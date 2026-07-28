@@ -27,6 +27,9 @@ struct BigPictureView: View {
   @State private var isBuildingCatalog = true
   @State private var page = BigPicturePage.home
   @State private var history: [BigPictureHistoryEntry] = []
+  @AppStorage(LibretroCorePreferences.enablesExperimentalCoresKey)
+  private var enablesExperimentalCores =
+    LibretroCorePreferences.enabledByDefault
   @State private var selectedIndex = 0
   @State private var scrollTargetID: BigPictureRow.ID?
   @State private var controllerState = BigPictureControllerState()
@@ -78,6 +81,9 @@ struct BigPictureView: View {
     }
     .task {
       await pollControllers()
+    }
+    .task {
+      await model.observeReachability()
     }
     .onDisappear {
       playbackTask?.cancel()
@@ -195,22 +201,46 @@ struct BigPictureView: View {
 
   private var statusPill: some View {
     HStack(spacing: 8) {
-      Image(
-        systemName: model.isShowingStaleData
-          ? "wifi.slash"
-          : "checkmark.circle.fill"
-      )
-      Text(model.isShowingStaleData ? "OFFLINE" : "ROMM")
+      Image(systemName: statusSymbol)
+      Text(statusLabel)
     }
     .font(.system(size: 13, weight: .black, design: .rounded))
     .padding(.horizontal, 14)
     .padding(.vertical, 9)
     .background(.white.opacity(0.12), in: Capsule())
-    .accessibilityLabel(
-      model.isShowingStaleData
-        ? "Browsing the offline library"
-        : "Connected to RomM"
-    )
+    .accessibilityLabel(statusDescription)
+  }
+
+  /// Unreachable and merely stale are different states: the first blocks
+  /// downloads, the second just means the sync has not finished yet.
+  private var statusSymbol: String {
+    if !model.isServerReachable {
+      "wifi.slash"
+    } else if model.isShowingStaleData {
+      "clock.arrow.circlepath"
+    } else {
+      "checkmark.circle.fill"
+    }
+  }
+
+  private var statusLabel: String {
+    if !model.isServerReachable {
+      "OFFLINE"
+    } else if model.isShowingStaleData {
+      "CACHED"
+    } else {
+      "ROMM"
+    }
+  }
+
+  private var statusDescription: String {
+    if !model.isServerReachable {
+      "RomM is unreachable; browsing the offline library"
+    } else if model.isShowingStaleData {
+      "Connected to RomM; showing the cached library"
+    } else {
+      "Connected to RomM"
+    }
   }
 
   private var controllerPill: some View {
@@ -369,9 +399,6 @@ struct BigPictureView: View {
       Spacer()
 
       HStack(spacing: 10) {
-        if rows.count > pageSelectionStride {
-          actionHint(key: "←/→", label: "PAGE")
-        }
         if page.isGameList || selectedSystem != nil {
           actionHint(
             key: controllerState.optionsButtonPrompt.label,
@@ -379,10 +406,18 @@ struct BigPictureView: View {
             label: "OPTIONS"
           )
         }
+        if page.isGameList {
+          actionHint(
+            key: controllerState.playFromBeginningButtonPrompt.label,
+            systemImage:
+              controllerState.playFromBeginningButtonPrompt.systemImage,
+            label: "RESTART"
+          )
+        }
         actionHint(
           key: controllerState.activateButtonPrompt.label,
           systemImage: controllerState.activateButtonPrompt.systemImage,
-          label: page.isGameList ? "PLAY" : "OPEN"
+          label: page.isGameList ? "RESUME" : "OPEN"
         )
       }
     }
@@ -723,6 +758,13 @@ struct BigPictureView: View {
     case .home:
       [
         BigPictureRow(
+          id: .home("recently-played"),
+          title: "Recently Played",
+          detail: catalog.recentlyPlayedGames.count.formatted(),
+          isFavorite: false,
+          action: .navigate(.games(.recentlyPlayed))
+        ),
+        BigPictureRow(
           id: .home("recent"),
           title: "Recently Added",
           detail: catalog.recentlyAddedGames.count.formatted(),
@@ -741,7 +783,7 @@ struct BigPictureView: View {
           title: "Downloaded",
           detail: catalog.downloadedGames.count.formatted(),
           isFavorite: false,
-          action: .navigate(.games(.downloaded))
+          action: .navigate(.downloaded)
         ),
         BigPictureRow(
           id: .home("collections"),
@@ -758,6 +800,26 @@ struct BigPictureView: View {
             detail: system.gameCount.formatted(),
             isFavorite: false,
             action: .navigate(.games(.system(system.id)))
+          )
+        }
+
+    case .downloaded:
+      [
+        BigPictureRow(
+          id: .home("downloaded-all"),
+          title: "All Downloaded",
+          detail: catalog.downloadedGames.count.formatted(),
+          isFavorite: false,
+          action: .navigate(.games(.downloaded))
+        )
+      ]
+        + catalog.downloadedSystems.map { system in
+          BigPictureRow(
+            id: .system(system.id),
+            title: system.name,
+            detail: catalog.downloadedGameCount(inSystem: system.id).formatted(),
+            isFavorite: false,
+            action: .navigate(.games(.downloadedSystem(system.id)))
           )
         }
 
@@ -869,6 +931,8 @@ struct BigPictureView: View {
       "OpenVault"
     case .collections:
       "Collections"
+    case .downloaded:
+      "Downloaded"
     case .games(let scope):
       catalog.title(for: scope)
     }
@@ -880,6 +944,8 @@ struct BigPictureView: View {
       "BIG PICTURE"
     case .collections:
       "\(catalog.collections.count.formatted()) ROMM COLLECTIONS"
+    case .downloaded:
+      "\(catalog.downloadedSystems.count.formatted()) SYSTEMS"
     case .games(let scope):
       "\(catalog.games(in: scope).count.formatted()) GAMES"
     }
@@ -889,7 +955,7 @@ struct BigPictureView: View {
     switch page {
     case .home:
       31
-    case .collections, .games:
+    case .collections, .downloaded, .games:
       25
     }
   }
@@ -907,7 +973,9 @@ struct BigPictureView: View {
       synchronizedAt: model.lastSuccessfulSync,
       downloadedGameIDs: model.downloadedGameIDs,
       favoriteGameIDs: model.favoriteGameIDs,
-      hidesBIOSGames: model.hidesBIOSGames
+      hidesBIOSGames: model.hidesBIOSGames,
+      includesExperimentalCores: enablesExperimentalCores,
+      recentlyPlayedGameIDs: model.playHistory.gameIDsByRecency
     )
   }
 
@@ -928,8 +996,13 @@ struct BigPictureView: View {
     isBuildingCatalog = true
     let source = model.bigPictureSource
     let manifest = Self.bundledManifest
+    let includingExperimental = enablesExperimentalCores
     let preparedCatalog = await Task.detached(priority: .userInitiated) {
-      BigPictureCatalog(source: source, manifest: manifest)
+      BigPictureCatalog(
+        source: source,
+        manifest: manifest,
+        includingExperimental: includingExperimental
+      )
     }.value
     guard !Task.isCancelled else {
       return
@@ -952,7 +1025,7 @@ struct BigPictureView: View {
 
     if actionNotice != nil {
       switch command {
-      case .activate, .launchGame, .back, .openGameOptions:
+      case .activate, .playFromBeginning, .back, .openGameOptions:
         actionNotice = nil
       case .up, .down, .pageUp, .pageDown, .exit:
         break
@@ -966,7 +1039,7 @@ struct BigPictureView: View {
         moveGameOptionSelection(by: -1, for: optionsGame)
       case .down:
         moveGameOptionSelection(by: 1, for: optionsGame)
-      case .activate, .launchGame:
+      case .activate, .playFromBeginning:
         activateSelectedGameOption(for: optionsGame)
       case .back, .openGameOptions:
         self.optionsGame = nil
@@ -978,7 +1051,7 @@ struct BigPictureView: View {
 
     if let optionsSystem {
       switch command {
-      case .activate, .launchGame:
+      case .activate, .playFromBeginning:
         downloadAllGames(in: optionsSystem)
       case .back, .openGameOptions:
         self.optionsSystem = nil
@@ -1000,7 +1073,7 @@ struct BigPictureView: View {
         }
       case .back:
         playbackErrorMessage = nil
-      case .up, .down, .pageUp, .pageDown, .launchGame,
+      case .up, .down, .pageUp, .pageDown, .playFromBeginning,
         .openGameOptions, .exit:
         break
       }
@@ -1031,8 +1104,8 @@ struct BigPictureView: View {
         return
       }
       activate(rows[selectedIndex])
-    case .launchGame:
-      launchSelectedGame()
+    case .playFromBeginning:
+      playSelectedGameFromBeginning()
     case .openGameOptions:
       presentSelectedOptions()
     case .back:
@@ -1090,13 +1163,19 @@ struct BigPictureView: View {
     }
   }
 
-  private func launchSelectedGame() {
+  /// Boots the selected game without restoring its quick state.
+  ///
+  /// The confirm button already resumes, because `play(_:)` restores the quick
+  /// state whenever one exists and boots normally when it does not. This is
+  /// the deliberate way past that, for when the saved position is somewhere
+  /// you no longer want to be.
+  private func playSelectedGameFromBeginning() {
     guard rows.indices.contains(selectedIndex),
       case let .play(game) = rows[selectedIndex].action
     else {
       return
     }
-    play(game)
+    play(game, fromBeginning: true)
   }
 
   private func presentSelectedOptions() {
@@ -1437,7 +1516,7 @@ struct BigPictureView: View {
       }
 
       await detailsModel.loadForPlayback(
-        allowsRemoteAccess: !model.isShowingStaleData
+        allowsRemoteAccess: model.isServerReachable
       )
       guard !Task.isCancelled else {
         finishPlaybackPreparation()
@@ -1455,22 +1534,31 @@ struct BigPictureView: View {
       guard
         let request = await detailsModel.prepareToPlay(
           details,
-          synchronizesWithServer: !model.isShowingStaleData
+          synchronizesWithServer: model.isServerReachable
         )
       else {
+        // Preparation returns nothing both when it was cancelled and when it
+        // genuinely failed, so cancellation has to be ruled out before any of
+        // this is called an error. Checking it afterwards blamed a library
+        // refresh that interrupted playback on the game file instead.
+        guard !Task.isCancelled else {
+          finishPlaybackPreparation()
+          return
+        }
         playbackErrorMessage =
           detailsModel.playbackErrorMessage
-          ?? "No bundled core supports this game file."
+          ?? (
+            detailsModel.playbackCore == nil
+              ? "No bundled core supports this game file."
+              : "OpenVault could not prepare this game."
+          )
         finishPlaybackPreparation(keepingError: true)
-        return
-      }
-      guard !Task.isCancelled else {
-        finishPlaybackPreparation()
         return
       }
 
       model.recordManagedDownload(gameID: game.id)
       await model.reloadDownloadedGames(reconcilingDuringDownloads: true)
+      await model.recordPlay(gameID: game.id)
       activePlayerRequest =
         (fromBeginning ? request.startingFresh() : request)
         .launched(from: .bigPicture)
@@ -1559,6 +1647,8 @@ struct BigPictureView: View {
 private enum BigPicturePage: Hashable {
   case home
   case collections
+  /// The systems that have something downloaded, browsed before the games.
+  case downloaded
   case games(BigPictureScope)
 
   var isGameList: Bool {
@@ -1579,6 +1669,13 @@ private struct BigPictureCatalogKey: Hashable {
   let downloadedGameIDs: Set<Int>
   let favoriteGameIDs: Set<Int>
   let hidesBIOSGames: Bool
+  /// Part of the key so switching experimental cores on rebuilds the catalog
+  /// instead of leaving their systems missing until something else changes.
+  let includesExperimentalCores: Bool
+  /// Only the ordering matters here. Comparing the identifiers by recency
+  /// rather than the timestamps keeps a replay of the game already at the front
+  /// from rebuilding a catalog that would come out identical.
+  let recentlyPlayedGameIDs: [Int]
 }
 
 enum BigPictureCommand: Equatable, Sendable {
@@ -1587,7 +1684,7 @@ enum BigPictureCommand: Equatable, Sendable {
   case pageUp
   case pageDown
   case activate
-  case launchGame
+  case playFromBeginning
   case openGameOptions
   case back
   case exit
@@ -1682,10 +1779,12 @@ private struct BigPictureActionNotice {
 
 extension BigPictureScope {
   fileprivate var isSystem: Bool {
-    if case .system = self {
-      return true
+    switch self {
+    case .system, .downloadedSystem:
+      true
+    default:
+      false
     }
-    return false
   }
 }
 
@@ -1696,7 +1795,7 @@ struct BigPictureControllerState: Equatable, Sendable {
   var left = false
   var right = false
   var activate = false
-  var startsGame = false
+  var playsFromBeginning = false
   var opensGameOptions = false
   var back = false
   var exitsBigPicture = false
@@ -1705,16 +1804,19 @@ struct BigPictureControllerState: Equatable, Sendable {
   var pageDown = false
   var activateButtonPrompt = BigPictureControllerPrompt(label: "B")
   var backButtonPrompt = BigPictureControllerPrompt(label: "A")
-  var optionsButtonPrompt = BigPictureControllerPrompt(label: "X")
+  var optionsButtonPrompt = BigPictureControllerPrompt(label: "START")
+  var playFromBeginningButtonPrompt = BigPictureControllerPrompt(label: "X")
   var exitButtonPrompt = BigPictureControllerPrompt(label: "SELECT")
 
   static var current: Self {
     let controllers = GCController.controllers()
     var state = Self(isConnected: !controllers.isEmpty)
+    var hasLocalPrompts = false
 
     if let controller = GCController.current ?? controllers.first,
        let gamepad = controller.extendedGamepad
     {
+      hasLocalPrompts = true
       let layout = ControllerFaceButtonLayout.resolve(
         vendorName: controller.vendorName,
         productCategory: controller.productCategory
@@ -1734,6 +1836,11 @@ struct BigPictureControllerState: Equatable, Sendable {
         fallbackLabel: layout == .nintendo ? "B" : "A"
       )
       state.optionsButtonPrompt = buttonPrompt(
+        localizedName: gamepad.buttonMenu.localizedName,
+        systemImage: gamepad.buttonMenu.sfSymbolsName,
+        fallbackLabel: "START"
+      )
+      state.playFromBeginningButtonPrompt = buttonPrompt(
         localizedName: gamepad.buttonX.localizedName,
         systemImage: gamepad.buttonX.sfSymbolsName,
         fallbackLabel: "X"
@@ -1778,9 +1885,9 @@ struct BigPictureControllerState: Equatable, Sendable {
           || gamepad.leftThumbstick.xAxis.value > 0.72
         state.activate = state.activate || faceButtons.activate
         state.opensGameOptions =
-          state.opensGameOptions || gamepad.buttonX.isPressed
-        state.startsGame =
-          state.startsGame || auxiliaryButtons.startsGame
+          state.opensGameOptions || auxiliaryButtons.opensGameOptions
+        state.playsFromBeginning =
+          state.playsFromBeginning || gamepad.buttonX.isPressed
         state.exitsBigPicture =
           state.exitsBigPicture
           || auxiliaryButtons.exitsBigPicture
@@ -1803,7 +1910,66 @@ struct BigPictureControllerState: Equatable, Sendable {
         state.back = state.back || gamepad.buttonX.isPressed
       }
     }
+
+    if let pad = DSUConnection.shared.currentPad() {
+      let layout = DSUConnection.shared.padLayout
+      // A DSU pad names the on-screen prompts only when no local controller
+      // is there to name them first.
+      if !hasLocalPrompts {
+        state.applyPrompts(for: layout)
+      }
+      state.merge(pad, layout: layout)
+    }
+
     return state
+  }
+
+  /// Names the prompts for a pad that reports no button titles of its own.
+  mutating func applyPrompts(for layout: ControllerFaceButtonLayout) {
+    activateButtonPrompt = BigPictureControllerPrompt(
+      label: layout == .nintendo ? "A" : "B"
+    )
+    backButtonPrompt = BigPictureControllerPrompt(
+      label: layout == .nintendo ? "B" : "A"
+    )
+    optionsButtonPrompt = BigPictureControllerPrompt(label: "START")
+    playFromBeginningButtonPrompt = BigPictureControllerPrompt(label: "X")
+    exitButtonPrompt = BigPictureControllerPrompt(label: "SELECT")
+  }
+
+  /// Folds a DSU pad into the same navigation state a local controller
+  /// produces, so a network pad drives the interface as well as the emulator.
+  mutating func merge(
+    _ pad: DSUPadState,
+    layout: ControllerFaceButtonLayout = .standard
+  ) {
+    isConnected = true
+
+    let stick = pad.leftStick.normalized
+    let faceButtons = Self.extendedFaceButtonActions(
+      buttonAPressed: pad.buttons.contains(.a),
+      buttonBPressed: pad.buttons.contains(.b),
+      layout: layout
+    )
+    let auxiliaryButtons = Self.extendedAuxiliaryButtonActions(
+      optionsPressed: pad.buttons.contains(.share),
+      menuPressed: pad.buttons.contains(.options),
+      homePressed: pad.isHomePressed
+    )
+
+    // The stick is already in screen orientation, where positive is down.
+    up = up || pad.buttons.contains(.up) || stick.y < -0.72
+    down = down || pad.buttons.contains(.down) || stick.y > 0.72
+    left = left || pad.buttons.contains(.left) || stick.x < -0.72
+    right = right || pad.buttons.contains(.right) || stick.x > 0.72
+    activate = activate || faceButtons.activate
+    back = back || faceButtons.back
+    opensGameOptions = opensGameOptions || auxiliaryButtons.opensGameOptions
+    playsFromBeginning = playsFromBeginning || pad.buttons.contains(.x)
+    exitsBigPicture = exitsBigPicture || auxiliaryButtons.exitsBigPicture
+    opensBigPicture = opensBigPicture || auxiliaryButtons.opensBigPicture
+    pageUp = pageUp || pad.buttons.contains(.l1)
+    pageDown = pageDown || pad.buttons.contains(.r1)
   }
 
   static func extendedFaceButtonActions(
@@ -1832,12 +1998,12 @@ struct BigPictureControllerState: Equatable, Sendable {
   ) -> (
     opensBigPicture: Bool,
     exitsBigPicture: Bool,
-    startsGame: Bool
+    opensGameOptions: Bool
   ) {
     (
       opensBigPicture: optionsPressed || homePressed,
       exitsBigPicture: optionsPressed,
-      startsGame: menuPressed
+      opensGameOptions: menuPressed
     )
   }
 
@@ -1911,8 +2077,8 @@ struct BigPictureControllerNavigation: Sendable {
     if state.opensGameOptions, !previousState.opensGameOptions {
       return .openGameOptions
     }
-    if state.startsGame, !previousState.startsGame {
-      return .launchGame
+    if state.playsFromBeginning, !previousState.playsFromBeginning {
+      return .playFromBeginning
     }
     if state.activate, !previousState.activate {
       return .activate

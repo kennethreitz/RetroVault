@@ -289,9 +289,15 @@ private enum LibraryGamePlayability {
   private static let bundledLibretroManifest =
     try? LibretroInstallation.bundled().manifest
 
+  /// `includingExperimental` is passed in rather than read from the defaults
+  /// inside `supportsSystem`. A view that reads a preference through a
+  /// side channel has no SwiftUI dependency on it, so turning experimental
+  /// cores on would leave their systems missing from the library until
+  /// something unrelated happened to redraw it.
   static func isPlayable(
     _ game: GameSummary,
-    downloadedGameIDs: Set<Int>
+    downloadedGameIDs: Set<Int>,
+    includingExperimental: Bool
   ) -> Bool {
     guard
       game.isMissingFromFileSystem != true
@@ -301,7 +307,10 @@ private enum LibraryGamePlayability {
     }
 
     return bundledLibretroManifest?
-      .supportsSystem(named: game.systemName)
+      .supportsSystem(
+        named: game.systemName,
+        includingExperimental: includingExperimental
+      )
       ?? false
   }
 }
@@ -337,7 +346,8 @@ private enum LibraryPlaybackPreparation {
   @MainActor
   static func prepare(
     _ game: GameSummary,
-    model: LibraryModel
+    model: LibraryModel,
+    onProgress: (@MainActor (RomMDownloadProgress?) -> Void)? = nil
   ) async -> Self {
     switch await model.prioritizeDownloadForPlayback(game) {
     case .noActiveQueue, .downloaded:
@@ -359,7 +369,7 @@ private enum LibraryPlaybackPreparation {
       service: model.service
     )
     await detailsModel.loadForPlayback(
-      allowsRemoteAccess: !model.isShowingStaleData
+      allowsRemoteAccess: model.isServerReachable
     )
 
     guard let details = detailsModel.details else {
@@ -386,7 +396,8 @@ private enum LibraryPlaybackPreparation {
     guard
       let request = await detailsModel.prepareToPlay(
         details,
-        synchronizesWithServer: !model.isShowingStaleData
+        synchronizesWithServer: model.isServerReachable,
+        onProgress: onProgress
       )
     else {
       return .failed(
@@ -401,6 +412,7 @@ private enum LibraryPlaybackPreparation {
 
     model.recordManagedDownload(gameID: game.id)
     await model.reloadDownloadedGames(reconcilingDuringDownloads: true)
+    await model.recordPlay(gameID: game.id)
     return .ready(request)
   }
 }
@@ -472,6 +484,9 @@ private enum LibraryBrowserColumn: String, CaseIterable, Identifiable {
 }
 
 struct LibraryView: View {
+  @AppStorage(LibretroCorePreferences.enablesExperimentalCoresKey)
+  private var enablesExperimentalCores =
+    LibretroCorePreferences.enabledByDefault
   private static let bundledLibretroManifest =
     try? LibretroInstallation.bundled().manifest
 
@@ -504,23 +519,32 @@ struct LibraryView: View {
   @State private var libraryWindow: NSWindow?
   @State private var controllerNavigation = LibraryControllerNavigation()
   @State private var controllerRouter = LibraryControllerRouter()
+  @State private var sidebarScrollTarget: LibrarySelection?
 
   var body: some View {
     NavigationSplitView {
       VStack(spacing: 0) {
+        ScrollViewReader { sidebarScrollProxy in
         List(selection: sidebarSelectionBinding) {
           Label("All Games", systemImage: "rectangle.stack")
             .badge(model.allGameCount)
             .tag(LibrarySelection.allGames)
+            .id(LibrarySelection.allGames)
 
           Section("Collections") {
             LibraryDownloadedSidebarLabel(model: model)
               .tag(LibrarySelection.downloaded)
+              .id(LibrarySelection.downloaded)
+
+            LibraryRecentlyPlayedSidebarLabel(model: model)
+              .tag(LibrarySelection.recentlyPlayed)
+              .id(LibrarySelection.recentlyPlayed)
 
             ForEach(regularCollections) { collection in
               Label(collection.name, systemImage: collection.systemImage)
                 .badge(collection.gameCount)
                 .tag(LibrarySelection.collection(collection.id))
+                .id(LibrarySelection.collection(collection.id))
             }
 
             if !smartCollections.isEmpty {
@@ -529,6 +553,7 @@ struct LibraryView: View {
                   Label(collection.name, systemImage: collection.systemImage)
                     .badge(collection.gameCount)
                     .tag(LibrarySelection.collection(collection.id))
+                    .id(LibrarySelection.collection(collection.id))
                 }
               } label: {
                 Label("Smart Collections", systemImage: "sparkles")
@@ -542,12 +567,14 @@ struct LibraryView: View {
                   Label(collection.name, systemImage: collection.systemImage)
                     .badge(collection.gameCount)
                     .tag(LibrarySelection.collection(collection.id))
+                    .id(LibrarySelection.collection(collection.id))
                 }
               } label: {
                 Label("Virtual Collections", systemImage: "wand.and.stars")
                   .badge(virtualCollections.count)
               }
               .tag(LibrarySelection.virtualCollections)
+              .id(LibrarySelection.virtualCollections)
             }
           }
 
@@ -629,6 +656,17 @@ struct LibraryView: View {
           }
         }
         .focused($hasSidebarFocus)
+        .onChange(of: sidebarScrollTarget) { _, target in
+          guard let target else {
+            return
+          }
+          // The controller can move the selection past the visible rows, and
+          // a List does not follow a selection it did not scroll to itself.
+          withAnimation(.easeOut(duration: 0.18)) {
+            sidebarScrollProxy.scrollTo(target, anchor: .center)
+          }
+        }
+        }
 
         Divider()
         LibrarySidebarStatus(model: model)
@@ -812,6 +850,9 @@ struct LibraryView: View {
       await model.load()
     }
     .task {
+      await model.observeReachability()
+    }
+    .task {
       await pollControllers()
     }
     .task(id: persistedHidesBIOSGames) {
@@ -905,7 +946,10 @@ struct LibraryView: View {
 
   private func isSystemSupported(_ system: LibrarySystem) -> Bool {
     Self.bundledLibretroManifest?
-      .supportsSystem(named: system.name)
+      .supportsSystem(
+        named: system.name,
+        includingExperimental: enablesExperimentalCores
+      )
       ?? true
   }
 
@@ -967,7 +1011,7 @@ struct LibraryView: View {
     return switch model.selection {
     case .system, .systems, .collection:
       true
-    case .allGames, .downloaded, .virtualCollections:
+    case .allGames, .downloaded, .recentlyPlayed, .virtualCollections:
       false
     }
   }
@@ -985,6 +1029,7 @@ struct LibraryView: View {
     return Text(system.name)
       .badge(system.gameCount)
       .tag(LibrarySelection.system(system.id))
+      .id(LibrarySelection.system(system.id))
       .contextMenu {
         Button {
           requestGameDownload(systemGames)
@@ -1007,7 +1052,7 @@ struct LibraryView: View {
     switch model.selection {
     case .allGames:
       allGamesPresentation
-    case .downloaded:
+    case .downloaded, .recentlyPlayed:
       collectionPresentation
     case .virtualCollections:
       .artwork
@@ -1025,7 +1070,7 @@ struct LibraryView: View {
         switch model.selection {
         case .allGames:
           allGamesPresentation = newValue
-        case .downloaded:
+        case .downloaded, .recentlyPlayed:
           collectionPresentation = newValue
         case .virtualCollections:
           break
@@ -1515,6 +1560,7 @@ struct LibraryView: View {
     guard destination != model.selection else {
       return
     }
+    sidebarScrollTarget = destination
     selectSidebarDestination(destination)
   }
 
@@ -1552,6 +1598,15 @@ private struct LibraryDownloadedSidebarLabel: View {
   var body: some View {
     Label("Downloaded", systemImage: "arrow.down.circle")
       .badge(model.downloadedGameCount)
+  }
+}
+
+private struct LibraryRecentlyPlayedSidebarLabel: View {
+  let model: LibraryModel
+
+  var body: some View {
+    Label("Recently Played", systemImage: "clock.arrow.circlepath")
+      .badge(model.recentlyPlayedGameCount)
   }
 }
 
@@ -1603,12 +1658,12 @@ private struct LibrarySidebarStatus: View {
     } else if let refreshErrorMessage = model.refreshErrorMessage {
       HStack(spacing: 7) {
         Image(
-          systemName: model.isShowingStaleData
+          systemName: !model.isServerReachable
             ? "wifi.slash"
             : "exclamationmark.triangle.fill"
         )
         Text(
-          model.isShowingStaleData
+          !model.isServerReachable
             ? "Offline · \(model.allGameCount.formatted()) games"
             : "Sync failed"
         )
@@ -1984,15 +2039,15 @@ private struct VirtualCollectionGalleryView: View {
               }
             }
           }
+          .onGeometryChange(for: CGFloat.self) { geometry in
+            geometry.size.width
+          } action: { width in
+            gridWidth = width
+          }
         }
       }
       .contentMargins(28, for: .scrollContent)
       .scrollPosition(id: $scrollTargetID, anchor: .center)
-      .onGeometryChange(for: CGFloat.self) { geometry in
-        geometry.size.width
-      } action: { width in
-        gridWidth = width
-      }
       .overlay(alignment: .topTrailing) {
         Text(
           collections.count == 1
@@ -2318,6 +2373,9 @@ private struct LibraryGameSelectionContextMenu<PrimaryActions: View>: View {
 }
 
 private struct LibraryTableView: View {
+  @AppStorage(LibretroCorePreferences.enablesExperimentalCoresKey)
+  private var enablesExperimentalCores =
+    LibretroCorePreferences.enabledByDefault
   @Environment(\.openWindow) private var openWindow
   @Environment(\.accessibilityReduceMotion) private var reducesMotion
 
@@ -2341,6 +2399,7 @@ private struct LibraryTableView: View {
   @State private var tableIdentity = UUID()
   @State private var selectedGameIDs: Set<Int> = []
   @State private var preparingGameID: Int?
+  @State private var preparingProgress: RomMDownloadProgress?
   @State private var playbackAlert: LibraryAlert?
   @State private var hasPreparedRows = false
   @State private var controllerTableScrollTargetID: Int?
@@ -2468,7 +2527,8 @@ private struct LibraryTableView: View {
   private func isPlayable(_ game: GameSummary) -> Bool {
     LibraryGamePlayability.isPlayable(
       game,
-      downloadedGameIDs: model.downloadedGameIDs
+      downloadedGameIDs: model.downloadedGameIDs,
+      includingExperimental: enablesExperimentalCores
     )
   }
 
@@ -2730,12 +2790,20 @@ private struct LibraryTableView: View {
     }
 
     preparingGameID = game.id
+    preparingProgress = nil
     Task {
       defer {
         preparingGameID = nil
+        preparingProgress = nil
       }
 
-      switch await LibraryPlaybackPreparation.prepare(game, model: model) {
+      switch await LibraryPlaybackPreparation.prepare(
+        game,
+        model: model,
+        onProgress: { progress in
+          preparingProgress = progress
+        }
+      ) {
       case let .ready(request):
         openWindow(
           value: fromBeginning ? request.startingFresh() : request
@@ -3691,6 +3759,9 @@ private struct LibraryBrowserPane: View {
 }
 
 private struct LibraryGridView: View {
+  @AppStorage(LibretroCorePreferences.enablesExperimentalCoresKey)
+  private var enablesExperimentalCores =
+    LibretroCorePreferences.enabledByDefault
   @Environment(\.openWindow) private var openWindow
   @Environment(\.accessibilityReduceMotion) private var reducesMotion
 
@@ -3712,6 +3783,7 @@ private struct LibraryGridView: View {
   @State private var isSorting = true
   @State private var sortingRequestID = UUID()
   @State private var preparingGameID: Int?
+  @State private var preparingProgress: RomMDownloadProgress?
   @State private var playbackAlert: LibraryAlert?
   @State private var controllerScrollTargetID: Int?
   @State private var gridWidth: CGFloat = 0
@@ -3798,6 +3870,9 @@ private struct LibraryGridView: View {
                 hasSaveState: game.hasState == true,
                 secondaryText: cardSecondaryText(for: game),
                 isPreparingToPlay: preparingGameID == game.id,
+                downloadProgress: preparingGameID == game.id
+                  ? preparingProgress
+                  : nil,
                 isPlaybackBusy: preparingGameID != nil,
                 selectionNamespace: selectionHighlight,
                 animatesMovingSelection: selectedGameIDs.count == 1,
@@ -3849,17 +3924,17 @@ private struct LibraryGridView: View {
               }
             }
           }
+          .onGeometryChange(for: CGFloat.self) { geometry in
+            geometry.size.width
+          } action: { width in
+            gridWidth = width
+          }
 
           paginationFooter
             .padding(.top, 20)
         }
         .contentMargins(28, for: .scrollContent)
         .scrollPosition(id: $controllerScrollTargetID, anchor: .center)
-        .onGeometryChange(for: CGFloat.self) { geometry in
-          geometry.size.width
-        } action: { width in
-          gridWidth = width
-        }
         .focusable()
         .focused($hasGridFocus)
         .focusedSceneValue(\.openGameInfo, gameInfoAction)
@@ -3946,7 +4021,8 @@ private struct LibraryGridView: View {
   private func isPlayable(_ game: GameSummary) -> Bool {
     LibraryGamePlayability.isPlayable(
       game,
-      downloadedGameIDs: model.downloadedGameIDs
+      downloadedGameIDs: model.downloadedGameIDs,
+      includingExperimental: enablesExperimentalCores
     )
   }
 
@@ -3989,12 +4065,20 @@ private struct LibraryGridView: View {
     }
 
     preparingGameID = game.id
+    preparingProgress = nil
     Task {
       defer {
         preparingGameID = nil
+        preparingProgress = nil
       }
 
-      switch await LibraryPlaybackPreparation.prepare(game, model: model) {
+      switch await LibraryPlaybackPreparation.prepare(
+        game,
+        model: model,
+        onProgress: { progress in
+          preparingProgress = progress
+        }
+      ) {
       case let .ready(request):
         openWindow(
           value: fromBeginning ? request.startingFresh() : request
@@ -4344,6 +4428,7 @@ private struct ArtworkGameItem: View {
   let hasSaveState: Bool
   let secondaryText: String
   let isPreparingToPlay: Bool
+  var downloadProgress: RomMDownloadProgress?
   let isPlaybackBusy: Bool
   let selectionNamespace: Namespace.ID
   let animatesMovingSelection: Bool
@@ -4387,9 +4472,19 @@ private struct ArtworkGameItem: View {
             Button(action: playGame) {
               Group {
                 if isPreparingToPlay {
-                  ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
+                  if let fraction = downloadProgress?.fractionCompleted {
+                    ProgressView(value: fraction)
+                      .progressViewStyle(.circular)
+                      .controlSize(.small)
+                      .tint(.white)
+                  } else {
+                    // RomM does not always send a content length, and the
+                    // preparation does more than download, so an
+                    // indeterminate spinner remains the honest fallback.
+                    ProgressView()
+                      .controlSize(.small)
+                      .tint(.white)
+                  }
                 } else {
                   Image(systemName: "play.fill")
                     .font(.system(size: 17, weight: .semibold))

@@ -27,6 +27,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>OpenVault connects to a RomM server and, when enabled, to a DSU controller server on your local network.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Kenneth Reitz. Licensed under GPL v3.</string>
 	<key>NSPrincipalClass</key>

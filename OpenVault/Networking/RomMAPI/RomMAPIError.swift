@@ -34,3 +34,42 @@ enum RomMAPIError: LocalizedError {
         }
     }
 }
+
+extension RomMAPIError {
+    /// The transport failures that actually prove RomM could not be reached.
+    ///
+    /// Everything else the server answered — a rejected token, a missing
+    /// route, an HTTP 500 — is evidence the connection *works*, so it must not
+    /// put OpenVault into an offline state. Cancellation never appears here: it
+    /// is mapped to `CancellationError` at the transport boundary.
+    static let unreachableTransportCodes: Set<URLError.Code> = [
+        .cannotConnectToHost,
+        .cannotFindHost,
+        .dataNotAllowed,
+        .dnsLookupFailed,
+        .internationalRoamingOff,
+        .networkConnectionLost,
+        .notConnectedToInternet,
+        .secureConnectionFailed,
+        .timedOut,
+    ]
+
+    /// Whether a failure is evidence that the server is unreachable, rather
+    /// than evidence that some individual request went wrong.
+    static func indicatesServerUnreachable(_ error: any Error) -> Bool {
+        switch error {
+        case is CancellationError:
+            false
+        case let error as RomMAPIError:
+            if case let .transport(urlError) = error {
+                unreachableTransportCodes.contains(urlError.code)
+            } else {
+                false
+            }
+        case let error as URLError:
+            unreachableTransportCodes.contains(error.code)
+        default:
+            false
+        }
+    }
+}

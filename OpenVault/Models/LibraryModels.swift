@@ -142,6 +142,84 @@ enum RomMFavorites {
   }
 }
 
+/// When games were last played on this Mac.
+///
+/// RomM records a `last_played` of its own, but only for games played through
+/// its web player — OpenVault never reports a play back to the server. Local
+/// history is therefore the only record of playing a game here, and it has to
+/// survive being offline, so it is kept alongside the cached library rather
+/// than derived from RomM.
+struct LocalPlayHistory: Codable, Equatable, Sendable {
+  /// The most recent play per game. Only the latest matters, so repeated plays
+  /// overwrite rather than accumulate.
+  private(set) var playedAtByGameID: [Int: Date]
+
+  init(playedAtByGameID: [Int: Date] = [:]) {
+    self.playedAtByGameID = playedAtByGameID
+  }
+
+  /// Game identifiers ordered most recently played first.
+  var gameIDsByRecency: [Int] {
+    playedAtByGameID
+      .sorted {
+        $0.value == $1.value
+          ? $0.key < $1.key
+          : $0.value > $1.value
+      }
+      .map(\.key)
+  }
+
+  func lastPlayed(gameID: Int) -> Date? {
+    playedAtByGameID[gameID]
+  }
+
+  mutating func recordPlay(gameID: Int, at date: Date) {
+    playedAtByGameID[gameID] = date
+  }
+
+  func removingGames(withIDs gameIDs: Set<Int>) -> LocalPlayHistory {
+    LocalPlayHistory(
+      playedAtByGameID: playedAtByGameID.filter {
+        !gameIDs.contains($0.key)
+      }
+    )
+  }
+
+  /// Applies RomM's `last_played` for each game where it is newer than anything
+  /// recorded here, so history from the web player is not lost.
+  func merging(games: [GameSummary]) -> LocalPlayHistory {
+    let standardFormatter = ISO8601DateFormatter()
+    let fractionalFormatter = ISO8601DateFormatter()
+    fractionalFormatter.formatOptions = [
+      .withInternetDateTime,
+      .withFractionalSeconds,
+    ]
+
+    let serverDates = games.reduce(into: [Int: Date]()) { dates, game in
+      guard
+        let raw = game.serverLastPlayed,
+        let date = fractionalFormatter.date(from: raw)
+          ?? standardFormatter.date(from: raw)
+      else {
+        return
+      }
+      dates[game.id] = date
+    }
+    return merging(serverLastPlayedByGameID: serverDates)
+  }
+
+  func merging(serverLastPlayedByGameID: [Int: Date]) -> LocalPlayHistory {
+    var merged = playedAtByGameID
+    for (gameID, serverDate) in serverLastPlayedByGameID {
+      if let localDate = merged[gameID], localDate >= serverDate {
+        continue
+      }
+      merged[gameID] = serverDate
+    }
+    return LocalPlayHistory(playedAtByGameID: merged)
+  }
+}
+
 /// OpenVault's durable, local-first Favorites state.
 ///
 /// The effective set is immediately available offline. Pending changes form a
@@ -268,6 +346,9 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
   let isMissingFromFileSystem: Bool?
   let createdAt: String?
   let updatedAt: String?
+  /// RomM's own record of when this game was last played, which only reflects
+  /// plays made through its web player.
+  let serverLastPlayed: String?
 
   init(
     id: Int,
@@ -289,7 +370,8 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
     isIdentified: Bool? = nil,
     isMissingFromFileSystem: Bool? = nil,
     createdAt: String? = nil,
-    updatedAt: String? = nil
+    updatedAt: String? = nil,
+    serverLastPlayed: String? = nil
   ) {
     self.id = id
     self.name = name
@@ -311,6 +393,7 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
     self.isMissingFromFileSystem = isMissingFromFileSystem
     self.createdAt = createdAt
     self.updatedAt = updatedAt
+    self.serverLastPlayed = serverLastPlayed
   }
 
   func withSaveDataAvailability(
@@ -352,6 +435,19 @@ struct GamePage: Equatable, Sendable {
   var hasMore: Bool {
     offset + games.count < total
   }
+}
+
+/// The order RomM applies before paginating a game query.
+enum GamePageOrdering: Sendable {
+  /// Alphabetical by name, which is the order a person expects when browsing.
+  case name
+  /// Ascending by identifier.
+  ///
+  /// Names repeat constantly across regions and revisions, so ordering by name
+  /// leaves tied rows free to land in a different position for every query.
+  /// Paginating across concurrent requests needs a unique key, or one page can
+  /// repeat a row another page skipped.
+  case identifier
 }
 
 /// Outcome of a bulk RomM game-deletion request.

@@ -5,6 +5,7 @@ import Observation
 enum LibrarySelection: Hashable {
   case allGames
   case downloaded
+  case recentlyPlayed
   case virtualCollections
   case system(Int)
   case systems(Set<Int>)
@@ -15,6 +16,8 @@ enum LibrarySelection: Hashable {
     case .allGames:
       .allGames
     case .downloaded:
+      .allGames
+    case .recentlyPlayed:
       .allGames
     case .virtualCollections:
       .allGames
@@ -205,6 +208,7 @@ final class LibraryModel {
   private(set) var favoriteGameIDs: Set<Int> = []
   private(set) var downloadedGameIDs: Set<Int> = []
   private(set) var managedDownloadedGameIDs: Set<Int> = []
+  private(set) var playHistory = LocalPlayHistory()
   private(set) var games: [GameSummary] = []
   private(set) var searchTerm = ""
   private(set) var searchesAllSystems = false
@@ -229,10 +233,20 @@ final class LibraryModel {
   private(set) var synchronizationTotalGameCount = 0
   private(set) var lastSuccessfulSync: Date?
   private(set) var isShowingStaleData = false
+  /// Whether RomM itself is reachable, which is distinct from whether the
+  /// library on screen came from the cache. Optimistic until a request proves
+  /// otherwise, so a launch that has not touched the network yet is not
+  /// mistaken for being offline.
+  private(set) var isServerReachable = true
+  private let reachability = RomMReachability.shared
   private(set) var refreshErrorMessage: String?
   private(set) var errorMessage: String?
 
   private var hasLoaded = false
+  /// Whether a live synchronization has ever finished. The cache alone sets
+  /// `hasLoaded`, so this is what distinguishes "showing something" from
+  /// "caught up with RomM".
+  private var hasSynchronized = false
   private var requestID = UUID()
   private var synchronizationID = UUID()
   private var artworkInspectionID = UUID()
@@ -261,6 +275,8 @@ final class LibraryModel {
       return "All Games"
     case .downloaded:
       return "Downloaded"
+    case .recentlyPlayed:
+      return "Recently Played"
     case .virtualCollections:
       return "Virtual Collections"
     case .system(let id):
@@ -299,7 +315,8 @@ final class LibraryModel {
     switch selection {
     case .system, .systems:
       return true
-    case .allGames, .downloaded, .virtualCollections, .collection:
+    case .allGames, .downloaded, .recentlyPlayed, .virtualCollections,
+      .collection:
       return false
     }
   }
@@ -316,6 +333,21 @@ final class LibraryModel {
     }
     return snapshot.games.lazy.filter {
       self.downloadedGameIDs.contains($0.id)
+        && (!self.hidesBIOSGames || !$0.isBIOS)
+    }.count
+  }
+
+  /// Games played on this Mac that the current library still contains.
+  ///
+  /// History outlives the games it refers to — a title deleted from RomM stays
+  /// in the local record until its removal is reconciled — so the count follows
+  /// the snapshot rather than the history.
+  var recentlyPlayedGameCount: Int {
+    guard let snapshot else {
+      return playHistory.playedAtByGameID.count
+    }
+    return snapshot.games.lazy.filter {
+      self.playHistory.lastPlayed(gameID: $0.id) != nil
         && (!self.hidesBIOSGames || !$0.isBIOS)
     }.count
   }
@@ -337,7 +369,8 @@ final class LibraryModel {
       collections: collections,
       games: visibleGames,
       collectionMemberships: snapshot?.collectionMemberships ?? [],
-      downloadedGameIDs: downloadedGameIDs
+      downloadedGameIDs: downloadedGameIDs,
+      playHistory: playHistory
     )
   }
 
@@ -357,10 +390,30 @@ final class LibraryModel {
     games.count < totalGameCount
   }
 
+  /// Mirrors the app-wide reachability signal for as long as the library is
+  /// on screen. Every request feeds it, so one successful call from anywhere
+  /// clears an offline state.
+  func observeReachability() async {
+    for await reachable in reachability.changes() {
+      isServerReachable = reachable
+    }
+  }
+
   func load() async {
     guard !hasLoaded else {
+      // The cache marks the library loaded before the refresh behind it
+      // finishes, so a refresh that was cancelled would otherwise leave the
+      // library pinned to stale data for the rest of the session.
+      if !hasSynchronized, !isSynchronizing {
+        OpenVaultLog.library.notice(
+          "Retrying a library synchronization that did not finish"
+        )
+        await refresh()
+      }
       return
     }
+
+    playHistory = await service.playHistory(in: session)
 
     do {
       if let cachedSnapshot = try await service.cachedSnapshot(in: session) {
@@ -420,6 +473,7 @@ final class LibraryModel {
 
       apply(refreshedSnapshot)
       hasLoaded = true
+      hasSynchronized = true
       isLoading = false
       isSynchronizing = false
       isShowingStaleData = false
@@ -433,7 +487,9 @@ final class LibraryModel {
       }
       isLoading = false
       isSynchronizing = false
-      OpenVaultLog.library.debug("Library synchronization was cancelled")
+      // Raised above debug because a cancellation that keeps happening is the
+      // difference between a library that refreshes and one that does not.
+      OpenVaultLog.library.notice("Library synchronization was cancelled")
     } catch {
       guard synchronizationID == currentSynchronizationID else {
         return
@@ -485,6 +541,7 @@ final class LibraryModel {
 
     snapshot = nil
     hasLoaded = false
+    hasSynchronized = false
     systems = []
     collections = []
     collectionPreviewGames = [:]
@@ -538,7 +595,7 @@ final class LibraryModel {
       return
     }
 
-    guard selection != .downloaded else {
+    guard !isPresentingCuratedList else {
       games = []
       totalGameCount = 0
       isLoading = false
@@ -753,6 +810,15 @@ final class LibraryModel {
     downloadedGameIDs = reconciledGameIDs
     managedDownloadedGameIDs = reconciledManagedGameIDs
     if selection == .downloaded {
+      await reloadGames()
+    }
+  }
+
+  /// Records that a game was just played, so Recently Played reflects it
+  /// immediately rather than after the next synchronization.
+  func recordPlay(gameID: Int) async {
+    playHistory = await service.recordPlay(gameID: gameID, in: session)
+    if selection == .recentlyPlayed {
       await reloadGames()
     }
   }
@@ -1487,26 +1553,55 @@ final class LibraryModel {
     let visibleGames = gamesVisibleUnderBIOSFilter(
       in: librarySnapshot
     )
+    let scopedGames: [GameSummary]
+    switch selection {
+    case .downloaded:
+      scopedGames = visibleGames.filter { downloadedGameIDs.contains($0.id) }
+    case .recentlyPlayed:
+      scopedGames = gamesByRecency(from: visibleGames)
+    default:
+      scopedGames = visibleGames
+    }
     let scopedSnapshot = LibrarySnapshot(
       synchronizedAt: librarySnapshot.synchronizedAt,
       systems: librarySnapshot.systems,
       collections: librarySnapshot.collections,
-      games:
-        selection == .downloaded
-        ? visibleGames.filter { downloadedGameIDs.contains($0.id) }
-        : visibleGames,
+      games: scopedGames,
       collectionMemberships: librarySnapshot.collectionMemberships
     )
     return scopedSnapshot.page(
-      matching: selection == .downloaded ? .allGames : requestFilter,
+      matching: isPresentingCuratedList ? .allGames : requestFilter,
       searchTerm: normalizedSearchTerm,
       offset: offset,
       limit: limit
     )
   }
 
+  /// Whether the current destination supplies its own membership and order
+  /// rather than filtering the library by system or collection.
+  private var isPresentingCuratedList: Bool {
+    selection == .downloaded || selection == .recentlyPlayed
+  }
+
+  /// The played subset of `games`, most recently played first.
+  ///
+  /// `LibrarySnapshot.page` preserves the order it is given, so ordering here
+  /// is what reaches the list.
+  private func gamesByRecency(
+    from games: [GameSummary]
+  ) -> [GameSummary] {
+    let gamesByID = Dictionary(
+      uniqueKeysWithValues: games.map { ($0.id, $0) }
+    )
+    return playHistory.gameIDsByRecency.compactMap { gamesByID[$0] }
+  }
+
   private func apply(_ librarySnapshot: LibrarySnapshot) {
     snapshot = librarySnapshot
+    // RomM only records a play made through its own web player, and OpenVault
+    // never reports one back, so the two records are independent and the newer
+    // of the pair wins.
+    playHistory = playHistory.merging(games: librarySnapshot.games)
     favoriteGameIDs = RomMFavorites.gameIDs(
       collections: librarySnapshot.collections,
       memberships: librarySnapshot.collectionMemberships
@@ -1617,7 +1712,7 @@ final class LibraryModel {
 
   private func validateSelection() {
     switch selection {
-    case .allGames, .downloaded:
+    case .allGames, .downloaded, .recentlyPlayed:
       break
     case .virtualCollections
       where collections.contains(where: {

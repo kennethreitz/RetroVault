@@ -12,6 +12,12 @@ struct LibretroGameView: View {
     @AppStorage(LibretroTransportPreferences.enablesRewindKey)
     private var enablesL3Rewind =
         LibretroTransportPreferences.enabledByDefault
+    @AppStorage(LibretroPlayerPreferences.opensInFullScreenKey)
+    private var opensInFullScreen =
+        LibretroPlayerPreferences.opensInFullScreenByDefault
+    @AppStorage(LibretroVideoPreferences.filterKey)
+    private var videoFilter = LibretroVideoPreferences.defaultFilter
+    @State private var hasRequestedFullScreen = false
     private let onCloseRequested: (@MainActor () -> Void)?
 
     init(
@@ -41,7 +47,8 @@ struct LibretroGameView: View {
                 case .running:
                     LibretroMetalView(
                         videoBuffer: session.videoBuffer,
-                        input: session.input
+                        input: session.input,
+                        filter: videoFilter
                     )
                         .ignoresSafeArea()
                 case .stopped:
@@ -104,6 +111,7 @@ struct LibretroGameView: View {
             PlayerWindowAccessor { window in
                 playerWindow = window
                 isFullScreen = window?.styleMask.contains(.fullScreen) == true
+                enterFullScreenIfPreferred()
             }
             .frame(width: 0, height: 0)
         }
@@ -350,6 +358,28 @@ struct LibretroGameView: View {
         }
     }
 
+    /// Opens the player full screen when the preference asks for it.
+    ///
+    /// Only once per player: the accessor reports the window more than once,
+    /// and leaving full screen by hand should not be undone.
+    private func enterFullScreenIfPreferred() {
+        guard
+            opensInFullScreen,
+            !hasRequestedFullScreen,
+            let playerWindow,
+            !playerWindow.styleMask.contains(.fullScreen)
+        else {
+            return
+        }
+
+        hasRequestedFullScreen = true
+        // Deferred past the layout pass that produced the window, since
+        // toggling full screen mid-update fights the window's own setup.
+        Task { @MainActor in
+            playerWindow.toggleFullScreen(nil)
+        }
+    }
+
     private func configureTransportControls() {
         session.setTransportControlsEnabled(
             rewind: enablesL3Rewind,
@@ -395,12 +425,19 @@ private final class PlayerWindowObservationView: NSView {
 private struct LibretroMetalView: NSViewRepresentable {
     let videoBuffer: LibretroVideoBuffer
     let input: LibretroInputState
+    let filter: LibretroVideoFilter
 
     func makeNSView(context: Context) -> LibretroMTKView {
-        LibretroMTKView(videoBuffer: videoBuffer, input: input)
+        LibretroMTKView(
+            videoBuffer: videoBuffer,
+            input: input,
+            filter: filter
+        )
     }
 
-    func updateNSView(_ nsView: LibretroMTKView, context: Context) {}
+    func updateNSView(_ nsView: LibretroMTKView, context: Context) {
+        nsView.filter = filter
+    }
 }
 
 private final class LibretroMTKView: MTKView, MTKViewDelegate {
@@ -409,15 +446,29 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
     private let videoBuffer: LibretroVideoBuffer
     private let input: LibretroInputState
     private let commandQueue: MTLCommandQueue
-    private let pipelineState: MTLRenderPipelineState
+    private let pipelineStates: [LibretroVideoFilter: MTLRenderPipelineState]
+    private let fallbackPipelineState: MTLRenderPipelineState
+    /// Which filter the next frame is drawn with. Swapping it only picks a
+    /// different pipeline state that was already built at startup, so a
+    /// change mid-game costs nothing and takes effect on the next frame.
+    var filter: LibretroVideoFilter
     private var sourceTexture: MTLTexture?
     private var sourceSize = CGSize.zero
+    private var sourceAspectRatio: CGFloat = 0
     private var pointerPressed = false
     private var pointerTrackingArea: NSTrackingArea?
     private var cursorHideTask: Task<Void, Never>?
     private var isPointerInside = false
+    /// The cursor is hidden from the moment the view appears, rather than
+    /// after a core has revealed how it reads input, so it is never briefly
+    /// visible over a game that will never want it.
+    private var cursorIsHidden = true
 
-    init(videoBuffer: LibretroVideoBuffer, input: LibretroInputState) {
+    init(
+        videoBuffer: LibretroVideoBuffer,
+        input: LibretroInputState,
+        filter: LibretroVideoFilter
+    ) {
         guard
             let device = MTLCreateSystemDefaultDevice(),
             let commandQueue = device.makeCommandQueue(),
@@ -425,27 +476,43 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
                 source: LibretroMetalShader.source,
                 options: nil
             ),
-            let vertexFunction = library.makeFunction(name: "openVaultPixelVertex"),
-            let fragmentFunction = library.makeFunction(name: "openVaultPixelFragment")
+            let vertexFunction = library.makeFunction(
+                name: "openVaultPixelVertex"
+            )
         else {
             fatalError("OpenVault requires a Metal-capable Apple-silicon Mac.")
         }
 
-        let pipelineDescriptor = MTLRenderPipelineDescriptor()
-        pipelineDescriptor.label = "OpenVault nearest-neighbor video"
-        pipelineDescriptor.vertexFunction = vertexFunction
-        pipelineDescriptor.fragmentFunction = fragmentFunction
-        pipelineDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
-        guard let pipelineState = try? device.makeRenderPipelineState(
-            descriptor: pipelineDescriptor
-        ) else {
+        // Every filter's pipeline is built once here rather than when the
+        // preference changes, so switching filters mid-game never stalls the
+        // render loop compiling one.
+        var pipelineStates: [LibretroVideoFilter: MTLRenderPipelineState] = [:]
+        for candidate in LibretroVideoFilter.allCases {
+            guard let fragmentFunction = library.makeFunction(
+                name: candidate.fragmentFunctionName
+            ) else {
+                continue
+            }
+            let pipelineDescriptor = MTLRenderPipelineDescriptor()
+            pipelineDescriptor.label = "OpenVault \(candidate.rawValue) video"
+            pipelineDescriptor.vertexFunction = vertexFunction
+            pipelineDescriptor.fragmentFunction = fragmentFunction
+            pipelineDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+            pipelineStates[candidate] = try? device.makeRenderPipelineState(
+                descriptor: pipelineDescriptor
+            )
+        }
+
+        guard let fallbackPipelineState = pipelineStates[.nearest] else {
             fatalError("OpenVault could not create its Libretro video pipeline.")
         }
 
         self.videoBuffer = videoBuffer
         self.input = input
         self.commandQueue = commandQueue
-        self.pipelineState = pipelineState
+        self.pipelineStates = pipelineStates
+        self.fallbackPipelineState = fallbackPipelineState
+        self.filter = filter
         super.init(frame: .zero, device: device)
 
         delegate = self
@@ -459,6 +526,12 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         colorspace = CGColorSpace(name: CGColorSpace.sRGB)
         layer?.magnificationFilter = .nearest
         layer?.minificationFilter = .nearest
+        // Core Animation buffers three drawables by default so a renderer can
+        // work ahead, which costs a finished frame roughly one extra refresh
+        // before it reaches the display. Presenting a game frame is a single
+        // nearest-neighbour blit that never needs that headroom, so trade the
+        // spare buffer for lower input-to-photon latency.
+        (layer as? CAMetalLayer)?.maximumDrawableCount = 2
     }
 
     @available(*, unavailable)
@@ -498,6 +571,9 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         )
         addTrackingArea(trackingArea)
         pointerTrackingArea = trackingArea
+        // Cursor rects are recomputed as the view's geometry settles, and a
+        // rect that is never invalidated is never applied.
+        window?.invalidateCursorRects(for: self)
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -541,8 +617,17 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
     }
 
     private func recordPointerActivity() {
-        NSCursor.setHiddenUntilMouseMoves(false)
         cursorHideTask?.cancel()
+
+        // A core being aimed with the mouse gets the cursor back while the
+        // mouse is actually moving, then loses it again once it settles.
+        // Everything else keeps it hidden throughout.
+        guard revealsCursorWhileMoving else {
+            setCursorHidden(true)
+            return
+        }
+
+        setCursorHidden(false)
         guard isPointerInside, window?.isKeyWindow == true else {
             return
         }
@@ -559,14 +644,60 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
             else {
                 return
             }
-            NSCursor.setHiddenUntilMouseMoves(true)
+            self.setCursorHidden(true)
         }
     }
 
     private func restoreCursor() {
         cursorHideTask?.cancel()
         cursorHideTask = nil
-        NSCursor.setHiddenUntilMouseMoves(false)
+    }
+
+    /// A fully transparent cursor.
+    ///
+    /// Hiding the pointer through a cursor rect rather than `NSCursor.hide()`
+    /// means AppKit restores it on its own whenever the pointer leaves the
+    /// view or the window stops being key. An unbalanced `hide()` leaves the
+    /// cursor invisible across the whole system.
+    private static let invisibleCursor: NSCursor = {
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.clear.set()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+        return NSCursor(image: image, hotSpot: .zero)
+    }()
+
+    /// Whether moving the mouse should bring the cursor back.
+    ///
+    /// A core that reads the pointer is being aimed with the mouse, so hiding
+    /// the cursor outright would make it unusable; it is revealed while the
+    /// mouse moves and hidden again once it settles. DOS is the exception
+    /// that matters: DOSBox reads the pointer but draws its own cursor, and
+    /// leaving the system one on top gives a game two cursors that do not
+    /// quite line up, so it stays hidden throughout.
+    private var revealsCursorWhileMoving: Bool {
+        input.readsPointer && !input.readsKeyboard
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard cursorIsHidden else {
+            return
+        }
+        addCursorRect(bounds, cursor: Self.invisibleCursor)
+    }
+
+    /// Installs or removes the transparent cursor rect.
+    ///
+    /// The rect starts installed and is only ever recomputed here, because a
+    /// cursor rect that is never invalidated is also never applied.
+    private func setCursorHidden(_ hidden: Bool) {
+        guard cursorIsHidden != hidden else {
+            return
+        }
+        cursorIsHidden = hidden
+        window?.invalidateCursorRects(for: self)
     }
 
     func draw(in view: MTKView) {
@@ -588,6 +719,7 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
             return
         }
         sourceSize = CGSize(width: frame.width, height: frame.height)
+        sourceAspectRatio = CGFloat(frame.aspectRatio)
 
         frame.pixels.withUnsafeBytes { bytes in
             guard let baseAddress = bytes.baseAddress else {
@@ -616,9 +748,14 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
             return
         }
 
+        let pictureRect = pictureRect(
+            forSourceSize: CGSize(width: frame.width, height: frame.height),
+            aspectRatio: CGFloat(frame.aspectRatio)
+        )
         let viewport = LibretroVideoLayout.viewport(
-            sourceSize: CGSize(width: frame.width, height: frame.height),
-            targetSize: CGSize(
+            pictureRect: pictureRect,
+            viewBounds: bounds,
+            drawableSize: CGSize(
                 width: drawable.texture.width,
                 height: drawable.texture.height
             )
@@ -633,8 +770,23 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
                 zfar: 1
             )
         )
-        encoder.setRenderPipelineState(pipelineState)
+        encoder.setRenderPipelineState(
+            pipelineStates[filter] ?? fallbackPipelineState
+        )
         encoder.setFragmentTexture(texture, index: 0)
+        // The filters need the on-screen size of a source pixel, which is the
+        // viewport the layout just chose rather than the whole drawable.
+        var uniforms = LibretroVideoUniforms(
+            sourceWidth: Float(frame.width),
+            sourceHeight: Float(frame.height),
+            targetWidth: Float(viewport.width),
+            targetHeight: Float(viewport.height)
+        )
+        encoder.setFragmentBytes(
+            &uniforms,
+            length: MemoryLayout<LibretroVideoUniforms>.stride,
+            index: 0
+        )
         encoder.drawPrimitives(
             type: .triangleStrip,
             vertexStart: 0,
@@ -643,6 +795,45 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         encoder.endEncoding()
         commandBuffer.present(drawable)
         commandBuffer.commit()
+    }
+
+    /// The part of the view the title bar and toolbar do not cover.
+    ///
+    /// The view deliberately extends underneath them, so that a toolbar
+    /// revealing itself on hover in full screen never resizes the drawable
+    /// mid-game. The picture therefore has to be placed against this rather
+    /// than against the whole view, or its top edge ends up behind the
+    /// toolbar.
+    private var visibleContentBounds: CGRect {
+        guard let window, let contentView = window.contentView else {
+            return bounds
+        }
+        let layoutRect = contentView.convert(
+            window.contentLayoutRect,
+            to: self
+        )
+        let visible = bounds.intersection(layoutRect)
+        guard !visible.isNull, visible.width >= 1, visible.height >= 1 else {
+            return bounds
+        }
+        return visible
+    }
+
+    /// Where the picture lands on screen, in view points.
+    ///
+    /// Rendering and pointer mapping both read this, so a game cannot end up
+    /// drawing the picture in one place while reading the mouse against
+    /// another.
+    private func pictureRect(
+        forSourceSize sourceSize: CGSize,
+        aspectRatio: CGFloat
+    ) -> CGRect {
+        let contentBounds = visibleContentBounds
+        return LibretroVideoLayout.pictureRect(
+            sourceSize: sourceSize,
+            visibleBounds: contentBounds,
+            aspectRatio: aspectRatio
+        )
     }
 
     private func texture(for frame: LibretroVideoFrame) -> MTLTexture? {
@@ -673,17 +864,19 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         }
 
         let location = convert(event.locationInWindow, from: nil)
-        let viewport = LibretroVideoLayout.viewport(
-            sourceSize: sourceSize,
-            targetSize: bounds.size
+        let picture = pictureRect(
+            forSourceSize: sourceSize,
+            aspectRatio: sourceAspectRatio
         )
-        let inside = viewport.contains(location)
+        let inside = picture.contains(location)
         let normalizedX = min(
-            max((location.x - viewport.minX) / max(viewport.width, 1), 0),
+            max((location.x - picture.minX) / max(picture.width, 1), 0),
             1
         )
+        // The picture's top edge is normalized zero, so this counts down from
+        // the top while the view counts up from the bottom.
         let normalizedY = min(
-            max((viewport.maxY - location.y) / max(viewport.height, 1), 0),
+            max((picture.maxY - location.y) / max(picture.height, 1), 0),
             1
         )
         input.setPointer(
@@ -696,58 +889,67 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
 
 }
 
-enum LibretroMetalShader {
-    static let source = """
-        #include <metal_stdlib>
-        using namespace metal;
-
-        struct OpenVaultPixelVertex {
-            float4 position [[position]];
-            float2 textureCoordinate;
-        };
-
-        vertex OpenVaultPixelVertex openVaultPixelVertex(
-            uint vertexID [[vertex_id]]
-        ) {
-            constexpr float2 positions[] = {
-                float2(-1.0, -1.0),
-                float2( 1.0, -1.0),
-                float2(-1.0,  1.0),
-                float2( 1.0,  1.0)
-            };
-            constexpr float2 textureCoordinates[] = {
-                float2(0.0, 1.0),
-                float2(1.0, 1.0),
-                float2(0.0, 0.0),
-                float2(1.0, 0.0)
-            };
-
-            OpenVaultPixelVertex output;
-            output.position = float4(positions[vertexID], 0.0, 1.0);
-            output.textureCoordinate = textureCoordinates[vertexID];
-            return output;
-        }
-
-        fragment float4 openVaultPixelFragment(
-            OpenVaultPixelVertex input [[stage_in]],
-            texture2d<float> frame [[texture(0)]]
-        ) {
-            constexpr sampler pixelSampler(
-                coord::normalized,
-                address::clamp_to_edge,
-                mag_filter::nearest,
-                min_filter::nearest,
-                mip_filter::none
-            );
-            return frame.sample(pixelSampler, input.textureCoordinate);
-        }
-        """
-}
-
 struct LibretroVideoLayout {
+    /// Places the picture inside the part of the view the window chrome
+    /// leaves visible.
+    ///
+    /// Returned in view points with the origin at the bottom left, which is
+    /// how AppKit reports mouse locations, so pointer mapping can compare
+    /// against it directly.
+    static func pictureRect(
+        sourceSize: CGSize,
+        visibleBounds: CGRect,
+        aspectRatio: CGFloat = 0
+    ) -> CGRect {
+        let layout = viewport(
+            sourceSize: sourceSize,
+            targetSize: visibleBounds.size,
+            aspectRatio: aspectRatio
+        )
+        // `layout` measures down from the top of the visible area.
+        return CGRect(
+            x: visibleBounds.minX + layout.origin.x,
+            y: visibleBounds.maxY - layout.origin.y - layout.height,
+            width: layout.width,
+            height: layout.height
+        )
+    }
+
+    /// Converts a picture rect in view points into a Metal viewport.
+    ///
+    /// A Metal viewport is measured in drawable pixels down from the top of
+    /// the render target, where an AppKit view is measured in points up from
+    /// the bottom.
+    static func viewport(
+        pictureRect: CGRect,
+        viewBounds: CGRect,
+        drawableSize: CGSize
+    ) -> CGRect {
+        let scaleX = viewBounds.width > 0
+            ? drawableSize.width / viewBounds.width
+            : 1
+        let scaleY = viewBounds.height > 0
+            ? drawableSize.height / viewBounds.height
+            : 1
+        return CGRect(
+            x: (pictureRect.minX - viewBounds.minX) * scaleX,
+            y: (viewBounds.maxY - pictureRect.maxY) * scaleY,
+            width: pictureRect.width * scaleX,
+            height: pictureRect.height * scaleY
+        )
+    }
+
+    /// Fits a frame into the drawable.
+    ///
+    /// `aspectRatio` is what the core says its picture should look like, which
+    /// is not always the shape of the buffer it hands over: N64 cores render a
+    /// 4:3 picture into buffers whose pixels are not square, so scaling the
+    /// buffer directly stretches the image. Pass 0 to derive the ratio from
+    /// the buffer, which is right for cores with square pixels.
     static func viewport(
         sourceSize: CGSize,
-        targetSize: CGSize
+        targetSize: CGSize,
+        aspectRatio: CGFloat = 0
     ) -> CGRect {
         guard
             sourceSize.width > 0,
@@ -756,6 +958,27 @@ struct LibretroVideoLayout {
             targetSize.height > 0
         else {
             return .zero
+        }
+
+        let sourceAspect = sourceSize.width / sourceSize.height
+        let displayAspect = aspectRatio > 0 ? aspectRatio : sourceAspect
+
+        // A core whose pixels are not square cannot also be scaled by whole
+        // pixels, so correcting the shape takes priority over the crisper
+        // integer scale that square-pixel cores keep below.
+        guard abs(displayAspect - sourceAspect) <= 0.001 else {
+            var width = targetSize.width
+            var height = width / displayAspect
+            if height > targetSize.height {
+                height = targetSize.height
+                width = height * displayAspect
+            }
+            return CGRect(
+                x: floor((targetSize.width - width) / 2),
+                y: floor((targetSize.height - height) / 2),
+                width: floor(width),
+                height: floor(height)
+            )
         }
 
         let fittingScale = min(
@@ -822,12 +1045,48 @@ private final class LibretroKeyboardView: NSView {
 
         if window != nil {
             let monitor = NSEvent.addLocalMonitorForEvents(
-                matching: [.keyDown, .keyUp]
+                matching: [.keyDown, .keyUp, .flagsChanged]
             ) { [weak self] event in
+                guard let self, window?.isKeyWindow == true else {
+                    return event
+                }
+
+                if event.type == .flagsChanged {
+                    // Modifiers only ever reach a keyboard core, and letting
+                    // them through as well keeps the menu shortcuts working
+                    // for everything else.
+                    guard input.readsKeyboard else {
+                        return event
+                    }
+                    handleFlagsChanged(event)
+                    return nil
+                }
+
+                if input.readsKeyboard {
+                    // Command stays with the system so a keyboard core cannot
+                    // swallow Cmd-Q, Cmd-W, or the full-screen shortcut.
+                    guard !event.modifierFlags.contains(.command) else {
+                        return event
+                    }
+                    guard let retroKey = LibretroKeyboard.retroKey(
+                        forMacKeyCode: event.keyCode
+                    ) else {
+                        return event
+                    }
+                    input.setKey(
+                        retroKey,
+                        pressed: event.type == .keyDown,
+                        modifiers: LibretroKeyboardView.modifiers(
+                            for: event.modifierFlags
+                        )
+                    )
+                    return nil
+                }
+
                 guard
-                    let self,
-                    window?.isKeyWindow == true,
-                    event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+                    event.modifierFlags
+                        .intersection([.command, .control, .option])
+                        .isEmpty,
                     let button = button(for: event)
                 else {
                     return event
@@ -871,6 +1130,57 @@ private final class LibretroKeyboardView: NSView {
     override func resignFirstResponder() -> Bool {
         input.releaseKeyboard()
         return super.resignFirstResponder()
+    }
+
+    /// Turns a modifier state change into the key that must have caused it.
+    ///
+    /// `flagsChanged` reports which modifiers are now active rather than which
+    /// key moved, so the key code on the event identifies the physical key and
+    /// the flags say whether it is now down.
+    private func handleFlagsChanged(_ event: NSEvent) {
+        guard let retroKey = LibretroKeyboard.retroKey(
+            forMacKeyCode: event.keyCode
+        ) else {
+            return
+        }
+
+        let flags = event.modifierFlags
+        let isDown = switch event.keyCode {
+        case 56, 60: flags.contains(.shift)
+        case 59, 62: flags.contains(.control)
+        case 58, 61: flags.contains(.option)
+        case 54, 55: flags.contains(.command)
+        case 57: flags.contains(.capsLock)
+        default: false
+        }
+
+        input.setKey(
+            retroKey,
+            pressed: isDown,
+            modifiers: Self.modifiers(for: flags)
+        )
+    }
+
+    static func modifiers(
+        for flags: NSEvent.ModifierFlags
+    ) -> UInt16 {
+        var modifiers: UInt16 = 0
+        if flags.contains(.shift) {
+            modifiers |= LibretroKeyboard.Modifier.shift.rawValue
+        }
+        if flags.contains(.control) {
+            modifiers |= LibretroKeyboard.Modifier.control.rawValue
+        }
+        if flags.contains(.option) {
+            modifiers |= LibretroKeyboard.Modifier.alt.rawValue
+        }
+        if flags.contains(.command) {
+            modifiers |= LibretroKeyboard.Modifier.meta.rawValue
+        }
+        if flags.contains(.capsLock) {
+            modifiers |= LibretroKeyboard.Modifier.capsLock.rawValue
+        }
+        return modifiers
     }
 
     private func button(for event: NSEvent) -> LibretroButton? {

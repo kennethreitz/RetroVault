@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Observation
 
 enum GameDetailsDataSource: Equatable, Sendable {
@@ -248,7 +249,8 @@ final class GameDetailsModel {
 
     func prepareToPlay(
         _ game: GameDetails,
-        synchronizesWithServer: Bool = true
+        synchronizesWithServer: Bool = true,
+        onProgress: (@MainActor (RomMDownloadProgress?) -> Void)? = nil
     ) async -> LibretroRunRequest? {
         guard !isPreparingToPlay, let playbackCore else {
             return nil
@@ -257,9 +259,11 @@ final class GameDetailsModel {
         isPreparingToPlay = true
         playbackDownloadProgress = nil
         playbackErrorMessage = nil
+        onProgress?(nil)
         defer {
             isPreparingToPlay = false
             playbackDownloadProgress = nil
+            onProgress?(nil)
         }
 
         do {
@@ -281,6 +285,7 @@ final class GameDetailsModel {
                             )
                         {
                             self.playbackDownloadProgress = progress
+                            onProgress?(progress)
                         }
                     }
                 }
@@ -313,6 +318,11 @@ final class GameDetailsModel {
                 saveSync: prepared.2
             )
         } catch is CancellationError {
+            // Not an error worth showing: something else asked for this work
+            // to stop, usually a library refresh replacing the model.
+            OpenVaultLog.libretro.info(
+                "Playback preparation was cancelled before it finished"
+            )
             return nil
         } catch {
             playbackErrorMessage = error.localizedDescription
@@ -362,6 +372,9 @@ final class GameDetailsModel {
     ) {
         self.details = details
         dataSource = source
+        // Read here rather than left to `compatibleCore`'s default, so the
+        // core set this resolves against is the one in effect when the game
+        // was opened.
         playbackCore = try? LibretroInstallation.bundled()
             .compatibleCore(
                 systemName: details.systemName,
@@ -371,7 +384,9 @@ final class GameDetailsModel {
                 },
                 contentFileNames: details.files
                     .filter { $0.isTopLevel }
-                    .map(\.name)
+                    .map(\.name),
+                includingExperimental:
+                    LibretroCorePreferences.enablesExperimentalCores()
             )
     }
 }

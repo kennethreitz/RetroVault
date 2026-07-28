@@ -407,6 +407,80 @@ struct BigPictureCatalogTests {
     #expect(!requestAfterEnabling)
   }
 
+  @Test("Groups downloaded games into a browsable systems menu")
+  func groupsDownloadedGamesBySystem() {
+    let snes = GameSummary(
+      id: 1,
+      name: "Zelda",
+      systemID: 1,
+      systemName: "Super Nintendo Entertainment System",
+      coverURL: nil
+    )
+    let otherSNES = GameSummary(
+      id: 2,
+      name: "Mario",
+      systemID: 1,
+      systemName: "Super Nintendo Entertainment System",
+      coverURL: nil
+    )
+    let gameBoy = GameSummary(
+      id: 3,
+      name: "Tetris",
+      systemID: 2,
+      systemName: "Game Boy",
+      coverURL: nil
+    )
+    let notDownloaded = GameSummary(
+      id: 4,
+      name: "Metroid",
+      systemID: 3,
+      systemName: "Nintendo Entertainment System",
+      coverURL: nil
+    )
+    let catalog = BigPictureCatalog(
+      source: BigPictureLibrarySource(
+        synchronizedAt: nil,
+        systems: [
+          LibrarySystem(
+            id: 1,
+            name: "Super Nintendo Entertainment System",
+            gameCount: 2
+          ),
+          LibrarySystem(id: 2, name: "Game Boy", gameCount: 1),
+          LibrarySystem(
+            id: 3,
+            name: "Nintendo Entertainment System",
+            gameCount: 1
+          ),
+        ],
+        collections: [],
+        games: [snes, otherSNES, gameBoy, notDownloaded],
+        collectionMemberships: [],
+        downloadedGameIDs: [1, 2, 3],
+        playHistory: LocalPlayHistory()
+      ),
+      manifest: nil
+    )
+
+    // Only systems holding a download appear, in the library's own order.
+    #expect(catalog.downloadedSystems.map(\.name) == [
+      "Game Boy",
+      "Super Nintendo Entertainment System",
+    ])
+    #expect(catalog.downloadedGameCount(inSystem: 1) == 2)
+    #expect(catalog.downloadedGameCount(inSystem: 2) == 1)
+    #expect(catalog.downloadedGameCount(inSystem: 3) == 0)
+
+    #expect(
+      catalog.games(in: .downloadedSystem(1)).map(\.name) == ["Mario", "Zelda"]
+    )
+    #expect(catalog.games(in: .downloadedSystem(2)).map(\.name) == ["Tetris"])
+    #expect(catalog.games(in: .downloadedSystem(3)).isEmpty)
+    // The flat list of everything downloaded stays reachable.
+    #expect(catalog.downloadedGames.count == 3)
+    #expect(catalog.title(for: .downloadedSystem(2)) == "Game Boy")
+  }
+
   @Test("Builds recent, favorite, downloaded, system, and collection menus offline")
   func buildsControllerFirstCatalog() {
     let collectionID = LibraryCollection.ID.virtual("mario")
@@ -470,7 +544,8 @@ struct BigPictureCatalogTests {
             gameIDs: [1, 2]
           ),
         ],
-        downloadedGameIDs: [3]
+        downloadedGameIDs: [3],
+        playHistory: LocalPlayHistory()
       ),
       manifest: nil
     )
@@ -526,12 +601,17 @@ struct BigPictureCatalogTests {
         ),
       ],
       collectionMemberships: [],
-      downloadedGameIDs: []
+      downloadedGameIDs: [],
+      playHistory: LocalPlayHistory()
     )
 
+    // Stated rather than inherited: Dreamcast is only offered by an
+    // experimental core, so leaving this to the running machine's preference
+    // would make the test pass or fail depending on who ran it.
     let catalog = BigPictureCatalog(
       source: source,
-      manifest: installation.manifest
+      manifest: installation.manifest,
+      includingExperimental: false
     )
 
     #expect(catalog.systems.map(\.name) == ["Game Boy"])
@@ -658,7 +738,10 @@ struct BigPictureCatalogTests {
       at: 20.1
     )
     let start = navigation.command(
-      for: BigPictureControllerState(isConnected: true, startsGame: true),
+      for: BigPictureControllerState(
+        isConnected: true,
+        playsFromBeginning: true
+      ),
       at: 20.2
     )
     let options = navigation.command(
@@ -691,7 +774,7 @@ struct BigPictureCatalogTests {
 
     #expect(activate == .activate)
     #expect(heldActivate == nil)
-    #expect(start == .launchGame)
+    #expect(start == .playFromBeginning)
     #expect(options == .openGameOptions)
     #expect(back == .back)
     #expect(pageUp == .pageUp)
@@ -712,7 +795,7 @@ struct BigPictureCatalogTests {
     #expect(navigation.command(for: select, at: 21.1) == nil)
   }
 
-  @Test("Maps Select to Big Picture and Start to game launch")
+  @Test("Maps Select to Big Picture and Start to game options")
   func mapsAuxiliaryButtons() {
     let select = BigPictureControllerState.extendedAuxiliaryButtonActions(
       optionsPressed: true,
@@ -732,13 +815,14 @@ struct BigPictureCatalogTests {
 
     #expect(select.opensBigPicture)
     #expect(select.exitsBigPicture)
-    #expect(!select.startsGame)
+    #expect(!select.opensGameOptions)
     #expect(!start.opensBigPicture)
     #expect(!start.exitsBigPicture)
-    #expect(start.startsGame)
+    // Start/Menu is the game options button now.
+    #expect(start.opensGameOptions)
     #expect(home.opensBigPicture)
     #expect(!home.exitsBigPicture)
-    #expect(!home.startsGame)
+    #expect(!home.opensGameOptions)
   }
 
   @Test("Launches Big Picture once after the library becomes available")
@@ -1195,6 +1279,138 @@ struct LibraryCacheTests {
     #expect(await cache.snapshot(for: serverURL) == snapshot)
   }
 
+  @Test("Orders play history by recency and drops removed games")
+  func ordersPlayHistoryByRecency() {
+    let base = Date(timeIntervalSince1970: 1_000_000)
+    var history = LocalPlayHistory()
+    history.recordPlay(gameID: 1, at: base)
+    history.recordPlay(gameID: 2, at: base.addingTimeInterval(60))
+    history.recordPlay(gameID: 3, at: base.addingTimeInterval(30))
+
+    #expect(history.gameIDsByRecency == [2, 3, 1])
+    #expect(history.lastPlayed(gameID: 2) == base.addingTimeInterval(60))
+
+    // Replaying moves a game to the front rather than adding an entry.
+    history.recordPlay(gameID: 1, at: base.addingTimeInterval(90))
+    #expect(history.gameIDsByRecency == [1, 2, 3])
+
+    let pruned = history.removingGames(withIDs: [2])
+    #expect(pruned.gameIDsByRecency == [1, 3])
+  }
+
+  @Test("Keeps the newer of local and RomM play timestamps")
+  func mergesServerPlayTimestamps() {
+    let base = Date(timeIntervalSince1970: 1_000_000)
+    var history = LocalPlayHistory()
+    history.recordPlay(gameID: 1, at: base.addingTimeInterval(60))
+    history.recordPlay(gameID: 2, at: base)
+
+    let merged = history.merging(serverLastPlayedByGameID: [
+      1: base,
+      2: base.addingTimeInterval(120),
+      3: base.addingTimeInterval(30),
+    ])
+
+    // Local wins for 1 because playing here is more recent than RomM's record,
+    // RomM wins for 2, and a game only played on the server still appears.
+    #expect(merged.lastPlayed(gameID: 1) == base.addingTimeInterval(60))
+    #expect(merged.lastPlayed(gameID: 2) == base.addingTimeInterval(120))
+    #expect(merged.lastPlayed(gameID: 3) == base.addingTimeInterval(30))
+    #expect(merged.gameIDsByRecency == [2, 1, 3])
+  }
+
+  @Test("Adopts RomM play timestamps from synchronized games")
+  func adoptsServerPlayTimestampsFromGames() {
+    let games = [
+      GameSummary(
+        id: 1,
+        name: "Played on RomM",
+        systemID: 1,
+        systemName: "Game Boy",
+        coverURL: nil,
+        serverLastPlayed: "2026-07-20T12:00:00Z"
+      ),
+      GameSummary(
+        id: 2,
+        name: "Fractional seconds",
+        systemID: 1,
+        systemName: "Game Boy",
+        coverURL: nil,
+        serverLastPlayed: "2026-07-21T12:00:00.523Z"
+      ),
+      GameSummary(
+        id: 3,
+        name: "Never played",
+        systemID: 1,
+        systemName: "Game Boy",
+        coverURL: nil
+      ),
+    ]
+
+    let merged = LocalPlayHistory().merging(games: games)
+
+    #expect(merged.gameIDsByRecency == [2, 1])
+    #expect(merged.lastPlayed(gameID: 3) == nil)
+  }
+
+  @Test("Presents recently played games newest first in Big Picture")
+  func presentsRecentlyPlayedGamesInBigPicture() {
+    let base = Date(timeIntervalSince1970: 1_000_000)
+    var history = LocalPlayHistory()
+    history.recordPlay(gameID: 3, at: base)
+    history.recordPlay(gameID: 1, at: base.addingTimeInterval(60))
+
+    let source = BigPictureLibrarySource(
+      synchronizedAt: nil,
+      systems: [LibrarySystem(id: 1, name: "Game Boy", gameCount: 3)],
+      collections: [],
+      games: (1...3).map {
+        GameSummary(
+          id: $0,
+          name: "Game \($0)",
+          systemID: 1,
+          systemName: "Game Boy",
+          coverURL: nil
+        )
+      },
+      collectionMemberships: [],
+      downloadedGameIDs: [],
+      playHistory: history
+    )
+    let catalog = BigPictureCatalog(source: source, manifest: nil)
+
+    #expect(catalog.recentlyPlayedGames.map(\.id) == [1, 3])
+    #expect(catalog.games(in: .recentlyPlayed).map(\.id) == [1, 3])
+    #expect(catalog.title(for: .recentlyPlayed) == "Recently Played")
+  }
+
+  @Test("Rereads the library sequentially when concurrent pages disagree")
+  func fallsBackToSequentialSynchronization() async throws {
+    let serverURL = try ServerURL("https://romm.example.com")
+    let session = ServerSession(serverURL: serverURL, username: "kenneth")
+    let client = SynchronizationRomMClient(
+      gameCount: 2_505,
+      gameRequestDelayMilliseconds: 20
+    )
+    await client.enableUnstableOrderingAcrossConcurrentPages()
+    let service = RomMLibraryService(
+      api: client,
+      credentialStore: TestCredentialStore(
+        token: try ClientToken(
+          rawValue: "rmm_" + String(repeating: "e", count: 64)
+        )
+      ),
+      cache: InMemoryLibraryCache()
+    )
+
+    let snapshot = try await service.synchronizeLibrary(in: session) { _ in }
+
+    // The parallel pass cannot compose a complete library here, so the service
+    // must fall back rather than surface an incomplete synchronization.
+    #expect(snapshot.games.count == 2_505)
+    #expect(snapshot.games.map(\.id) == Array(1...2_505))
+  }
+
   @Test("Fetches large synchronized libraries in parallel")
   func fetchesSynchronizedPagesInParallel() async throws {
     let serverURL = try ServerURL("https://romm.example.com")
@@ -1528,6 +1744,7 @@ private struct UnavailableRomMClient: RomMClient {
     token: ClientToken,
     matching filter: LibraryFilter,
     searchTerm: String?,
+    ordering: GamePageOrdering,
     offset: Int,
     limit: Int
   ) async throws -> GamePage {
@@ -1564,6 +1781,8 @@ private struct UnavailableRomMClient: RomMClient {
 private actor SynchronizationRomMClient: RomMClient {
   private let allGames: [GameSummary]
   private let gameRequestDelayMilliseconds: Int64
+  private var reordersConcurrentPages = false
+  private var overlapsConcurrentPages = false
   private var catalogRequestOffsets: [Int] = []
   private var catalogRequestLimits: [Int] = []
   private var activeCatalogRequestCount = 0
@@ -1662,6 +1881,7 @@ private actor SynchronizationRomMClient: RomMClient {
     token: ClientToken,
     matching filter: LibraryFilter,
     searchTerm: String?,
+    ordering: GamePageOrdering,
     offset: Int,
     limit: Int
   ) async throws -> GamePage {
@@ -1681,6 +1901,8 @@ private actor SynchronizationRomMClient: RomMClient {
           for: .milliseconds(gameRequestDelayMilliseconds)
         )
       }
+      overlapsConcurrentPages =
+        reordersConcurrentPages && activeCatalogRequestCount > 1
     }
 
     let filtered: [GameSummary]
@@ -1691,12 +1913,25 @@ private actor SynchronizationRomMClient: RomMClient {
       filtered = [allGames[0], allGames[2]]
     }
 
+    // A server ordering rows by a non-unique key can place a tied row
+    // differently for each query, so a page fetched alongside others can repeat
+    // a row its neighbour already returned. Reading one page at a time never
+    // observes the disagreement.
+    let start =
+      overlapsConcurrentPages && offset > 0
+      ? offset - 1
+      : offset
+
     return GamePage(
-      games: Array(filtered.dropFirst(offset).prefix(limit)),
+      games: Array(filtered.dropFirst(start).prefix(limit)),
       total: filtered.count,
       limit: limit,
       offset: offset
     )
+  }
+
+  func enableUnstableOrderingAcrossConcurrentPages() {
+    reordersConcurrentPages = true
   }
 
   func catalogRequestStats() -> (
@@ -1753,6 +1988,7 @@ private actor SyncProgressRecorder {
 private actor OfflineLibraryService: LibraryServing {
   let snapshot: LibrarySnapshot
   let downloadedIDs: Set<Int>
+  private var playHistory = LocalPlayHistory()
 
   init(
     snapshot: LibrarySnapshot,
@@ -1781,6 +2017,15 @@ private actor OfflineLibraryService: LibraryServing {
 
   func collections(in session: ServerSession) -> [LibraryCollection] {
     snapshot.collections
+  }
+
+  func playHistory(in session: ServerSession) -> LocalPlayHistory {
+    playHistory
+  }
+
+  func recordPlay(gameID: Int, in session: ServerSession) -> LocalPlayHistory {
+    playHistory.recordPlay(gameID: gameID, at: .now)
+    return playHistory
   }
 
   func games(

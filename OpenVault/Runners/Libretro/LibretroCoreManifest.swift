@@ -6,8 +6,23 @@ struct LibretroCoreManifest: Decodable, Sendable {
         enum Status: String, Decodable, Sendable {
             case pipelineTest
             case bundled
+            case experimental
             case planned
             case excluded
+
+            /// Whether a core may be chosen for a user's game. Reviewed cores
+            /// always qualify; experimental ones ship in the app but stay out
+            /// of the way until they are asked for.
+            func isOffered(includingExperimental: Bool) -> Bool {
+                switch self {
+                case .bundled:
+                    true
+                case .experimental:
+                    includingExperimental
+                case .pipelineTest, .planned, .excluded:
+                    false
+                }
+            }
         }
 
         let id: String
@@ -40,10 +55,14 @@ struct LibretroCoreManifest: Decodable, Sendable {
     }
 
     /// Returns whether OpenVault ships a reviewed core for the named RomM system.
-    func supportsSystem(named systemName: String) -> Bool {
+    func supportsSystem(
+        named systemName: String,
+        includingExperimental: Bool = LibretroCorePreferences.enablesExperimentalCores()
+    ) -> Bool {
         let system = Self.systemIdentifier(for: systemName)
         return cores.contains {
-            $0.status == .bundled && $0.systems.contains(system)
+            $0.status.isOffered(includingExperimental: includingExperimental)
+                && $0.systems.contains(system)
         }
     }
 
@@ -51,7 +70,8 @@ struct LibretroCoreManifest: Decodable, Sendable {
         systemName: String,
         fileExtension: String,
         archiveMemberNames: [String] = [],
-        contentFileNames: [String] = []
+        contentFileNames: [String] = [],
+        includingExperimental: Bool = LibretroCorePreferences.enablesExperimentalCores()
     ) -> Core? {
         let system = Self.systemIdentifier(for: systemName)
         let fileExtension = fileExtension
@@ -65,7 +85,10 @@ struct LibretroCoreManifest: Decodable, Sendable {
         )
 
         return cores.first { core in
-            guard core.status == .bundled, core.systems.contains(system) else {
+            guard
+                core.status.isOffered(includingExperimental: includingExperimental),
+                core.systems.contains(system)
+            else {
                 return false
             }
             if fileExtension.isEmpty,
@@ -107,6 +130,8 @@ struct LibretroCoreManifest: Decodable, Sendable {
             "gbc"
         case "game boy advance", "nintendo game boy advance":
             "gba"
+        case "dreamcast", "sega dreamcast":
+            "dreamcast"
         case "nes", "famicom", "nintendo famicom",
              "nintendo entertainment system", "nintendo nes":
             "nes"
@@ -273,13 +298,34 @@ struct LibretroInstallation: Sendable {
         systemName: String,
         fileExtension: String,
         archiveMemberNames: [String] = [],
-        contentFileNames: [String] = []
+        contentFileNames: [String] = [],
+        includingExperimental: Bool =
+            LibretroCorePreferences.enablesExperimentalCores()
     ) -> LibretroCoreManifest.Core? {
         manifest.compatibleCore(
             systemName: systemName,
             fileExtension: fileExtension,
             archiveMemberNames: archiveMemberNames,
-            contentFileNames: contentFileNames
+            contentFileNames: contentFileNames,
+            includingExperimental: includingExperimental
         )
+    }
+}
+
+
+/// Opt-in for cores that are built and shipped but have not met the reviewed
+/// bar in `CoreManifest.json`.
+///
+/// The manifest stays the single place a core's standing is recorded; this
+/// preference only decides whether the experimental ones are offered.
+enum LibretroCorePreferences {
+    static let enablesExperimentalCoresKey = "libretro.cores.experimental.v1"
+    static let enabledByDefault = false
+
+    static func enablesExperimentalCores(
+        from defaults: UserDefaults = .standard
+    ) -> Bool {
+        defaults.object(forKey: enablesExperimentalCoresKey) as? Bool
+            ?? enabledByDefault
     }
 }

@@ -15,6 +15,8 @@ protocol LibraryServing: Sendable {
   ) async throws -> LibrarySnapshot
   func systems(in session: ServerSession) async throws -> [LibrarySystem]
   func collections(in session: ServerSession) async throws -> [LibraryCollection]
+  func playHistory(in session: ServerSession) async -> LocalPlayHistory
+  func recordPlay(gameID: Int, in session: ServerSession) async -> LocalPlayHistory
   func games(
     in session: ServerSession,
     matching filter: LibraryFilter,
@@ -263,6 +265,7 @@ actor RomMLibraryService: LibraryServing {
   private static let artworkInspectionPageSize = 500
   private static let synchronizationPageSize = 1_000
   private static let synchronizationRequestLimit = 4
+  private static let synchronizationOrdering = GamePageOrdering.identifier
   private let api: any RomMClient
   private let credentialStore: any CredentialStoring
   private let cache: any LibraryCaching
@@ -418,13 +421,27 @@ actor RomMLibraryService: LibraryServing {
       collectionsRequest
     )
 
-    var allGames = try await synchronizedGames(
-      in: session,
-      token: token,
-      systems: remoteSystems,
-      collections: remoteCollections,
-      onProgress: onProgress
-    )
+    var allGames: [GameSummary]
+    do {
+      allGames = try await synchronizedGames(
+        in: session,
+        token: token,
+        systems: remoteSystems,
+        collections: remoteCollections,
+        onProgress: onProgress
+      )
+    } catch is ParallelSynchronizationMismatch {
+      OpenVaultLog.library.notice(
+        "Concurrent library pages did not compose into a complete library; reading it sequentially"
+      )
+      allGames = try await sequentiallySynchronizedGames(
+        in: session,
+        token: token,
+        systems: remoteSystems,
+        collections: remoteCollections,
+        onProgress: onProgress
+      )
+    }
 
     let (saveGameIDs, stateGameIDs) = try await (
       saveGameIDsRequest,
@@ -510,6 +527,7 @@ actor RomMLibraryService: LibraryServing {
       token: token,
       matching: .allGames,
       searchTerm: nil,
+      ordering: Self.synchronizationOrdering,
       offset: 0,
       limit: pageSize
     )
@@ -563,6 +581,7 @@ actor RomMLibraryService: LibraryServing {
             token: token,
             matching: .allGames,
             searchTerm: nil,
+            ordering: Self.synchronizationOrdering,
             offset: offset,
             limit: pageSize
           )
@@ -579,7 +598,7 @@ actor RomMLibraryService: LibraryServing {
           offsets.contains(page.offset),
           !page.games.isEmpty
         else {
-          throw LibraryServiceError.incompleteSynchronization
+          throw ParallelSynchronizationMismatch()
         }
         pages.append(page)
         completedGameCount += page.games.count
@@ -599,6 +618,10 @@ actor RomMLibraryService: LibraryServing {
     return try completeGames(from: pages, expectedCount: firstPage.total)
   }
 
+  /// Signals that concurrently fetched pages did not compose into one complete
+  /// library, so the caller should re-read it sequentially rather than fail.
+  private struct ParallelSynchronizationMismatch: Error {}
+
   private func completeGames(
     from pages: [GamePage],
     expectedCount: Int
@@ -610,9 +633,94 @@ actor RomMLibraryService: LibraryServing {
       games.count == expectedCount,
       Set(games.map(\.id)).count == expectedCount
     else {
-      throw LibraryServiceError.incompleteSynchronization
+      throw ParallelSynchronizationMismatch()
     }
     return games
+  }
+
+  /// Reads the whole library one page at a time.
+  ///
+  /// Concurrent pagination assumes the server orders rows the same way for
+  /// every request. When that does not hold the fast path cannot produce a
+  /// complete library, but reading sequentially still can, because each request
+  /// only has to agree with the one before it.
+  private func sequentiallySynchronizedGames(
+    in session: ServerSession,
+    token: ClientToken,
+    systems: [LibrarySystem],
+    collections: [LibraryCollection],
+    onProgress: @escaping @Sendable (LibrarySyncProgress) async -> Void
+  ) async throws -> [GameSummary] {
+    var allGames: [GameSummary] = []
+    var seenGameIDs: Set<Int> = []
+    var offset = 0
+
+    while true {
+      let page = try await api.games(
+        at: session.serverURL,
+        token: token,
+        matching: .allGames,
+        searchTerm: nil,
+        ordering: Self.synchronizationOrdering,
+        offset: offset,
+        limit: Self.synchronizationPageSize
+      )
+      let newGames = page.games.filter {
+        seenGameIDs.insert($0.id).inserted
+      }
+      allGames.append(contentsOf: newGames)
+
+      await onProgress(
+        LibrarySyncProgress(
+          systems: systems,
+          collections: collections,
+          games: newGames,
+          completedGameCount: min(
+            page.offset + page.games.count,
+            page.total
+          ),
+          totalGameCount: page.total
+        )
+      )
+
+      guard page.hasMore else {
+        break
+      }
+      guard !page.games.isEmpty else {
+        throw LibraryServiceError.incompleteSynchronization
+      }
+      offset = page.offset + page.games.count
+    }
+
+    return allGames
+  }
+
+  func playHistory(in session: ServerSession) async -> LocalPlayHistory {
+    (try? await cache.localPlayHistory(for: session.serverURL))
+      .flatMap { $0 } ?? LocalPlayHistory()
+  }
+
+  /// Records that a game was played now, and returns the updated history.
+  ///
+  /// Playing works offline, so this must never fail the launch it accompanies —
+  /// a history that cannot be written is worth less than the game starting.
+  func recordPlay(
+    gameID: Int,
+    in session: ServerSession
+  ) async -> LocalPlayHistory {
+    var history = await playHistory(in: session)
+    history.recordPlay(gameID: gameID, at: now())
+    do {
+      try await cache.replaceLocalPlayHistory(
+        history,
+        for: session.serverURL
+      )
+    } catch {
+      OpenVaultLog.library.error(
+        "Could not record that game \(gameID, privacy: .public) was played: \(error.localizedDescription)"
+      )
+    }
+    return history
   }
 
   func systems(in session: ServerSession) async throws -> [LibrarySystem] {
@@ -658,6 +766,7 @@ actor RomMLibraryService: LibraryServing {
       token: authenticationToken(),
       matching: filter,
       searchTerm: searchTerm,
+      ordering: .name,
       offset: offset,
       limit: limit
     )
@@ -679,6 +788,7 @@ actor RomMLibraryService: LibraryServing {
         token: token,
         matching: .system(systemID),
         searchTerm: nil,
+        ordering: Self.synchronizationOrdering,
         offset: offset,
         limit: Self.artworkInspectionPageSize
       )
@@ -1405,6 +1515,31 @@ actor RomMLibraryService: LibraryServing {
       storage: configuration.effectiveStorage
     )
     guard !candidates.isEmpty else {
+      // A save RomM holds but OpenVault skipped is otherwise invisible: the
+      // launch simply proceeds without it. Record why each one was rejected.
+      let rejected = launchGame.saves.filter { $0.kind == .save }
+      if !rejected.isEmpty {
+        let reasons = rejected.map { save -> String in
+          if save.isMissingFromFileSystem {
+            "missing from the RomM filesystem"
+          } else if save.downloadURL == nil {
+            "no download URL"
+          } else if configuration.effectiveStorage == .directoryBundle,
+            save.fileExtension.lowercased() != "zip"
+          {
+            "\(save.fileExtension.lowercased()) is not a ZIP save bundle"
+          } else {
+            "unusable"
+          }
+        }
+        OpenVaultLog.libretro.notice(
+          """
+          Skipped \(rejected.count, privacy: .public) RomM save(s) for game \
+          \(game.id, privacy: .public): \
+          \(reasons.joined(separator: "; "), privacy: .public)
+          """
+        )
+      }
       return configuration
     }
 
@@ -1724,6 +1859,7 @@ actor RomMLibraryService: LibraryServing {
           token: token,
           matching: .collection(collection.id),
           searchTerm: nil,
+          ordering: Self.synchronizationOrdering,
           offset: offset,
           limit: Self.synchronizationPageSize
         )

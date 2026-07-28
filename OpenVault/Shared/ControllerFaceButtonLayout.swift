@@ -1,4 +1,4 @@
-enum ControllerFaceButtonLayout: Equatable, Sendable {
+enum ControllerFaceButtonLayout: String, Equatable, Sendable {
     case standard
     case nintendo
 

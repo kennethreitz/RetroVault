@@ -1202,6 +1202,12 @@
       "source": {
         "repository": "https://github.com/libretro/dolphin.git",
         "revision": "d735584d1e1672a5a269508bbd84cf50e2e522a8",
+        "localPatches": [
+          {
+            "path": "Patches/libretro-dolphin/log-buffer-storage-fallback.patch",
+            "sha256": "06d9a3f012941d362725c5e23e3bce55eb50c5da40fd5670a85feb32b4196d14"
+          }
+        ],
         "licenseFile": "COPYING",
         "submodules": [
           "Externals/SFML/SFML",
@@ -1431,6 +1437,111 @@
           "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
         ],
         "output": "melonds_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-flycast",
+      "displayName": "Flycast",
+      "status": "experimental",
+      "binaryName": "flycast_libretro.dylib",
+      "systems": [
+        "dreamcast"
+      ],
+      "fileExtensions": [
+        "gdi",
+        "cdi",
+        "chd",
+        "cue",
+        "m3u",
+        "iso",
+        "elf"
+      ],
+      "capabilities": [
+        "hardwareVideo",
+        "audio",
+        "retropad",
+        "serialization",
+        "diskControl"
+      ],
+      "firmware": [
+        {
+          "id": "dreamcast-boot",
+          "fileName": "dc_boot.bin",
+          "description": "Dreamcast boot ROM. Flycast emulates the boot sequence for most games, but some titles need the real ROM.",
+          "required": false,
+          "sha256": [],
+          "sha1": null
+        },
+        {
+          "id": "dreamcast-flash",
+          "fileName": "dc_flash.bin",
+          "description": "Dreamcast flash ROM, holding console region and date settings.",
+          "required": false,
+          "sha256": [],
+          "sha1": null
+        }
+      ],
+      "source": {
+        "repository": "https://github.com/flyinghead/flycast.git",
+        "revision": "4126f1464fbc77c6bcec9cad00c32017ecabb799",
+        "licenseFile": "LICENSE",
+        "submodules": [
+          "core/deps/DreamPicoPort-API",
+          "core/deps/SDL",
+          "core/deps/Spout",
+          "core/deps/Syphon",
+          "core/deps/Vulkan-Headers",
+          "core/deps/VulkanMemoryAllocator",
+          "core/deps/asio",
+          "core/deps/breakpad",
+          "core/deps/discord-rpc",
+          "core/deps/freetype",
+          "core/deps/gamesdk",
+          "core/deps/glslang",
+          "core/deps/googletest",
+          "core/deps/libadrenotools",
+          "core/deps/libchdr",
+          "core/deps/libjuice",
+          "core/deps/luabridge",
+          "core/deps/oboe",
+          "core/deps/rcheevos",
+          "core/deps/tinygettext",
+          "core/deps/websocketpp",
+          "core/deps/xbyak"
+        ]
+      },
+      "license": {
+        "spdx": "GPL-2.0-or-later",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/flyinghead/flycast/blob/4126f1464fbc77c6bcec9cad00c32017ecabb799/LICENSE"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "configure": {
+          "executable": "/usr/bin/env",
+          "arguments": [
+            "cmake",
+            "-S",
+            ".",
+            "-B",
+            "build-openvault",
+            "-DLIBRETRO=ON",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_OSX_ARCHITECTURES=arm64",
+            "-DCMAKE_OSX_DEPLOYMENT_TARGET=26.0"
+          ]
+        },
+        "executable": "/usr/bin/env",
+        "arguments": [
+          "cmake",
+          "--build",
+          "build-openvault",
+          "--target",
+          "flycast_libretro",
+          "--parallel",
+          "9"
+        ],
+        "output": "build-openvault/flycast_libretro.dylib"
       }
     }
   ]

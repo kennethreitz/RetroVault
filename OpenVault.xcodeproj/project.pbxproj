@@ -58,6 +58,22 @@
 		FDD0BB6FEFC2631F2868A349 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E627D31154C7BF04CEC23D7D /* AppModel.swift */; };
 		FE03EEAF3465F1282D358BA8 /* PairingValueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE0812D0EFD1CE66AA1BF4E /* PairingValueTests.swift */; };
 		FFAD3767D2311D56DA00F120 /* ServerURLTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21459D026178CE9B0974A8E /* ServerURLTests.swift */; };
+		D00000000000000000000021 /* DSUProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000001 /* DSUProtocol.swift */; };
+		D00000000000000000000022 /* DSUClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000002 /* DSUClient.swift */; };
+		D00000000000000000000023 /* DSUConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000003 /* DSUConnection.swift */; };
+		D00000000000000000000024 /* LibretroDSUInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000004 /* LibretroDSUInput.swift */; };
+		D0000000000000000000002B /* LibretroVideoFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0000000000000000000000B /* LibretroVideoFilter.swift */; };
+		D0000000000000000000002C /* LibretroInternalResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0000000000000000000000C /* LibretroInternalResolution.swift */; };
+		D0000000000000000000002D /* LibretroKeyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0000000000000000000000D /* LibretroKeyboard.swift */; };
+		D00000000000000000000025 /* DSUProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000005 /* DSUProtocolTests.swift */; };
+		D00000000000000000000026 /* LibretroDSUInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000006 /* LibretroDSUInputTests.swift */; };
+		D00000000000000000000027 /* ServerReachabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000007 /* ServerReachabilityTests.swift */; };
+		D00000000000000000000028 /* RomMReachability.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000008 /* RomMReachability.swift */; };
+		D00000000000000000000029 /* DisplaySleepAssertion.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000009 /* DisplaySleepAssertion.swift */; };
+		D0000000000000000000002A /* DisplaySleepAssertionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0000000000000000000000A /* DisplaySleepAssertionTests.swift */; };
+		D00000000000000000000030 /* LibretroVideoLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000011 /* LibretroVideoLayoutTests.swift */; };
+		D0000000000000000000002F /* LibretroKeyboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0000000000000000000000F /* LibretroKeyboardTests.swift */; };
+		D0000000000000000000002E /* LibretroInternalResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0000000000000000000000E /* LibretroInternalResolutionTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -124,6 +140,22 @@
 		EE75336E7FEDEE7B75E050D9 /* RomMClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RomMClient.swift; sourceTree = "<group>"; };
 		EFA0F85C703FAF870B8CAD46 /* ApplicationSupportCredentialStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationSupportCredentialStore.swift; sourceTree = "<group>"; };
 		FF541CEF0471A881BE543B1D /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D00000000000000000000001 /* DSUProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DSUProtocol.swift; sourceTree = "<group>"; };
+		D00000000000000000000002 /* DSUClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DSUClient.swift; sourceTree = "<group>"; };
+		D00000000000000000000003 /* DSUConnection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DSUConnection.swift; sourceTree = "<group>"; };
+		D00000000000000000000004 /* LibretroDSUInput.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroDSUInput.swift; sourceTree = "<group>"; };
+		D0000000000000000000000B /* LibretroVideoFilter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroVideoFilter.swift; sourceTree = "<group>"; };
+		D0000000000000000000000C /* LibretroInternalResolution.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroInternalResolution.swift; sourceTree = "<group>"; };
+		D0000000000000000000000D /* LibretroKeyboard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroKeyboard.swift; sourceTree = "<group>"; };
+		D00000000000000000000005 /* DSUProtocolTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DSUProtocolTests.swift; sourceTree = "<group>"; };
+		D00000000000000000000006 /* LibretroDSUInputTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroDSUInputTests.swift; sourceTree = "<group>"; };
+		D00000000000000000000007 /* ServerReachabilityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServerReachabilityTests.swift; sourceTree = "<group>"; };
+		D00000000000000000000008 /* RomMReachability.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RomMReachability.swift; sourceTree = "<group>"; };
+		D00000000000000000000009 /* DisplaySleepAssertion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DisplaySleepAssertion.swift; sourceTree = "<group>"; };
+		D0000000000000000000000A /* DisplaySleepAssertionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DisplaySleepAssertionTests.swift; sourceTree = "<group>"; };
+		D00000000000000000000011 /* LibretroVideoLayoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroVideoLayoutTests.swift; sourceTree = "<group>"; };
+		D0000000000000000000000F /* LibretroKeyboardTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroKeyboardTests.swift; sourceTree = "<group>"; };
+		D0000000000000000000000E /* LibretroInternalResolutionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroInternalResolutionTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -239,6 +271,7 @@
 			isa = PBXGroup;
 			children = (
 				39C3225290283FEA02547D7C /* RomMAPIError.swift */,
+				D00000000000000000000008 /* RomMReachability.swift */,
 				EE75336E7FEDEE7B75E050D9 /* RomMClient.swift */,
 				886FBF6DC73DA7C364473F68 /* URLSessionRomMClient.swift */,
 			);
@@ -280,8 +313,12 @@
 			isa = PBXGroup;
 			children = (
 				B30000000000000000000001 /* LibretroCoreManifest.swift */,
+				D00000000000000000000004 /* LibretroDSUInput.swift */,
 				B30000000000000000000002 /* LibretroGameView.swift */,
 				B30000000000000000000003 /* LibretroRuntime.swift */,
+				D0000000000000000000000B /* LibretroVideoFilter.swift */,
+				D0000000000000000000000C /* LibretroInternalResolution.swift */,
+				D0000000000000000000000D /* LibretroKeyboard.swift */,
 			);
 			name = Libretro;
 			path = Libretro;
@@ -292,6 +329,7 @@
 			children = (
 				C70000000000000000000001 /* LibretroLogShim */,
 				B90000000000000000000001 /* ControllerFaceButtonLayout.swift */,
+				D00000000000000000000009 /* DisplaySleepAssertion.swift */,
 				B60000000000000000000001 /* LiquidGlass.swift */,
 				B50000000000000000000001 /* OpenVaultDiagnostics.swift */,
 			);
@@ -362,12 +400,19 @@
 		9F2800C71750F15FE193ABB3 /* OpenVaultTests */ = {
 			isa = PBXGroup;
 			children = (
+				D0000000000000000000000A /* DisplaySleepAssertionTests.swift */,
+				D00000000000000000000011 /* LibretroVideoLayoutTests.swift */,
+				D0000000000000000000000F /* LibretroKeyboardTests.swift */,
+				D0000000000000000000000E /* LibretroInternalResolutionTests.swift */,
+				D00000000000000000000005 /* DSUProtocolTests.swift */,
 				B40000000000000000000002 /* GameArchiveExtractorTests.swift */,
 				B20000000000000000000003 /* LibraryCacheTests.swift */,
 				B30000000000000000000004 /* LibretroCoreManifestTests.swift */,
+				D00000000000000000000006 /* LibretroDSUInputTests.swift */,
 				7CE0812D0EFD1CE66AA1BF4E /* PairingValueTests.swift */,
 				B40000000000000000000004 /* SaveBundleArchiveTests.swift */,
 				A3C9E07B1356C2C0E592CE86 /* ServerConnectionServiceTests.swift */,
+				D00000000000000000000007 /* ServerReachabilityTests.swift */,
 				A21459D026178CE9B0974A8E /* ServerURLTests.swift */,
 			);
 			name = OpenVaultTests;
@@ -386,10 +431,22 @@
 		B826F86E6B3E4947E3FCC012 /* Networking */ = {
 			isa = PBXGroup;
 			children = (
+				D00000000000000000000010 /* DSU */,
 				5A98654D2CB0393B6E97A679 /* RomMAPI */,
 			);
 			name = Networking;
 			path = Networking;
+			sourceTree = "<group>";
+		};
+		D00000000000000000000010 /* DSU */ = {
+			isa = PBXGroup;
+			children = (
+				D00000000000000000000001 /* DSUProtocol.swift */,
+				D00000000000000000000002 /* DSUClient.swift */,
+				D00000000000000000000003 /* DSUConnection.swift */,
+			);
+			name = DSU;
+			path = DSU;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -529,6 +586,7 @@
 				A80000000000000000000002 /* BigPictureCatalog.swift in Sources */,
 				A80000000000000000000001 /* BigPictureView.swift in Sources */,
 				A90000000000000000000001 /* ControllerFaceButtonLayout.swift in Sources */,
+				D00000000000000000000029 /* DisplaySleepAssertion.swift in Sources */,
 				A70000000000000000000001 /* LibretroLogShim.c in Sources */,
 				7FB6894CA3D75799680F2756 /* AppEnvironment.swift in Sources */,
 				FDD0BB6FEFC2631F2868A349 /* AppModel.swift in Sources */,
@@ -551,6 +609,14 @@
 				77A545787A57B5091A1BFC48 /* ServerSession.swift in Sources */,
 				7B0D1634FAE65A28051469CD /* ServerURL.swift in Sources */,
 				4048CE0ADCEFBF3D1C11923C /* RomMAPIError.swift in Sources */,
+				D00000000000000000000021 /* DSUProtocol.swift in Sources */,
+				D00000000000000000000022 /* DSUClient.swift in Sources */,
+				D00000000000000000000023 /* DSUConnection.swift in Sources */,
+				D00000000000000000000024 /* LibretroDSUInput.swift in Sources */,
+				D0000000000000000000002B /* LibretroVideoFilter.swift in Sources */,
+				D0000000000000000000002C /* LibretroInternalResolution.swift in Sources */,
+				D0000000000000000000002D /* LibretroKeyboard.swift in Sources */,
+				D00000000000000000000028 /* RomMReachability.swift in Sources */,
 				192333E4FC57A92E3F3830D2 /* RomMClient.swift in Sources */,
 				D1396C6E659FC592539594FF /* URLSessionRomMClient.swift in Sources */,
 				BC9F22ACEAAF2461065CC7E9 /* CredentialStore.swift in Sources */,
@@ -577,6 +643,13 @@
 				A40000000000000000000003 /* GameArchiveExtractorTests.swift in Sources */,
 				A20000000000000000000003 /* LibraryCacheTests.swift in Sources */,
 				A30000000000000000000004 /* LibretroCoreManifestTests.swift in Sources */,
+				D00000000000000000000025 /* DSUProtocolTests.swift in Sources */,
+				D00000000000000000000026 /* LibretroDSUInputTests.swift in Sources */,
+				D00000000000000000000027 /* ServerReachabilityTests.swift in Sources */,
+				D0000000000000000000002A /* DisplaySleepAssertionTests.swift in Sources */,
+				D00000000000000000000030 /* LibretroVideoLayoutTests.swift in Sources */,
+				D0000000000000000000002F /* LibretroKeyboardTests.swift in Sources */,
+				D0000000000000000000002E /* LibretroInternalResolutionTests.swift in Sources */,
 				FE03EEAF3465F1282D358BA8 /* PairingValueTests.swift in Sources */,
 				A40000000000000000000005 /* SaveBundleArchiveTests.swift in Sources */,
 				099606899B62ABB6D739ACF9 /* ServerConnectionServiceTests.swift in Sources */,

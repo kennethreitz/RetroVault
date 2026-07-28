@@ -158,11 +158,16 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
   private let session: URLSession
   private let decoder: JSONDecoder
   private let encoder: JSONEncoder
+  private let reachability: any RomMReachabilityRecording
 
-  init(session: URLSession = .shared) {
+  init(
+    session: URLSession = .shared,
+    reachability: any RomMReachabilityRecording = RomMReachability.shared
+  ) {
     self.session = session
     decoder = JSONDecoder()
     encoder = JSONEncoder()
+    self.reachability = reachability
   }
 
   func verifyServer(at serverURL: ServerURL) async throws {
@@ -314,6 +319,7 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
     token: ClientToken,
     matching filter: LibraryFilter,
     searchTerm: String?,
+    ordering: GamePageOrdering,
     offset: Int,
     limit: Int
   ) async throws -> GamePage {
@@ -325,7 +331,10 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
       URLQueryItem(name: "with_char_index", value: "false"),
       URLQueryItem(name: "with_filter_values", value: "false"),
       URLQueryItem(name: "with_files", value: "false"),
-      URLQueryItem(name: "order_by", value: "name"),
+      URLQueryItem(
+        name: "order_by",
+        value: ordering == .identifier ? "id" : "name"
+      ),
       URLQueryItem(name: "order_dir", value: "asc"),
       URLQueryItem(name: "limit", value: String(limit)),
       URLQueryItem(name: "offset", value: String(offset)),
@@ -562,6 +571,13 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
         for: request
       )
     } catch let error as URLError {
+      // URLSession reports a cancelled Swift task as URLError.cancelled
+      // rather than CancellationError. Left alone it reads as a server
+      // that could not be reached.
+      guard error.code != .cancelled else {
+        throw CancellationError()
+      }
+      reachability.recordFailure(RomMAPIError.transport(error))
       OpenVaultLog.network.error(
         "ROM download transport error \(error.code.rawValue, privacy: .public)"
       )
@@ -569,6 +585,7 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
     }
 
     do {
+      reachability.recordServerAnswered()
       guard let httpResponse = response as? HTTPURLResponse else {
         throw RomMAPIError.invalidResponse
       }
@@ -666,6 +683,10 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
     do {
       (temporaryFileURL, response) = try await session.download(for: request)
     } catch let error as URLError {
+      guard error.code != .cancelled else {
+        throw CancellationError()
+      }
+      reachability.recordFailure(RomMAPIError.transport(error))
       OpenVaultLog.network.error(
         "Firmware download transport error \(error.code.rawValue, privacy: .public)"
       )
@@ -713,6 +734,10 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
     do {
       (temporaryFileURL, response) = try await session.download(for: request)
     } catch let error as URLError {
+      guard error.code != .cancelled else {
+        throw CancellationError()
+      }
+      reachability.recordFailure(RomMAPIError.transport(error))
       OpenVaultLog.network.error(
         "Save download transport error \(error.code.rawValue, privacy: .public)"
       )
@@ -868,12 +893,17 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
     do {
       (data, response) = try await session.data(for: request)
     } catch let error as URLError {
+      guard error.code != .cancelled else {
+        throw CancellationError()
+      }
+      reachability.recordFailure(RomMAPIError.transport(error))
       OpenVaultLog.network.error(
         "\(method, privacy: .public) \(path, privacy: .public) transport error \(error.code.rawValue, privacy: .public)"
       )
       throw RomMAPIError.transport(error)
     }
 
+      reachability.recordServerAnswered()
     guard let response = response as? HTTPURLResponse else {
       OpenVaultLog.network.error(
         "\(method, privacy: .public) \(path, privacy: .public) returned a non-HTTP response"
@@ -889,6 +919,7 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
   }
 
   private func validatedHTTPResponse(_ response: URLResponse) throws -> HTTPURLResponse {
+    reachability.recordServerAnswered()
     guard let response = response as? HTTPURLResponse else {
       throw RomMAPIError.invalidResponse
     }
@@ -1075,7 +1106,8 @@ private struct GameDTO: Decodable {
       isIdentified: isIdentified,
       isMissingFromFileSystem: isMissingFromFileSystem,
       createdAt: createdAt,
-      updatedAt: updatedAt
+      updatedAt: updatedAt,
+      serverLastPlayed: userMetadata?.lastPlayed
     )
   }
 

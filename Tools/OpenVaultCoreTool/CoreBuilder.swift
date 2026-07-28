@@ -22,12 +22,18 @@ struct CoreBuildReceipt: Codable, Sendable {
     }
 
     struct Core: Codable, Sendable {
+        struct LocalPatch: Codable, Sendable {
+            let path: String
+            let sha256: String
+        }
+
         let id: String
         let displayName: String
         let binaryName: String
         let sourceRepository: String
         let sourceRevision: String
         let sourcePatches: [String]
+        let localPatches: [LocalPatch]
         let sha256: String
         let licenseSPDX: String
         let licenseFile: String
@@ -86,7 +92,11 @@ enum CoreBuilder {
                 withIntermediateDirectories: true
             )
 
-            try clone(core, into: sourceDirectory)
+            try clone(
+                core,
+                into: sourceDirectory,
+                manifestDirectory: options.manifestURL.deletingLastPathComponent()
+            )
 
             let buildDirectory = sourceDirectory.appending(
                 path: core.build.workingDirectory,
@@ -179,6 +189,9 @@ enum CoreBuilder {
                     sourceRepository: core.source.repository,
                     sourceRevision: core.source.revision,
                     sourcePatches: core.source.patches ?? [],
+                    localPatches: (core.source.localPatches ?? []).map {
+                        .init(path: $0.path, sha256: $0.sha256)
+                    },
                     sha256: try sha256(of: destinationBinary),
                     licenseSPDX: core.license.spdx,
                     licenseFile: "Licenses/\(core.id)/\(sourceLicense.lastPathComponent)"
@@ -235,7 +248,8 @@ enum CoreBuilder {
 
     private static func clone(
         _ core: CoreManifest.Core,
-        into sourceDirectory: URL
+        into sourceDirectory: URL,
+        manifestDirectory: URL
     ) throws {
         try run(
             "/usr/bin/git",
@@ -307,6 +321,34 @@ enum CoreBuilder {
             try run(
                 "/usr/bin/git",
                 arguments: ["cherry-pick", "--no-commit", patch],
+                currentDirectory: sourceDirectory
+            )
+        }
+
+        for patch in core.source.localPatches ?? [] {
+            let patchURL = manifestDirectory.appending(path: patch.path)
+            guard FileManager.default.fileExists(atPath: patchURL.path) else {
+                throw CoreToolError.build(
+                    "\(core.id) is missing its declared local patch \(patch.path)."
+                )
+            }
+
+            let actualDigest = try sha256(of: patchURL)
+            guard actualDigest == patch.sha256 else {
+                throw CoreToolError.build(
+                    "\(core.id) local patch \(patch.path) has SHA-256 \(actualDigest), "
+                        + "not \(patch.sha256)."
+                )
+            }
+
+            try run(
+                "/usr/bin/git",
+                arguments: ["apply", "--check", patchURL.path],
+                currentDirectory: sourceDirectory
+            )
+            try run(
+                "/usr/bin/git",
+                arguments: ["apply", "--whitespace=nowarn", patchURL.path],
                 currentDirectory: sourceDirectory
             )
         }

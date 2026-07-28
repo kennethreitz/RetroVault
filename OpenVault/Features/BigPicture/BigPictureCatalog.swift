@@ -7,13 +7,17 @@ struct BigPictureLibrarySource: Sendable {
   let games: [GameSummary]
   let collectionMemberships: [LibrarySnapshot.CollectionMembership]
   let downloadedGameIDs: Set<Int>
+  let playHistory: LocalPlayHistory
 }
 
 enum BigPictureScope: Hashable, Sendable {
   case recentlyAdded
+  case recentlyPlayed
   case favorites
   case downloaded
   case system(Int)
+  /// Downloaded games belonging to one system.
+  case downloadedSystem(Int)
   case collection(LibraryCollection.ID)
 }
 
@@ -25,7 +29,8 @@ struct BigPictureCatalog: Sendable {
       collections: [],
       games: [],
       collectionMemberships: [],
-      downloadedGameIDs: []
+      downloadedGameIDs: [],
+      playHistory: LocalPlayHistory()
     ),
     manifest: nil
   )
@@ -34,22 +39,37 @@ struct BigPictureCatalog: Sendable {
   let systems: [LibrarySystem]
   let collections: [LibraryCollection]
   let recentlyAddedGames: [GameSummary]
+  let recentlyPlayedGames: [GameSummary]
   let favoriteGames: [GameSummary]
   let downloadedGames: [GameSummary]
   let favoriteGameIDs: Set<Int>
+  /// Only the systems with something downloaded, so Downloaded can be browsed
+  /// the same way the library itself is.
+  let downloadedSystems: [LibrarySystem]
 
   private let gamesBySystem: [Int: [GameSummary]]
   private let gamesByCollection: [LibraryCollection.ID: [GameSummary]]
+  private let downloadedGamesBySystem: [Int: [GameSummary]]
 
   init(
     source: BigPictureLibrarySource,
-    manifest: LibretroCoreManifest?
+    manifest: LibretroCoreManifest?,
+    // Read once here rather than per system inside the filter, and taken as a
+    // parameter so a test can state which core set it means instead of
+    // inheriting whatever the running machine has switched on.
+    includingExperimental: Bool =
+      LibretroCorePreferences.enablesExperimentalCores()
   ) {
     synchronizedAt = source.synchronizedAt
 
     let supportedSystems = source.systems.filter {
       $0.gameCount > 0
-        && (manifest?.supportsSystem(named: $0.name) ?? true)
+        && (
+          manifest?.supportsSystem(
+            named: $0.name,
+            includingExperimental: includingExperimental
+          ) ?? true
+        )
     }
     let supportedSystemIDs = Set(supportedSystems.map(\.id))
     let playableGames =
@@ -117,8 +137,20 @@ struct BigPictureCatalog: Sendable {
         )
       }
     )
-    downloadedGames = alphabeticalGames.filter {
+    let downloaded = alphabeticalGames.filter {
       source.downloadedGameIDs.contains($0.id)
+    }
+    downloadedGames = downloaded
+    downloadedGamesBySystem = Dictionary(
+      grouping: downloaded,
+      by: \.systemID
+    ).mapValues {
+      RomMFavorites.prioritizing($0, gameIDs: favoriteIDs)
+    }
+    let downloadedSystemIDs = Set(downloaded.map(\.systemID))
+    // Reuse the alphabetical system order rather than sorting again.
+    downloadedSystems = systems.filter {
+      downloadedSystemIDs.contains($0.id)
     }
     favoriteGames = alphabeticalGames.filter {
       favoriteIDs.contains($0.id)
@@ -126,32 +158,50 @@ struct BigPictureCatalog: Sendable {
     recentlyAddedGames = Array(
       Self.sortByDateAdded(alphabeticalGames).prefix(50)
     )
+    let playableGamesByID = Dictionary(
+      uniqueKeysWithValues: alphabeticalGames.map { ($0.id, $0) }
+    )
+    recentlyPlayedGames = Array(
+      source.playHistory.gameIDsByRecency
+        .compactMap { playableGamesByID[$0] }
+        .prefix(50)
+    )
   }
 
   func games(in scope: BigPictureScope) -> [GameSummary] {
     switch scope {
     case .recentlyAdded:
       recentlyAddedGames
+    case .recentlyPlayed:
+      recentlyPlayedGames
     case .favorites:
       favoriteGames
     case .downloaded:
       downloadedGames
     case .system(let systemID):
       gamesBySystem[systemID] ?? []
+    case .downloadedSystem(let systemID):
+      downloadedGamesBySystem[systemID] ?? []
     case .collection(let collectionID):
       gamesByCollection[collectionID] ?? []
     }
+  }
+
+  func downloadedGameCount(inSystem systemID: Int) -> Int {
+    downloadedGamesBySystem[systemID]?.count ?? 0
   }
 
   func title(for scope: BigPictureScope) -> String {
     switch scope {
     case .recentlyAdded:
       "Recently Added"
+    case .recentlyPlayed:
+      "Recently Played"
     case .favorites:
       "Favorites"
     case .downloaded:
       "Downloaded"
-    case .system(let systemID):
+    case .system(let systemID), .downloadedSystem(let systemID):
       systems.first(where: { $0.id == systemID })?.name ?? "Games"
     case .collection(let collectionID):
       collections.first(where: { $0.id == collectionID })?.name ?? "Collection"

@@ -215,14 +215,93 @@ struct LibretroCoreManifestTests {
             from: Data(contentsOf: manifestURL)
         )
 
-        #expect(manifest.supportsSystem(named: "Game Boy"))
-        #expect(manifest.supportsSystem(named: "Sega Master System/Mark III"))
-        #expect(manifest.supportsSystem(named: "ColecoVision"))
-        #expect(manifest.supportsSystem(named: "Nintendo GameCube"))
-        #expect(manifest.supportsSystem(named: "PlayStation Portable"))
-        #expect(manifest.supportsSystem(named: "Virtual Boy"))
-        #expect(!manifest.supportsSystem(named: "Dreamcast"))
+        // Reviewed cores only. `supportsSystem` otherwise defaults this from
+        // UserDefaults, which would let a developer's own experimental-cores
+        // setting decide whether this test passes.
+        func supports(_ system: String) -> Bool {
+            manifest.supportsSystem(
+                named: system,
+                includingExperimental: false
+            )
+        }
+
+        #expect(supports("Game Boy"))
+        #expect(supports("Sega Master System/Mark III"))
+        #expect(supports("ColecoVision"))
+        #expect(supports("Nintendo GameCube"))
+        #expect(supports("PlayStation Portable"))
+        #expect(supports("Virtual Boy"))
+        // Offered only by flycast, which is experimental.
+        #expect(!supports("Dreamcast"))
         #expect(!manifest.supportsSystem(named: "PlayStation 2"))
+
+        // With experimental cores switched on, Dreamcast becomes playable.
+        #expect(
+            manifest.supportsSystem(
+                named: "Dreamcast",
+                includingExperimental: true
+            )
+        )
+    }
+
+    // 3DS support was removed: Azahar only offers Vulkan and Software
+    // renderers, and its Vulkan path needs a hardware context this runtime
+    // does not provide. Nothing may quietly claim to play these files again.
+    @Test("3DS files match no bundled core")
+    func rejects3DSGames() throws {
+        let manifestURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Libretro/CoreManifest.json")
+        let manifest = try JSONDecoder().decode(
+            LibretroCoreManifest.self,
+            from: Data(contentsOf: manifestURL)
+        )
+
+        for fileExtension in ["3ds", "cci", "cxi", "3dsx"] {
+            #expect(
+                manifest.compatibleCore(
+                    systemName: "Nintendo 3DS",
+                    fileExtension: fileExtension,
+                    includingExperimental: true
+                ) == nil,
+                "expected no core for .\(fileExtension)"
+            )
+        }
+
+        #expect(
+            !manifest.supportsSystem(
+                named: "Nintendo 3DS",
+                includingExperimental: true
+            )
+        )
+        #expect(!manifest.cores.contains { $0.id == "libretro-azahar" })
+    }
+
+    // Exact values taken from a real RomM library: the system name RomM
+    // reports for the Master System, and a downloaded game's extension.
+    @Test("Matches a Master System game to Gearsystem")
+    func matchesMasterSystemGames() throws {
+        let manifestURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Libretro/CoreManifest.json")
+        let manifest = try JSONDecoder().decode(
+            LibretroCoreManifest.self,
+            from: Data(contentsOf: manifestURL)
+        )
+
+        for includingExperimental in [true, false] {
+            #expect(
+                manifest.compatibleCore(
+                    systemName: "Sega Master System/Mark III",
+                    fileExtension: "sms",
+                    contentFileNames: ["Hang-On (UE) [!].sms"],
+                    includingExperimental: includingExperimental
+                )?.id == "libretro-gearsystem",
+                "experimental=\(includingExperimental)"
+            )
+        }
     }
 
     @Test("Selects the expanded ARM64 core set")
@@ -458,7 +537,107 @@ struct LibretroCoreManifestTests {
         #expect(viewport == CGRect(x: 0, y: 0, width: 160, height: 120))
     }
 
-    @Test("Compiles the explicit nearest-neighbor Metal shader")
+    @Test("Corrects a frame whose buffer is not the shape the core asked for")
+    func honorsCoreAspectRatio() {
+        // An N64 core hands over a 640x480 buffer but asks for 16:9, which
+        // scaling the buffer alone would render as 4:3.
+        let viewport = LibretroVideoLayout.viewport(
+            sourceSize: CGSize(width: 640, height: 480),
+            targetSize: CGSize(width: 1_920, height: 1_080),
+            aspectRatio: 16.0 / 9.0
+        )
+
+        #expect(viewport == CGRect(x: 0, y: 0, width: 1_920, height: 1_080))
+
+        // The same buffer letterboxes inside a taller window.
+        let letterboxed = LibretroVideoLayout.viewport(
+            sourceSize: CGSize(width: 640, height: 480),
+            targetSize: CGSize(width: 1_600, height: 1_200),
+            aspectRatio: 16.0 / 9.0
+        )
+        #expect(letterboxed.width == 1_600)
+        #expect(letterboxed.height == 900)
+        #expect(letterboxed.origin.y == 150)
+    }
+
+    @Test("Keeps whole-pixel scaling when the core's shape matches its buffer")
+    func keepsIntegerScaleForSquarePixels() {
+        // 4:3 reported against a 4:3 buffer must not lose the crisp integer
+        // scale that square-pixel cores rely on.
+        let viewport = LibretroVideoLayout.viewport(
+            sourceSize: CGSize(width: 320, height: 240),
+            targetSize: CGSize(width: 1_000, height: 1_000),
+            aspectRatio: 4.0 / 3.0
+        )
+
+        #expect(viewport == CGRect(x: 20, y: 140, width: 960, height: 720))
+    }
+
+    @Test("Falls back to the buffer when a core reports no aspect ratio")
+    func fallsBackToBufferShape() {
+        let reported = LibretroVideoLayout.viewport(
+            sourceSize: CGSize(width: 256, height: 224),
+            targetSize: CGSize(width: 1_800, height: 1_330),
+            aspectRatio: 0
+        )
+        let derived = LibretroVideoLayout.viewport(
+            sourceSize: CGSize(width: 256, height: 224),
+            targetSize: CGSize(width: 1_800, height: 1_330)
+        )
+
+        #expect(reported == derived)
+    }
+
+    @Test("Offers reviewed cores always and experimental ones only on request")
+    func gatesExperimentalCores() {
+        typealias Status = LibretroCoreManifest.Core.Status
+
+        // Reviewed cores are unaffected by the preference.
+        #expect(Status.bundled.isOffered(includingExperimental: false))
+        #expect(Status.bundled.isOffered(includingExperimental: true))
+
+        // Experimental cores ship, but stay hidden until asked for.
+        #expect(!Status.experimental.isOffered(includingExperimental: false))
+        #expect(Status.experimental.isOffered(includingExperimental: true))
+
+        // Nothing turns these three into a playable core.
+        for status in [Status.pipelineTest, .planned, .excluded] {
+            #expect(!status.isOffered(includingExperimental: false))
+            #expect(!status.isOffered(includingExperimental: true))
+        }
+    }
+
+    @Test("Keeps experimental cores out of the catalog by default")
+    func defaultsToReviewedCoresOnly() {
+        let defaults = UserDefaults(suiteName: "LibretroCoreTests.experimental")
+        defaults?.removePersistentDomain(
+            forName: "LibretroCoreTests.experimental"
+        )
+
+        #expect(
+            !LibretroCorePreferences.enablesExperimentalCores(
+                from: defaults ?? .standard
+            )
+        )
+
+        defaults?.set(
+            true,
+            forKey: LibretroCorePreferences.enablesExperimentalCoresKey
+        )
+        #expect(
+            LibretroCorePreferences.enablesExperimentalCores(
+                from: defaults ?? .standard
+            )
+        )
+        defaults?.removePersistentDomain(
+            forName: "LibretroCoreTests.experimental"
+        )
+    }
+
+    // The shader is compiled from source at runtime, so a mistake in it is a
+    // crash when a game starts rather than a build failure. Compiling every
+    // filter here moves that back to the test suite.
+    @Test("Compiles a render pipeline for every video filter")
     func compilesPixelShader() throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let library = try device.makeLibrary(
@@ -466,8 +645,49 @@ struct LibretroCoreManifestTests {
             options: nil
         )
 
-        #expect(library.makeFunction(name: "openVaultPixelVertex") != nil)
-        #expect(library.makeFunction(name: "openVaultPixelFragment") != nil)
+        let vertexFunction = try #require(
+            library.makeFunction(name: "openVaultPixelVertex")
+        )
+
+        for filter in LibretroVideoFilter.allCases {
+            let fragmentFunction = library.makeFunction(
+                name: filter.fragmentFunctionName
+            )
+            #expect(
+                fragmentFunction != nil,
+                "missing fragment function for \(filter.rawValue)"
+            )
+
+            let descriptor = MTLRenderPipelineDescriptor()
+            descriptor.vertexFunction = vertexFunction
+            descriptor.fragmentFunction = fragmentFunction
+            descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+            #expect(
+                throws: Never.self,
+                "pipeline failed for \(filter.rawValue)"
+            ) {
+                try device.makeRenderPipelineState(descriptor: descriptor)
+            }
+        }
+    }
+
+    @Test("Defaults to unfiltered video")
+    func videoFilterDefaultsToOff() {
+        let defaults = UserDefaults(
+            suiteName: "LibretroVideoTests.filter"
+        )
+        defaults?.removePersistentDomain(forName: "LibretroVideoTests.filter")
+
+        #expect(
+            LibretroVideoPreferences.filter(from: defaults ?? .standard)
+                == .nearest
+        )
+        #expect(LibretroVideoFilter.nearest.displayName == "Off")
+        #expect(
+            LibretroInternalResolutionPreferences.resolution(
+                from: defaults ?? .standard
+            ) == .native
+        )
     }
 
     @Test("Runs a PSP smoke-test image when one is provided")
@@ -801,6 +1021,123 @@ struct LibretroCoreManifestTests {
                     - Double(128 * 1_024 * 1_024)
             ) < 1
         )
+    }
+
+    @Test("Sustains rewind for states within the history budget")
+    func sustainsRewindForModestStates() {
+        let cadence = LibretroRewindCadence(
+            framesPerSecond: 60,
+            byteLimit: 128 * 1_024 * 1_024
+        )
+
+        #expect(cadence.canSustainRewind(forStateByteCount: 128 * 1_024))
+        #expect(cadence.canSustainRewind(forStateByteCount: 1 * 1_024 * 1_024))
+    }
+
+    @Test("Refuses rewind for states too large to keep a useful history")
+    func refusesRewindForOversizedStates() {
+        let cadence = LibretroRewindCadence(
+            framesPerSecond: 60,
+            byteLimit: 128 * 1_024 * 1_024
+        )
+
+        // Serialization runs inside the frame budget, so a GameCube-sized state
+        // would cost most of every captured frame and still retain well under a
+        // second of history.
+        #expect(
+            !cadence.canSustainRewind(forStateByteCount: 24 * 1_024 * 1_024)
+        )
+    }
+
+    // A core too large for the full eight seconds keeps rewind on a shorter
+    // history rather than losing it, which is what puts the PlayStation back
+    // in range.
+    @Test("Shortens rewind history rather than dropping it")
+    func shortensHistoryForLargerStates() {
+        let cadence = LibretroRewindCadence(
+            framesPerSecond: 60,
+            byteLimit: 128 * 1_024 * 1_024
+        )
+        let playStationState = 3_500 * 1_024
+
+        #expect(cadence.canSustainRewind(forStateByteCount: playStationState))
+
+        let history = cadence.sustainableHistoryDuration(
+            forStateByteCount: playStationState
+        )
+        #expect(history >= LibretroRewindCadence.minimumHistoryDuration)
+        #expect(history < LibretroRewindCadence.targetHistoryDuration)
+
+        // The rate never drops below the floor, because that is the part that
+        // costs frame time.
+        let rate = 1 / cadence.snapshotInterval(
+            forStateByteCount: playStationState
+        )
+        #expect(rate >= LibretroRewindCadence.minimumSnapshotsPerSecond)
+    }
+
+    // A core small enough for the full history must be completely unaffected
+    // by the shortening path.
+    @Test("Leaves small states on the full history and rate")
+    func smallStatesKeepFullHistory() {
+        let byteLimit = 128 * 1_024 * 1_024
+        let cadence = LibretroRewindCadence(
+            framesPerSecond: 60,
+            byteLimit: byteLimit
+        )
+        let stateByteCount = 256 * 1_024
+
+        #expect(
+            cadence.sustainableHistoryDuration(
+                forStateByteCount: stateByteCount
+            ) == LibretroRewindCadence.targetHistoryDuration
+        )
+        let rate = 1 / cadence.snapshotInterval(
+            forStateByteCount: stateByteCount
+        )
+        let expected = min(
+            60,
+            Double(byteLimit)
+                / Double(stateByteCount)
+                / LibretroRewindCadence.targetHistoryDuration
+        )
+        #expect(abs(rate - expected) < 0.001)
+    }
+
+    @Test("Bounds sustainable rewind by the history budget, not the minimum rate")
+    func boundsSustainableRewindByHistoryBudget() {
+        let byteLimit = 128 * 1_024 * 1_024
+        let cadence = LibretroRewindCadence(
+            framesPerSecond: 60,
+            byteLimit: byteLimit
+        )
+        // The cutoff is where the affordable history falls below the shortest
+        // window worth keeping, not where the full history stops fitting.
+        let largestSustainableState = Int(
+            Double(byteLimit)
+                / LibretroRewindCadence.minimumSnapshotsPerSecond
+                / LibretroRewindCadence.minimumHistoryDuration
+        )
+
+        #expect(
+            cadence.canSustainRewind(
+                forStateByteCount: largestSustainableState
+            )
+        )
+        #expect(
+            !cadence.canSustainRewind(
+                forStateByteCount: largestSustainableState + 1
+            )
+        )
+        // The history budget still bounds memory: the largest state that keeps
+        // rewind holds no more than the byte limit.
+        let held =
+            Double(largestSustainableState)
+            * LibretroRewindCadence.minimumSnapshotsPerSecond
+            * cadence.sustainableHistoryDuration(
+                forStateByteCount: largestSustainableState
+            )
+        #expect(held <= Double(byteLimit) + 1)
     }
 
     @Test("Captures every frame at a 60 Hz rewind cadence")

@@ -27,11 +27,12 @@ extension CoreManifest {
     enum Status: String, Codable, Sendable {
         case pipelineTest
         case bundled
+        case experimental
         case planned
         case excluded
 
         var participatesInBuild: Bool {
-            self == .pipelineTest || self == .bundled
+            self == .pipelineTest || self == .bundled || self == .experimental
         }
     }
 
@@ -61,8 +62,14 @@ extension CoreManifest {
         let repository: String
         let revision: String
         let patches: [String]?
+        let localPatches: [LocalPatch]?
         let licenseFile: String
         let submodules: [String]?
+    }
+
+    struct LocalPatch: Codable, Sendable {
+        let path: String
+        let sha256: String
     }
 
     struct License: Codable, Sendable {
@@ -195,6 +202,22 @@ enum ManifestValidator {
             else {
                 throw CoreToolError.validation(
                     "\(core.id) source.patches must contain full lowercase Git commits."
+                )
+            }
+        }
+
+        for patch in core.source.localPatches ?? [] {
+            guard isSafeRelativePath(patch.path, allowCurrentDirectory: false) else {
+                throw CoreToolError.validation(
+                    "\(core.id) source.localPatches paths must be safe and relative to the manifest."
+                )
+            }
+            guard patch.sha256.count == 64,
+                  patch.sha256.allSatisfy({ $0.isHexDigit && !$0.isUppercase })
+            else {
+                throw CoreToolError.validation(
+                    "\(core.id) source.localPatches SHA-256 values must contain "
+                        + "64 lowercase hexadecimal characters."
                 )
             }
         }

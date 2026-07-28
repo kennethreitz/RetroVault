@@ -16,6 +16,7 @@ protocol RomMClient: Sendable {
     token: ClientToken,
     matching filter: LibraryFilter,
     searchTerm: String?,
+    ordering: GamePageOrdering,
     offset: Int,
     limit: Int
   ) async throws -> GamePage
