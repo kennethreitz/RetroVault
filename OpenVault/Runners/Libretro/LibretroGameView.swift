@@ -48,7 +48,9 @@ struct LibretroGameView: View {
                     LibretroMetalView(
                         videoBuffer: session.videoBuffer,
                         input: session.input,
-                        filter: videoFilter
+                        filter: videoFilter.resolved(
+                            forSystemName: session.request.systemName
+                        )
                     )
                         .ignoresSafeArea()
                 case .stopped:

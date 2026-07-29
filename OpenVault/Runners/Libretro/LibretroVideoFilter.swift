@@ -22,6 +22,9 @@ enum LibretroVideoFilter: String, CaseIterable, Identifiable, Sendable {
     /// Scanlines and a phosphor mask over a sharp-bilinear resample.
     case crt
 
+    /// Chooses flat or curved CRT geometry for the game's system.
+    case crtSmart = "crt-smart"
+
     /// The same CRT simulation with tube curvature and darkened corners.
     case crtCurved = "crt-curved"
 
@@ -37,6 +40,8 @@ enum LibretroVideoFilter: String, CaseIterable, Identifiable, Sendable {
             "xBR"
         case .crt:
             "CRT"
+        case .crtSmart:
+            "CRT (Smart)"
         case .crtCurved:
             "CRT (Curved)"
         }
@@ -56,6 +61,9 @@ enum LibretroVideoFilter: String, CaseIterable, Identifiable, Sendable {
         case .crt:
             "A crisp flat CRT with scanlines, RGB phosphors, and brief "
                 + "phosphor persistence."
+        case .crtSmart:
+            "Uses curved CRT glass for television-era consoles and arcade "
+                + "systems, and a flat CRT for handhelds and newer systems."
         case .crtCurved:
             "The persistent RGB phosphor treatment with curved tube geometry "
                 + "and softly darkened corners."
@@ -64,7 +72,7 @@ enum LibretroVideoFilter: String, CaseIterable, Identifiable, Sendable {
 
     var usesFrameHistory: Bool {
         switch self {
-        case .crt, .crtCurved:
+        case .crt, .crtSmart, .crtCurved:
             true
         case .nearest, .sharpBilinear, .xbr:
             false
@@ -82,9 +90,71 @@ enum LibretroVideoFilter: String, CaseIterable, Identifiable, Sendable {
             "openVaultXBRFragment"
         case .crt:
             "openVaultCRTFragment"
+        case .crtSmart:
+            // The player resolves Smart before rendering. Flat CRT is the
+            // safe fallback for content-free runtime tests.
+            "openVaultCRTFragment"
         case .crtCurved:
             "openVaultCRTCurvedFragment"
         }
+    }
+
+    func resolved(forSystemName systemName: String?) -> Self {
+        guard self == .crtSmart else {
+            return self
+        }
+        return LibretroSmartCRTPolicy.prefersCurvature(
+            forSystemName: systemName
+        ) ? .crtCurved : .crt
+    }
+}
+
+enum LibretroSmartCRTPolicy {
+    /// Systems whose games were principally presented on a consumer
+    /// television or an arcade CRT. Unknown, handheld, computer-monitor, and
+    /// newer systems deliberately fall back to the flat CRT treatment.
+    private static let curvedSystemNames: Set<String> = [
+        "3do",
+        "arcade",
+        "atari 2600",
+        "atari 5200",
+        "atari 7800",
+        "atari jaguar",
+        "colecovision",
+        "dreamcast",
+        "famicom",
+        "intellivision",
+        "neo geo",
+        "nintendo 64",
+        "nintendo entertainment system",
+        "nintendo gamecube",
+        "pc engine cd",
+        "pc engine supergrafx",
+        "playstation",
+        "playstation 2",
+        "sega 32x",
+        "sega cd",
+        "sega master system",
+        "sega master system/mark iii",
+        "sega mega drive/genesis",
+        "sega saturn",
+        "super famicom",
+        "super nintendo entertainment system",
+        "turbografx-16/pc engine",
+    ]
+
+    static func prefersCurvature(forSystemName systemName: String?) -> Bool {
+        guard let systemName else {
+            return false
+        }
+        let normalized = systemName
+            .folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return curvedSystemNames.contains(normalized)
     }
 }
 

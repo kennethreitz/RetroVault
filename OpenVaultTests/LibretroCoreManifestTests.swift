@@ -751,11 +751,56 @@ struct LibretroCoreManifestTests {
         #expect(!LibretroVideoFilter.sharpBilinear.usesFrameHistory)
         #expect(!LibretroVideoFilter.xbr.usesFrameHistory)
         #expect(LibretroVideoFilter.crt.usesFrameHistory)
+        #expect(LibretroVideoFilter.crtSmart.usesFrameHistory)
         #expect(LibretroVideoFilter.crtCurved.usesFrameHistory)
         #expect(
             LibretroInternalResolutionPreferences.resolution(
                 from: defaults ?? .standard
             ) == .native
+        )
+    }
+
+    @Test("Smart CRT curves television systems and keeps newer systems flat")
+    func resolvesSmartCRTGeometryForSystem() {
+        #expect(
+            LibretroVideoFilter.crtSmart.resolved(
+                forSystemName: "Nintendo Entertainment System"
+            ) == .crtCurved
+        )
+        #expect(
+            LibretroVideoFilter.crtSmart.resolved(
+                forSystemName: "Nintendo GameCube"
+            ) == .crtCurved
+        )
+        #expect(
+            LibretroVideoFilter.crtSmart.resolved(
+                forSystemName: "Arcade"
+            ) == .crtCurved
+        )
+        #expect(
+            LibretroVideoFilter.crtSmart.resolved(
+                forSystemName: "Game Boy Advance"
+            ) == .crt
+        )
+        #expect(
+            LibretroVideoFilter.crtSmart.resolved(
+                forSystemName: "Nintendo Wii"
+            ) == .crt
+        )
+        #expect(
+            LibretroVideoFilter.crtSmart.resolved(
+                forSystemName: "PlayStation Portable"
+            ) == .crt
+        )
+        #expect(
+            LibretroVideoFilter.crtSmart.resolved(
+                forSystemName: nil
+            ) == .crt
+        )
+        #expect(
+            LibretroVideoFilter.nearest.resolved(
+                forSystemName: "Nintendo Entertainment System"
+            ) == .nearest
         )
     }
 
