@@ -249,14 +249,21 @@ struct LibretroCoreManifestTests {
         #expect(supports("Nintendo GameCube"))
         #expect(supports("PlayStation Portable"))
         #expect(supports("Virtual Boy"))
-        // Offered only by flycast, which is experimental.
+        // Offered only by experimental cores.
         #expect(!supports("Dreamcast"))
+        #expect(!supports("Pico-8"))
         #expect(!manifest.supportsSystem(named: "PlayStation 2"))
 
-        // With experimental cores switched on, Dreamcast becomes playable.
+        // With experimental cores switched on, both systems become playable.
         #expect(
             manifest.supportsSystem(
                 named: "Dreamcast",
+                includingExperimental: true
+            )
+        )
+        #expect(
+            manifest.supportsSystem(
+                named: "Pico-8",
                 includingExperimental: true
             )
         )
@@ -497,7 +504,15 @@ struct LibretroCoreManifestTests {
         #expect(
             manifest.compatibleCore(
                 systemName: "Pico-8",
-                fileExtension: "p8"
+                fileExtension: "p8",
+                includingExperimental: false
+            ) == nil
+        )
+        #expect(
+            manifest.compatibleCore(
+                systemName: "Pico-8",
+                fileExtension: "p8",
+                includingExperimental: true
             )?.id == "libretro-fake08"
         )
         #expect(
@@ -629,6 +644,31 @@ struct LibretroCoreManifestTests {
             #expect(!status.isOffered(includingExperimental: false))
             #expect(!status.isOffered(includingExperimental: true))
         }
+    }
+
+    @Test("Keeps Pico-8 experimental with an older artifact manifest")
+    func overridesStalePico8Availability() throws {
+        let core = try JSONDecoder().decode(
+            LibretroCoreManifest.Core.self,
+            from: Data(
+                """
+                {
+                  "id": "libretro-fake08",
+                  "displayName": "FAKE-08",
+                  "status": "bundled",
+                  "binaryName": "fake08_libretro.dylib",
+                  "systems": ["pico-8"],
+                  "fileExtensions": ["p8", "png"],
+                  "capabilities": ["softwareVideo"],
+                  "firmware": []
+                }
+                """.utf8
+            )
+        )
+
+        #expect(core.availabilityStatus == .experimental)
+        #expect(!core.isOffered(includingExperimental: false))
+        #expect(core.isOffered(includingExperimental: true))
     }
 
     @Test("Keeps experimental cores out of the catalog by default")

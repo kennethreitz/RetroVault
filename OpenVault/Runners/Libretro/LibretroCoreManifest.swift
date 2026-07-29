@@ -35,6 +35,24 @@ struct LibretroCoreManifest: Decodable, Sendable {
         let capabilities: [String]
         let firmware: [Firmware]
 
+        /// Core artifacts keep the manifest snapshot they were built with.
+        /// Safety downgrades must still take effect when an existing binary
+        /// bundle is reused instead of rebuilt.
+        var availabilityStatus: Status {
+            switch id {
+            case "libretro-fake08":
+                .experimental
+            default:
+                status
+            }
+        }
+
+        func isOffered(includingExperimental: Bool) -> Bool {
+            availabilityStatus.isOffered(
+                includingExperimental: includingExperimental
+            )
+        }
+
         struct Firmware: Decodable, Sendable {
             let id: String
             let fileName: String
@@ -61,7 +79,7 @@ struct LibretroCoreManifest: Decodable, Sendable {
     ) -> Bool {
         let system = Self.systemIdentifier(for: systemName)
         return cores.contains {
-            $0.status.isOffered(includingExperimental: includingExperimental)
+            $0.isOffered(includingExperimental: includingExperimental)
                 && $0.systems.contains(system)
         }
     }
@@ -86,7 +104,7 @@ struct LibretroCoreManifest: Decodable, Sendable {
 
         return cores.first { core in
             guard
-                core.status.isOffered(includingExperimental: includingExperimental),
+                core.isOffered(includingExperimental: includingExperimental),
                 core.systems.contains(system)
             else {
                 return false
