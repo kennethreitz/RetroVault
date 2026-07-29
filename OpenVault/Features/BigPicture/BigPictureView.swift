@@ -36,6 +36,7 @@ struct BigPictureView: View {
   @State private var playbackModel: GameDetailsModel?
   @State private var playbackTask: Task<Void, Never>?
   @State private var exitTask: Task<Void, Never>?
+  @State private var fullScreenEscapeTask: Task<Void, Never>?
   @State private var isLoadingGameDetails = false
   @State private var playbackErrorMessage: String?
   @State private var requestedGame: GameSummary?
@@ -87,6 +88,7 @@ struct BigPictureView: View {
     .onDisappear {
       playbackTask?.cancel()
       exitTask?.cancel()
+      fullScreenEscapeTask?.cancel()
     }
   }
 
@@ -1489,13 +1491,46 @@ struct BigPictureView: View {
   }
 
   private func handleEscape() {
-    if playbackErrorMessage != nil
-      || isPreparingPlayback
-      || !history.isEmpty
-    {
+    let action = BigPictureEscapeAction.resolve(
+      isFullScreen: bigPictureWindow?.styleMask.contains(.fullScreen) == true,
+      canNavigateBack: playbackErrorMessage != nil
+        || isPreparingPlayback
+        || !history.isEmpty
+    )
+
+    switch action {
+    case .leaveFullScreen:
+      leaveFullScreenForEscape()
+    case .navigateBack:
       handle(.back)
-    } else {
+    case .exit:
       exitBigPicture()
+    }
+  }
+
+  private func leaveFullScreenForEscape() {
+    guard
+      fullScreenEscapeTask == nil,
+      let window = bigPictureWindow,
+      window.styleMask.contains(.fullScreen)
+    else {
+      return
+    }
+
+    window.toggleFullScreen(nil)
+    fullScreenEscapeTask = Task { @MainActor in
+      defer {
+        fullScreenEscapeTask = nil
+      }
+      for _ in 0..<160 {
+        guard !Task.isCancelled else {
+          return
+        }
+        guard window.styleMask.contains(.fullScreen) else {
+          return
+        }
+        try? await Task.sleep(for: .milliseconds(25))
+      }
     }
   }
 
@@ -1851,6 +1886,22 @@ enum BigPictureKeyboardNavigation {
 
   static func command(forMacKeyCode keyCode: UInt16) -> BigPictureCommand? {
     keyCode == backspaceKeyCode ? .back : nil
+  }
+}
+
+enum BigPictureEscapeAction: Equatable, Sendable {
+  case leaveFullScreen
+  case navigateBack
+  case exit
+
+  static func resolve(
+    isFullScreen: Bool,
+    canNavigateBack: Bool
+  ) -> Self {
+    if isFullScreen {
+      return .leaveFullScreen
+    }
+    return canNavigateBack ? .navigateBack : .exit
   }
 }
 

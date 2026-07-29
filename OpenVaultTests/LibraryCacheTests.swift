@@ -976,6 +976,28 @@ struct BigPictureCatalogTests {
     #expect(!xboxB.back)
   }
 
+  @Test("Escape leaves full screen before navigating")
+  func prioritizesLeavingFullScreenForEscape() {
+    #expect(
+      BigPictureEscapeAction.resolve(
+        isFullScreen: true,
+        canNavigateBack: true
+      ) == .leaveFullScreen
+    )
+    #expect(
+      BigPictureEscapeAction.resolve(
+        isFullScreen: false,
+        canNavigateBack: true
+      ) == .navigateBack
+    )
+    #expect(
+      BigPictureEscapeAction.resolve(
+        isFullScreen: false,
+        canNavigateBack: false
+      ) == .exit
+    )
+  }
+
   @Test("Maps Nintendo A to select and Nintendo B to back")
   func mapsNintendoFaceButtons() {
     let switchA = BigPictureControllerState.extendedFaceButtonActions(
