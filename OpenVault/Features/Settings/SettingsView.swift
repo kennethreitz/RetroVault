@@ -3,8 +3,6 @@ import SwiftUI
 struct SettingsView: View {
     let model: AppModel
     @Environment(\.openWindow) private var openWindow
-    @AppStorage(BigPictureScene.launchesAutomaticallyPreferenceKey)
-    private var launchesBigPictureAutomatically = false
     @AppStorage(BigPictureScene.opensInFullScreenPreferenceKey)
     private var opensBigPictureInFullScreen =
         BigPictureScene.opensInFullScreenByDefault
@@ -291,23 +289,17 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
             }
 
-            Section("Big Picture") {
+            Section("Presentation") {
                 Toggle(
-                    "Launch OpenVault in Big Picture",
-                    isOn: $launchesBigPictureAutomatically
-                )
-
-                Toggle(
-                    "Open Big Picture in Full Screen",
+                    "Open OpenVault in Full Screen",
                     isOn: $opensBigPictureInFullScreen
                 )
 
                 Text(
                     """
-                    OpenVault can launch the controller-first library automatically \
-                    after restoring its RomM connection. Big Picture opens in full \
-                    screen by default and can still switch between full screen and \
-                    a regular window with the green window control.
+                    OpenVault opens its controller-first library in full screen by \
+                    default. Use the green window control to switch between full \
+                    screen and a regular window.
                     """
                 )
                 .font(.caption)

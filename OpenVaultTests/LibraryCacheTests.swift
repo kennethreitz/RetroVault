@@ -959,41 +959,6 @@ struct BigPictureCatalogTests {
     #expect(!home.opensGameOptions)
   }
 
-  @Test("Launches Big Picture once after the library becomes available")
-  func gatesAutomaticBigPictureLaunch() {
-    var enabledGate = BigPictureAutomaticLaunchGate()
-
-    let beforeLibrary = enabledGate.shouldOpen(
-      isLibraryAvailable: false,
-      preferenceEnabled: true
-    )
-    #expect(!beforeLibrary)
-    #expect(!enabledGate.hasHandledLibraryAvailability)
-    let firstAvailableLibrary = enabledGate.shouldOpen(
-      isLibraryAvailable: true,
-      preferenceEnabled: true
-    )
-    #expect(firstAvailableLibrary)
-    #expect(enabledGate.hasHandledLibraryAvailability)
-    let repeatedAvailableLibrary = enabledGate.shouldOpen(
-      isLibraryAvailable: true,
-      preferenceEnabled: true
-    )
-    #expect(!repeatedAvailableLibrary)
-
-    var disabledGate = BigPictureAutomaticLaunchGate()
-    let disabledPreference = disabledGate.shouldOpen(
-      isLibraryAvailable: true,
-      preferenceEnabled: false
-    )
-    #expect(!disabledPreference)
-    let enabledAfterLibraryWasHandled = disabledGate.shouldOpen(
-      isLibraryAvailable: true,
-      preferenceEnabled: true
-    )
-    #expect(!enabledAfterLibraryWasHandled)
-  }
-
   @Test("Maps the right face button to select and bottom face button to back")
   func mapsFaceButtonPositions() {
     let xboxA = BigPictureControllerState.extendedFaceButtonActions(

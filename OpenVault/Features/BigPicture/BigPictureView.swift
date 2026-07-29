@@ -3,8 +3,6 @@
 import SwiftUI
 
 enum BigPictureScene {
-  static let launchesAutomaticallyPreferenceKey =
-    "big-picture.launches-automatically.v1"
   static let opensInFullScreenPreferenceKey =
     "big-picture.opens-in-full-screen.v1"
   static let opensInFullScreenByDefault = true
