@@ -998,6 +998,28 @@ struct BigPictureCatalogTests {
     )
   }
 
+  @Test("Big Picture applies only CRT display effects")
+  func resolvesBigPictureVideoEffects() {
+    #expect(
+      BigPictureVideoEffectPolicy.curvature(for: .nearest) == nil
+    )
+    #expect(
+      BigPictureVideoEffectPolicy.curvature(for: .sharpBilinear) == nil
+    )
+    #expect(
+      BigPictureVideoEffectPolicy.curvature(for: .xbr) == nil
+    )
+    #expect(
+      BigPictureVideoEffectPolicy.curvature(for: .crt) == 0
+    )
+    #expect(
+      BigPictureVideoEffectPolicy.curvature(for: .crtSmart) == 0
+    )
+    #expect(
+      BigPictureVideoEffectPolicy.curvature(for: .crtCurved) == 1
+    )
+  }
+
   @Test("Maps Nintendo A to select and Nintendo B to back")
   func mapsNintendoFaceButtons() {
     let switchA = BigPictureControllerState.extendedFaceButtonActions(

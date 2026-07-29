@@ -28,6 +28,8 @@ struct BigPictureView: View {
   @AppStorage(LibretroCorePreferences.enablesExperimentalCoresKey)
   private var enablesExperimentalCores =
     LibretroCorePreferences.enabledByDefault
+  @AppStorage(LibretroVideoPreferences.filterKey)
+  private var videoFilter = LibretroVideoPreferences.defaultFilter
   @State private var selectedIndex = 0
   @State private var scrollTargetID: BigPictureRow.ID?
   @State private var controllerState = BigPictureControllerState()
@@ -62,6 +64,11 @@ struct BigPictureView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         libraryInterface
+          .modifier(
+            BigPictureVideoEffectModifier(
+              filter: resolvedBigPictureVideoFilter
+            )
+          )
       }
     }
     .background {
@@ -161,6 +168,22 @@ struct BigPictureView: View {
       handleEscape()
       return .handled
     }
+  }
+
+  private var resolvedBigPictureVideoFilter: LibretroVideoFilter {
+    videoFilter.resolved(forSystemName: bigPictureSystemName)
+  }
+
+  private var bigPictureSystemName: String? {
+    let systemID: Int
+    switch page {
+    case let .games(.system(id)),
+      let .games(.downloadedSystem(id)):
+      systemID = id
+    case .home, .collections, .downloaded, .games:
+      return nil
+    }
+    return catalog.systems.first(where: { $0.id == systemID })?.name
   }
 
   private var header: some View {
@@ -1762,6 +1785,53 @@ struct BigPictureView: View {
         handleNavigationInput(command)
       }
       try? await Task.sleep(for: .milliseconds(30))
+    }
+  }
+}
+
+private struct BigPictureVideoEffectModifier: ViewModifier {
+  @Environment(\.displayScale) private var displayScale
+  let filter: LibretroVideoFilter
+
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if let curvature = BigPictureVideoEffectPolicy.curvature(for: filter) {
+      let scale = displayScale
+      content.overlay {
+        Rectangle()
+          .fill(.white)
+          .visualEffect { effect, geometry in
+            effect.colorEffect(
+              ShaderLibrary.openVaultBigPictureCRTOverlay(
+                .float2(geometry.size),
+                .float(scale),
+                .float(curvature)
+              )
+            )
+          }
+          .blendMode(.multiply)
+          .allowsHitTesting(false)
+          .accessibilityHidden(true)
+      }
+    } else {
+      content
+    }
+  }
+}
+
+enum BigPictureVideoEffectPolicy {
+  static func curvature(for filter: LibretroVideoFilter) -> Float? {
+    switch filter {
+    case .crt:
+      0
+    case .crtCurved:
+      1
+    case .crtSmart:
+      // Smart is normally resolved before this point. A flat fallback keeps
+      // aggregate pages such as Home and Favorites from implying a system.
+      0
+    case .nearest, .sharpBilinear, .xbr:
+      nil
     }
   }
 }
