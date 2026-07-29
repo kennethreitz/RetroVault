@@ -1784,21 +1784,14 @@ private struct BigPictureVideoEffectModifier: ViewModifier {
   func body(content: Content) -> some View {
     if let curvature = BigPictureVideoEffectPolicy.curvature(for: filter) {
       let scale = displayScale
-      content.overlay {
-        Rectangle()
-          .fill(.white)
-          .visualEffect { effect, geometry in
-            effect.colorEffect(
-              ShaderLibrary.openVaultBigPictureCRTOverlay(
-                .float2(geometry.size),
-                .float(scale),
-                .float(curvature)
-              )
-            )
-          }
-          .blendMode(.multiply)
-          .allowsHitTesting(false)
-          .accessibilityHidden(true)
+      content.visualEffect { effect, geometry in
+        effect.colorEffect(
+          ShaderLibrary.openVaultBigPictureCRT(
+            .float2(geometry.size),
+            .float(scale),
+            .float(curvature)
+          )
+        )
       }
     } else {
       content

@@ -3,14 +3,13 @@
 
 using namespace metal;
 
-/// Builds a non-destructive CRT glass overlay for the native Big Picture
-/// interface.
+/// Applies the selected CRT treatment to the native Big Picture interface.
 ///
-/// Sampling the composed hierarchy would force SwiftUI's lazy scrolling
-/// content into a single offscreen layer. Keeping the shader independent of
-/// that content preserves native scrolling and aligns its mask directly to
-/// physical display pixels.
-[[ stitchable ]] half4 openVaultBigPictureCRTOverlay(
+/// `colorEffect` supplies the menu's actual source color without requiring a
+/// sampled offscreen texture. That preserves native lazy scrolling while
+/// allowing the shader to use the same linear-light scanline and RGB-slot
+/// treatment as gameplay.
+[[ stitchable ]] half4 openVaultBigPictureCRT(
     float2 position,
     half4 source,
     float2 size,
@@ -37,26 +36,43 @@ using namespace metal;
         glass = vignette * corner;
     }
 
-    float2 displayPixel = position * max(displayScale, 1.0);
+    float2 physicalPixel = position * max(displayScale, 1.0);
 
-    // One darker physical row followed by one bright row gives the interface
-    // a scanline texture without softening its type.
-    float scanlinePhase = fmod(floor(displayPixel.y), 2.0);
-    float scanline = mix(0.84, 1.0, scanlinePhase);
+    // Match the gameplay shader's two-pixel RGB slots, staggered every bank.
+    uint pixelX = uint(floor(max(physicalPixel.x, 0.0)));
+    uint pixelY = uint(floor(max(physicalPixel.y, 0.0)));
+    uint rowInBank = pixelY % 3u;
+    uint bank = (pixelY / 3u) % 2u;
+    uint shiftedX = pixelX + bank * 2u;
+    uint phosphor = (shiftedX / 2u) % 3u;
 
-    // Align an RGB aperture-grille triad to physical pixels. Keep the
-    // non-emitting channels fairly bright so white text remains readable.
-    uint phosphor = uint(max(floor(displayPixel.x), 0.0)) % 3;
-    float3 phosphorMask;
-    if (phosphor == 0) {
-        phosphorMask = float3(1.0, 0.88, 0.88);
-    } else if (phosphor == 1) {
-        phosphorMask = float3(0.88, 1.0, 0.88);
+    float3 phosphorMask = float3(0.78);
+    if (phosphor == 0u) {
+        phosphorMask.r = 1.22;
+    } else if (phosphor == 1u) {
+        phosphorMask.g = 1.22;
     } else {
-        phosphorMask = float3(0.88, 0.88, 1.0);
+        phosphorMask.b = 1.22;
     }
+    if (rowInBank == 2u) {
+        phosphorMask *= 0.78;
+    }
+    phosphorMask = mix(float3(1.0), phosphorMask * 1.165, 0.72);
 
-    source.rgb = half3(phosphorMask * scanline * glass);
-    source.a = 1.0h;
+    // A four-physical-pixel beam approximates a 240-line source at common
+    // Big Picture sizes. It is the same Gaussian beam used by the flat
+    // gameplay CRT, fixed in display space because vector UI has no source
+    // raster height from which to derive a scale.
+    float scanlinePhase = fract(physicalPixel.y / 4.0);
+    float distanceFromCenter = scanlinePhase - 0.5;
+    float scanline = exp2(-8.0 * distanceFromCenter * distanceFromCenter);
+    scanline = mix(1.0, scanline, 0.34);
+
+    float3 color = pow(max(float3(source.rgb), 0.0), float3(2.2));
+    color *= scanline;
+    color *= phosphorMask;
+    color *= 1.18 * glass;
+
+    source.rgb = half3(pow(max(color, 0.0), float3(1.0 / 2.2)));
     return source;
 }
