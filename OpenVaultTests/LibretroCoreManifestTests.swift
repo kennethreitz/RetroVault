@@ -445,19 +445,19 @@ struct LibretroCoreManifestTests {
             manifest.compatibleCore(
                 systemName: "TurboGrafx-16/PC Engine",
                 fileExtension: "pce"
-            )?.id == "libretro-geargrafx"
+            )?.id == "libretro-beetle-pce"
         )
         #expect(
             manifest.compatibleCore(
                 systemName: "PC Engine SuperGrafx",
                 fileExtension: "sgx"
-            )?.id == "libretro-geargrafx"
+            )?.id == "libretro-beetle-pce"
         )
         #expect(
             manifest.compatibleCore(
                 systemName: "PC Engine CD",
                 fileExtension: "chd"
-            )?.id == "libretro-geargrafx"
+            )?.id == "libretro-beetle-pce"
         )
         #expect(
             manifest.compatibleCore(

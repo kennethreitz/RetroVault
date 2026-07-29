@@ -724,10 +724,10 @@
       }
     },
     {
-      "id": "libretro-geargrafx",
-      "displayName": "Geargrafx",
+      "id": "libretro-beetle-pce",
+      "displayName": "Beetle PCE",
       "status": "bundled",
-      "binaryName": "geargrafx_libretro.dylib",
+      "binaryName": "mednafen_pce_libretro.dylib",
       "systems": [
         "pce",
         "pce-cd",
@@ -735,7 +735,8 @@
       ],
       "fileExtensions": [
         "chd",
-        "hes",
+        "cue",
+        "m3u",
         "pce",
         "sgx"
       ],
@@ -759,23 +760,23 @@
         }
       ],
       "source": {
-        "repository": "https://github.com/drhelius/Geargrafx.git",
-        "revision": "98dc7cb62268a3063498b1c2cacb7887c7c451c6",
-        "licenseFile": "LICENSE"
+        "repository": "https://github.com/libretro/beetle-pce-libretro.git",
+        "revision": "ae99235c2139c176c1a8d0fde2957bf701d3cab0",
+        "licenseFile": "COPYING"
       },
       "license": {
-        "spdx": "GPL-3.0-only",
+        "spdx": "GPL-2.0-only",
         "redistributionStatus": "approved",
-        "noticeURL": "https://github.com/drhelius/Geargrafx/blob/98dc7cb62268a3063498b1c2cacb7887c7c451c6/LICENSE"
+        "noticeURL": "https://github.com/libretro/beetle-pce-libretro/blob/ae99235c2139c176c1a8d0fde2957bf701d3cab0/COPYING"
       },
       "build": {
-        "workingDirectory": "platforms/libretro",
+        "workingDirectory": ".",
         "executable": "/usr/bin/make",
         "arguments": [
           "platform=osx",
-          "ARCHFLAGS=-arch arm64 -mmacosx-version-min=26.0"
+          "EXTRA_GCC_FLAGS=-arch arm64 -mmacosx-version-min=26.0 -Dfdopen=fdopen"
         ],
-        "output": "geargrafx_libretro.dylib"
+        "output": "mednafen_pce_libretro.dylib"
       }
     },
     {

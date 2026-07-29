@@ -160,7 +160,7 @@ still varies by title while OpenVault is in development.
 | Sega | Sega 32X | PicoDrive |
 | Sony | PlayStation | PCSX-ReARMed |
 | Sony | PlayStation Portable | PPSSPP |
-| NEC | PC Engine / TurboGrafx-16, SuperGrafx, PC Engine CD | Geargrafx |
+| NEC | PC Engine / TurboGrafx-16, SuperGrafx, PC Engine CD | Beetle PCE |
 | Atari | Atari 2600 | Stella 2014 |
 | Atari | Atari 5200 | A5200 |
 | Atari | Atari 7800 | ProSystem |

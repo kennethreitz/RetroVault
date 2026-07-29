@@ -74,7 +74,7 @@ Scripts/build-libretro-cores.sh --core libretro-bsnes-mercury-balanced
 Scripts/build-libretro-cores.sh --core libretro-mgba
 Scripts/build-libretro-cores.sh --core libretro-melonds
 Scripts/build-libretro-cores.sh --core libretro-gearcoleco
-Scripts/build-libretro-cores.sh --core libretro-geargrafx
+Scripts/build-libretro-cores.sh --core libretro-beetle-pce
 Scripts/build-libretro-cores.sh --core libretro-a5200
 Scripts/build-libretro-cores.sh --core libretro-fbneo
 Scripts/build-libretro-cores.sh --core libretro-parallel-n64
@@ -157,10 +157,9 @@ produces an actionable launch error when it is absent or invalid. Nestopia's
 Famicom Disk System format remains disabled until its multi-file content and
 firmware behavior is covered end to end.
 
-Geargrafx uses RomM's `syscard3.pce` system firmware for PC Engine CD content.
-HuCard and SuperGrafx games do not require it. CD support initially accepts
-single-file CHD images; multi-file CUE sets remain disabled until OpenVault can
-prepare their complete track set safely.
+Beetle PCE uses RomM's `syscard3.pce` system firmware for PC Engine CD content.
+HuCard and SuperGrafx games do not require it. CD content supports CHD and
+complete CUE and M3U sets prepared by OpenVault.
 
 Gearcoleco requires RomM's `colecovision.rom` system firmware. OpenVault fetches
 and verifies it through the same platform-scoped firmware cache before starting

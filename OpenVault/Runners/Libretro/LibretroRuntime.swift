@@ -227,7 +227,7 @@ enum LibretroAnalogToDPadPolicy {
         "libretro-fake08",
         "libretro-gambatte",
         "libretro-gearcoleco",
-        "libretro-geargrafx",
+        "libretro-beetle-pce",
         "libretro-gearsystem",
         "libretro-genesis-plus-gx",
         "libretro-melonds",
