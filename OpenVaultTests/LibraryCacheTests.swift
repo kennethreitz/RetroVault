@@ -297,6 +297,38 @@ struct LibraryKeyboardNavigationTests {
 
 @Suite("Big Picture catalog")
 struct BigPictureCatalogTests {
+  @Test("Requires a matching core stamp for FAKE-08 quick states")
+  func validatesFake08QuickStateCompatibility() {
+    #expect(
+      !LibretroQuickStateCompatibility.isCompatible(
+        coreID: "libretro-fake08",
+        expectedFingerprint: "new-core",
+        storedFingerprint: nil
+      )
+    )
+    #expect(
+      !LibretroQuickStateCompatibility.isCompatible(
+        coreID: "libretro-fake08",
+        expectedFingerprint: "new-core",
+        storedFingerprint: "old-core"
+      )
+    )
+    #expect(
+      LibretroQuickStateCompatibility.isCompatible(
+        coreID: "libretro-fake08",
+        expectedFingerprint: "new-core",
+        storedFingerprint: "new-core"
+      )
+    )
+    #expect(
+      LibretroQuickStateCompatibility.isCompatible(
+        coreID: "libretro-gambatte",
+        expectedFingerprint: nil,
+        storedFingerprint: nil
+      )
+    )
+  }
+
   @Test("Does not resume a quick state older than RomM's cartridge save")
   func skipsStaleQuickStateAfterRomMSaveSync() {
     let quickStateDate = Date(timeIntervalSince1970: 1_000)

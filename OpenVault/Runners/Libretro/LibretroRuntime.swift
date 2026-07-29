@@ -106,6 +106,38 @@ enum LibretroQuickStateRestorePolicy {
     }
 }
 
+enum LibretroQuickStateCompatibility {
+    static let fingerprintFileName = "Quick.state.core"
+
+    static func requiresCoreFingerprint(coreID: String) -> Bool {
+        coreID.caseInsensitiveCompare("libretro-fake08") == .orderedSame
+    }
+
+    static func coreFingerprint(binaryURL: URL) throws -> String {
+        let data = try Data(contentsOf: binaryURL, options: .mappedIfSafe)
+        return SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    static func isCompatible(
+        coreID: String,
+        expectedFingerprint: String?,
+        storedFingerprint: String?
+    ) -> Bool {
+        guard requiresCoreFingerprint(coreID: coreID) else {
+            return true
+        }
+        guard
+            let expectedFingerprint,
+            let storedFingerprint
+        else {
+            return false
+        }
+        return expectedFingerprint == storedFingerprint
+    }
+}
+
 enum LibretroWiiControllerProfile: String, CaseIterable, Identifiable, Sendable {
     case classicControllerPro = "classic-controller-pro"
     case sidewaysWiiRemote = "sideways-wii-remote"
@@ -3017,6 +3049,8 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
     private let controlLock = NSLock()
     private let paths: Paths
     private let quickStateURL: URL
+    private let quickStateFingerprintURL: URL
+    private let coreFingerprint: String?
     private let saveMemoryURL: URL
     private let installationOverride: LibretroInstallation?
 
@@ -3041,6 +3075,13 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         let paths = Self.paths(for: request)
         self.paths = paths
         quickStateURL = paths.states.appending(path: "Quick.state")
+        quickStateFingerprintURL = paths.states.appending(
+            path: LibretroQuickStateCompatibility.fingerprintFileName
+        )
+        coreFingerprint = Self.coreFingerprint(
+            request: request,
+            installation: installation
+        )
         if
             let saveSync = request.saveSync,
             saveSync.effectiveStorage == .saveRAM
@@ -3049,7 +3090,16 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         } else {
             saveMemoryURL = paths.saves.appending(path: "SaveRAM.srm")
         }
-        hasQuickState = FileManager.default.fileExists(atPath: quickStateURL.path)
+        hasQuickState =
+            FileManager.default.fileExists(atPath: quickStateURL.path)
+            && LibretroQuickStateCompatibility.isCompatible(
+                coreID: request.coreID,
+                expectedFingerprint: coreFingerprint,
+                storedFingerprint: try? String(
+                    contentsOf: quickStateFingerprintURL,
+                    encoding: .utf8
+                )
+            )
     }
 
     func start(eventHandler: @escaping @Sendable (Event) -> Void) {
@@ -3378,7 +3428,8 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 forKeys: [.contentModificationDateKey]
             ).contentModificationDate
             let restoresQuickState =
-                LibretroQuickStateRestorePolicy.shouldRestore(
+                hasQuickState
+                && LibretroQuickStateRestorePolicy.shouldRestore(
                     requestAllowsRestore:
                         request.restoresQuickStateOnLaunch,
                     remoteSaveUpdatedAt:
@@ -3386,6 +3437,14 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     quickStateUpdatedAt: quickStateUpdatedAt
                 )
             if
+                request.restoresQuickStateOnLaunch,
+                FileManager.default.fileExists(atPath: quickStateURL.path),
+                !hasQuickState
+            {
+                OpenVaultLog.libretro.notice(
+                    "Skipped a FAKE-08 quick state created by an incompatible core build"
+                )
+            } else if
                 request.restoresQuickStateOnLaunch,
                 !restoresQuickState
             {
@@ -3641,6 +3700,13 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
     private func persistQuickState(using core: LibretroCore) throws {
         let data = try core.saveState()
         try data.write(to: quickStateURL, options: .atomic)
+        if let coreFingerprint {
+            try coreFingerprint.write(
+                to: quickStateFingerprintURL,
+                atomically: true,
+                encoding: .utf8
+            )
+        }
         emit(.quickStateSaved)
     }
 
@@ -3839,6 +3905,34 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             states: root.appending(path: "States", directoryHint: .isDirectory),
             assets: root.appending(path: "Assets", directoryHint: .isDirectory)
         )
+    }
+
+    private static func coreFingerprint(
+        request: LibretroRunRequest,
+        installation: LibretroInstallation?
+    ) -> String? {
+        guard
+            LibretroQuickStateCompatibility.requiresCoreFingerprint(
+                coreID: request.coreID
+            )
+        else {
+            return nil
+        }
+        do {
+            let resolvedInstallation =
+                try installation ?? LibretroInstallation.bundled()
+            let (_, binaryURL) = try resolvedInstallation.core(
+                id: request.coreID
+            )
+            return try LibretroQuickStateCompatibility.coreFingerprint(
+                binaryURL: binaryURL
+            )
+        } catch {
+            OpenVaultLog.libretro.error(
+                "Could not fingerprint \(request.coreID, privacy: .public) for quick-state compatibility: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
     }
 
     private static func videoFrame(

@@ -2403,12 +2403,21 @@ actor RomMLibraryService: LibraryServing {
         let quickStateURL = contentDirectory
           .appending(path: "States", directoryHint: .isDirectory)
           .appending(path: "Quick.state")
+        let fingerprintURL = contentDirectory
+          .appending(path: "States", directoryHint: .isDirectory)
+          .appending(
+            path: LibretroQuickStateCompatibility.fingerprintFileName
+          )
         guard
           let values = try? quickStateURL.resourceValues(
             forKeys: [.isRegularFileKey, .fileSizeKey]
           ),
           values.isRegularFile == true,
-          (values.fileSize ?? 0) > 0
+          (values.fileSize ?? 0) > 0,
+          !LibretroQuickStateCompatibility.requiresCoreFingerprint(
+            coreID: coreDirectory.lastPathComponent
+          )
+            || fileManager.fileExists(atPath: fingerprintURL.path)
         else {
           continue
         }

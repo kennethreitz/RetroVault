@@ -769,6 +769,74 @@ struct LibretroCoreManifestTests {
         )
     }
 
+    @Test("Runs a Pico-8 cartridge when one is provided")
+    @MainActor
+    func runsPico8SmokeTestCartridge() async throws {
+        guard
+            let path = ProcessInfo.processInfo.environment[
+                "OPENVAULT_PICO8_TEST_ROM"
+            ],
+            FileManager.default.fileExists(atPath: path)
+        else {
+            return
+        }
+
+        let repositoryURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let installation = try LibretroInstallation(
+            manifestURL: repositoryURL.appending(
+                path: "Libretro/CoreManifest.json"
+            ),
+            coresDirectory: repositoryURL.appending(
+                path: "Build/LibretroCores/Cores",
+                directoryHint: .isDirectory
+            )
+        )
+        let session = LibretroSession(
+            request: LibretroRunRequest(
+                title: "Pico-8 Integration Test",
+                coreID: "libretro-fake08",
+                contentURL: URL(fileURLWithPath: path),
+                systemName: "Pico-8"
+            ),
+            installation: installation
+        )
+        session.start()
+        defer {
+            session.stop()
+        }
+
+        var didStart = false
+        var didReceiveFrame = false
+        for _ in 0..<100 {
+            switch session.phase {
+            case .running:
+                didStart = true
+                if let frame = session.videoBuffer.snapshot() {
+                    didReceiveFrame = true
+                    if containsVisiblePixels(frame) {
+                        return
+                    }
+                }
+            case let .failed(message):
+                Issue.record("FAKE-08 failed to start: \(message)")
+                return
+            case .idle, .starting, .stopped:
+                break
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+
+        if !didStart {
+            Issue.record("FAKE-08 did not start within 10 seconds.")
+        } else if !didReceiveFrame {
+            Issue.record("FAKE-08 did not return a frame within 10 seconds.")
+        } else {
+            Issue.record("FAKE-08 returned only black frames for 10 seconds.")
+        }
+    }
+
     @Test("Runs a PlayStation smoke-test image when one is provided")
     @MainActor
     func runsPlayStationSmokeTestImage() async throws {
