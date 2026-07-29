@@ -735,8 +735,8 @@ struct LibretroCoreManifestTests {
         }
     }
 
-    @Test("Defaults to unfiltered video")
-    func videoFilterDefaultsToOff() {
+    @Test("Defaults to Smart CRT video")
+    func videoFilterDefaultsToSmartCRT() {
         let defaults = UserDefaults(
             suiteName: "LibretroVideoTests.filter"
         )
@@ -744,7 +744,7 @@ struct LibretroCoreManifestTests {
 
         #expect(
             LibretroVideoPreferences.filter(from: defaults ?? .standard)
-                == .nearest
+                == .crtSmart
         )
         #expect(LibretroVideoFilter.nearest.displayName == "Off")
         #expect(!LibretroVideoFilter.nearest.usesFrameHistory)
@@ -775,6 +775,11 @@ struct LibretroCoreManifestTests {
         #expect(
             LibretroVideoFilter.crtSmart.resolved(
                 forSystemName: "Arcade"
+            ) == .crtCurved
+        )
+        #expect(
+            LibretroVideoFilter.crtSmart.resolved(
+                forSystemName: "DOS"
             ) == .crtCurved
         )
         #expect(

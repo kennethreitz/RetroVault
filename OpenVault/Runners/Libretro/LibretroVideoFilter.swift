@@ -111,8 +111,10 @@ enum LibretroVideoFilter: String, CaseIterable, Identifiable, Sendable {
 
 enum LibretroSmartCRTPolicy {
     /// Systems whose games were principally presented on a consumer
-    /// television or an arcade CRT. Unknown, handheld, computer-monitor, and
-    /// newer systems deliberately fall back to the flat CRT treatment.
+    /// television or an arcade CRT. DOS is included because period DOS games
+    /// were ordinarily experienced on curved CRT computer monitors. Unknown,
+    /// handheld, other computer-monitor, and newer systems deliberately fall
+    /// back to the flat CRT treatment.
     private static let curvedSystemNames: Set<String> = [
         "3do",
         "arcade",
@@ -121,6 +123,7 @@ enum LibretroSmartCRTPolicy {
         "atari 7800",
         "atari jaguar",
         "colecovision",
+        "dos",
         "dreamcast",
         "famicom",
         "intellivision",
@@ -161,11 +164,10 @@ enum LibretroSmartCRTPolicy {
 enum LibretroVideoPreferences {
     static let filterKey = "libretro.video.filter.v1"
 
-    /// Point sampling stays the default because it is what the runtime has
-    /// always done, and because `LibretroVideoLayout.viewport` already snaps
-    /// square-pixel cores to whole-number scales where point sampling is
-    /// exactly right. The other filters are opt-in.
-    static let defaultFilter = LibretroVideoFilter.nearest
+    /// Smart CRT is the default presentation for a preservation-focused
+    /// library: it keeps handhelds and newer systems flat while restoring
+    /// curved glass to period television, arcade, and DOS displays.
+    static let defaultFilter = LibretroVideoFilter.crtSmart
 
     static func filter(
         from defaults: UserDefaults = .standard

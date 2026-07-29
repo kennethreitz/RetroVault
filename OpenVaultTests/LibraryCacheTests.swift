@@ -1001,6 +1001,24 @@ struct BigPictureCatalogTests {
   @Test("Big Picture applies only CRT display effects")
   func resolvesBigPictureVideoEffects() {
     #expect(
+      BigPictureVideoEffectPolicy.resolved(
+        filter: .crtSmart,
+        forSystemName: nil
+      ) == .crtCurved
+    )
+    #expect(
+      BigPictureVideoEffectPolicy.resolved(
+        filter: .crtSmart,
+        forSystemName: "DOS"
+      ) == .crtCurved
+    )
+    #expect(
+      BigPictureVideoEffectPolicy.resolved(
+        filter: .crtSmart,
+        forSystemName: "Game Boy Advance"
+      ) == .crt
+    )
+    #expect(
       BigPictureVideoEffectPolicy.curvature(for: .nearest) == nil
     )
     #expect(

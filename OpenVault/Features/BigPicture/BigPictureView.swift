@@ -171,7 +171,10 @@ struct BigPictureView: View {
   }
 
   private var resolvedBigPictureVideoFilter: LibretroVideoFilter {
-    videoFilter.resolved(forSystemName: bigPictureSystemName)
+    BigPictureVideoEffectPolicy.resolved(
+      filter: videoFilter,
+      forSystemName: bigPictureSystemName
+    )
   }
 
   private var bigPictureSystemName: String? {
@@ -1820,6 +1823,16 @@ private struct BigPictureVideoEffectModifier: ViewModifier {
 }
 
 enum BigPictureVideoEffectPolicy {
+  static func resolved(
+    filter: LibretroVideoFilter,
+    forSystemName systemName: String?
+  ) -> LibretroVideoFilter {
+    if filter == .crtSmart, systemName == nil {
+      return .crtCurved
+    }
+    return filter.resolved(forSystemName: systemName)
+  }
+
   static func curvature(for filter: LibretroVideoFilter) -> Float? {
     switch filter {
     case .crt:
