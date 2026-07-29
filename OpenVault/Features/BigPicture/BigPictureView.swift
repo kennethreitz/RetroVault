@@ -171,22 +171,7 @@ struct BigPictureView: View {
   }
 
   private var resolvedBigPictureVideoFilter: LibretroVideoFilter {
-    BigPictureVideoEffectPolicy.resolved(
-      filter: videoFilter,
-      forSystemName: bigPictureSystemName
-    )
-  }
-
-  private var bigPictureSystemName: String? {
-    let systemID: Int
-    switch page {
-    case let .games(.system(id)),
-      let .games(.downloadedSystem(id)):
-      systemID = id
-    case .home, .collections, .downloaded, .games:
-      return nil
-    }
-    return catalog.systems.first(where: { $0.id == systemID })?.name
+    BigPictureVideoEffectPolicy.resolved(filter: videoFilter)
   }
 
   private var header: some View {
@@ -877,8 +862,7 @@ struct BigPictureView: View {
             downloadedGameIDs.contains(game.id)
             ? "LOCAL"
             : game.releaseYear.map(String.init),
-          isFavorite:
-            scope.isSystem && catalog.favoriteGameIDs.contains(game.id),
+          isFavorite: catalog.favoriteGameIDs.contains(game.id),
           action: .play(game)
         )
       }
@@ -1823,14 +1807,16 @@ private struct BigPictureVideoEffectModifier: ViewModifier {
 }
 
 enum BigPictureVideoEffectPolicy {
-  static func resolved(
-    filter: LibretroVideoFilter,
-    forSystemName systemName: String?
-  ) -> LibretroVideoFilter {
-    if filter == .crtSmart, systemName == nil {
-      return .crtCurved
+  static func resolved(filter: LibretroVideoFilter) -> LibretroVideoFilter {
+    switch filter {
+    case .crtSmart, .crtCurved:
+      // Curvature suits game imagery, but bends navigation and requires
+      // flattening SwiftUI's lazy list. Keep Big Picture itself crisp and
+      // flat while preserving the user's CRT scanlines and phosphor mask.
+      return .crt
+    case .nearest, .sharpBilinear, .xbr, .crt:
+      return filter
     }
-    return filter.resolved(forSystemName: systemName)
   }
 
   static func curvature(for filter: LibretroVideoFilter) -> Float? {
@@ -2060,17 +2046,6 @@ private struct BigPictureActionNotice {
   let title: String
   let message: String
   let systemImage: String
-}
-
-extension BigPictureScope {
-  fileprivate var isSystem: Bool {
-    switch self {
-    case .system, .downloadedSystem:
-      true
-    default:
-      false
-    }
-  }
 }
 
 struct BigPictureControllerState: Equatable, Sendable {

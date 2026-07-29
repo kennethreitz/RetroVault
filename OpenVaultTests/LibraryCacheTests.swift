@@ -1002,20 +1002,17 @@ struct BigPictureCatalogTests {
   func resolvesBigPictureVideoEffects() {
     #expect(
       BigPictureVideoEffectPolicy.resolved(
-        filter: .crtSmart,
-        forSystemName: nil
-      ) == .crtCurved
+        filter: .crtSmart
+      ) == .crt
     )
     #expect(
       BigPictureVideoEffectPolicy.resolved(
-        filter: .crtSmart,
-        forSystemName: "DOS"
-      ) == .crtCurved
+        filter: .crtCurved
+      ) == .crt
     )
     #expect(
       BigPictureVideoEffectPolicy.resolved(
-        filter: .crtSmart,
-        forSystemName: "Game Boy Advance"
+        filter: .crt
       ) == .crt
     )
     #expect(
