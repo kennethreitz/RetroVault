@@ -7,11 +7,13 @@ struct LibrarySystem: Codable, Identifiable, Hashable, Sendable {
   let gameCount: Int
 }
 
-/// A regular, smart, or automatically generated virtual collection exposed by RomM.
+/// A regular or smart collection exposed by RomM.
 struct LibraryCollection: Codable, Identifiable, Hashable, Sendable {
   enum ID: Codable, Hashable, Sendable {
     case regular(Int)
     case smart(Int)
+    /// Retained only so caches written before virtual-collection support was
+    /// removed can be decoded and migrated.
     case virtual(String)
   }
 
@@ -20,7 +22,7 @@ struct LibraryCollection: Codable, Identifiable, Hashable, Sendable {
   let gameCount: Int
   /// Whether RomM marks this regular collection as the account's Favorites.
   let isFavorite: Bool?
-  /// RomM's virtual collection category, such as `collection` or `genre`.
+  /// Legacy virtual collection category retained for cache compatibility.
   let virtualType: String?
   /// Membership supplied inline by RomM, used only while constructing a snapshot.
   let memberGameIDs: [Int]?
@@ -349,6 +351,12 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
   /// RomM's own record of when this game was last played, which only reflects
   /// plays made through its web player.
   let serverLastPlayed: String?
+  /// The newest known play on this Mac or in RomM.
+  ///
+  /// This presentation value is projected from `LocalPlayHistory` when the
+  /// library is loaded so list columns can sort without consulting global
+  /// mutable state.
+  let lastPlayedAt: Date?
 
   init(
     id: Int,
@@ -371,7 +379,8 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
     isMissingFromFileSystem: Bool? = nil,
     createdAt: String? = nil,
     updatedAt: String? = nil,
-    serverLastPlayed: String? = nil
+    serverLastPlayed: String? = nil,
+    lastPlayedAt: Date? = nil
   ) {
     self.id = id
     self.name = name
@@ -394,6 +403,7 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
     self.createdAt = createdAt
     self.updatedAt = updatedAt
     self.serverLastPlayed = serverLastPlayed
+    self.lastPlayedAt = lastPlayedAt
   }
 
   func withSaveDataAvailability(
@@ -420,7 +430,36 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
       isIdentified: isIdentified,
       isMissingFromFileSystem: isMissingFromFileSystem,
       createdAt: createdAt,
-      updatedAt: updatedAt
+      updatedAt: updatedAt,
+      serverLastPlayed: serverLastPlayed,
+      lastPlayedAt: lastPlayedAt
+    )
+  }
+
+  func withLastPlayedAt(_ date: Date?) -> GameSummary {
+    GameSummary(
+      id: id,
+      name: name,
+      systemID: systemID,
+      systemName: systemName,
+      coverURL: coverURL,
+      isBIOS: isBIOS,
+      hasSave: hasSave,
+      hasState: hasState,
+      userStatus: userStatus,
+      completion: completion,
+      rating: rating,
+      difficulty: difficulty,
+      genres: genres,
+      releaseYear: releaseYear,
+      regions: regions,
+      fileSizeBytes: fileSizeBytes,
+      isIdentified: isIdentified,
+      isMissingFromFileSystem: isMissingFromFileSystem,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      serverLastPlayed: serverLastPlayed,
+      lastPlayedAt: date
     )
   }
 }
@@ -582,6 +621,49 @@ struct LibrarySnapshot: Codable, Equatable, Sendable {
   let collections: [LibraryCollection]
   let games: [GameSummary]
   let collectionMemberships: [CollectionMembership]
+
+  /// Projects the durable local/RomM play history onto rows used by sortable
+  /// library presentations.
+  func applying(_ playHistory: LocalPlayHistory) -> LibrarySnapshot {
+    LibrarySnapshot(
+      synchronizedAt: synchronizedAt,
+      systems: systems,
+      collections: collections,
+      games: games.map {
+        $0.withLastPlayedAt(playHistory.lastPlayed(gameID: $0.id))
+      },
+      collectionMemberships: collectionMemberships
+    )
+  }
+
+  /// Removes legacy virtual collections retained by an older cache.
+  ///
+  /// RomM can expose thousands of automatic collections with large inline
+  /// membership lists. OpenVault no longer synchronizes them, but preserving
+  /// this migration keeps an existing offline cache readable while promptly
+  /// releasing that data.
+  func withoutVirtualCollections() -> LibrarySnapshot {
+    let retainedCollections = collections.filter {
+      if case .virtual = $0.id {
+        return false
+      }
+      return true
+    }
+    guard retainedCollections.count != collections.count else {
+      return self
+    }
+
+    let retainedIDs = Set(retainedCollections.map(\.id))
+    return LibrarySnapshot(
+      synchronizedAt: synchronizedAt,
+      systems: systems,
+      collections: retainedCollections,
+      games: games,
+      collectionMemberships: collectionMemberships.filter {
+        retainedIDs.contains($0.collectionID)
+      }
+    )
+  }
 
   func page(
     matching filter: LibraryFilter,

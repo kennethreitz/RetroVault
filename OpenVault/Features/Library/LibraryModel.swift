@@ -6,7 +6,6 @@ enum LibrarySelection: Hashable {
   case allGames
   case downloaded
   case recentlyPlayed
-  case virtualCollections
   case system(Int)
   case systems(Set<Int>)
   case collection(LibraryCollection.ID)
@@ -18,8 +17,6 @@ enum LibrarySelection: Hashable {
     case .downloaded:
       .allGames
     case .recentlyPlayed:
-      .allGames
-    case .virtualCollections:
       .allGames
     case .system(let id):
       .system(id)
@@ -204,10 +201,10 @@ final class LibraryModel {
   var selection: LibrarySelection = .allGames
   private(set) var systems: [LibrarySystem] = []
   private(set) var collections: [LibraryCollection] = []
-  private(set) var collectionPreviewGames: [LibraryCollection.ID: [GameSummary]] = [:]
   private(set) var favoriteGameIDs: Set<Int> = []
   private(set) var downloadedGameIDs: Set<Int> = []
   private(set) var managedDownloadedGameIDs: Set<Int> = []
+  private(set) var localQuickStateGameIDs: Set<Int> = []
   private(set) var playHistory = LocalPlayHistory()
   private(set) var games: [GameSummary] = []
   private(set) var searchTerm = ""
@@ -277,8 +274,6 @@ final class LibraryModel {
       return "Downloaded"
     case .recentlyPlayed:
       return "Recently Played"
-    case .virtualCollections:
-      return "Virtual Collections"
     case .system(let id):
       return systems.first(where: { $0.id == id })?.name ?? "System"
     case .systems(let ids):
@@ -315,8 +310,7 @@ final class LibraryModel {
     switch selection {
     case .system, .systems:
       return true
-    case .allGames, .downloaded, .recentlyPlayed, .virtualCollections,
-      .collection:
+    case .allGames, .downloaded, .recentlyPlayed, .collection:
       return false
     }
   }
@@ -544,7 +538,6 @@ final class LibraryModel {
     hasSynchronized = false
     systems = []
     collections = []
-    collectionPreviewGames = [:]
     favoriteGameIDs = []
     games = []
     systemIDsWithArtwork = []
@@ -571,13 +564,6 @@ final class LibraryModel {
     isLoading = true
     isLoadingMore = false
     errorMessage = nil
-
-    if selection == .virtualCollections {
-      games = []
-      totalGameCount = 0
-      isLoading = false
-      return
-    }
 
     if let snapshot {
       let page = pageFromSnapshot(
@@ -781,9 +767,13 @@ final class LibraryModel {
     async let managedDownloadedGameIDsRequest = service.managedDownloadedGameIDs(
       in: session
     )
-    let (gameIDs, managedGameIDs) = await (
+    async let localQuickStateGameIDsRequest = service.localQuickStateGameIDs(
+      in: session
+    )
+    let (gameIDs, managedGameIDs, quickStateGameIDs) = await (
       downloadedGameIDsRequest,
-      managedDownloadedGameIDsRequest
+      managedDownloadedGameIDsRequest,
+      localQuickStateGameIDsRequest
     )
     OpenVaultLog.library.info(
       "Found \(gameIDs.count, privacy: .public) locally available games, including \(managedGameIDs.count, privacy: .public) managed downloads"
@@ -803,21 +793,41 @@ final class LibraryModel {
     guard
       reconciledGameIDs != downloadedGameIDs
         || reconciledManagedGameIDs != managedDownloadedGameIDs
+        || quickStateGameIDs != localQuickStateGameIDs
     else {
       return
     }
 
     downloadedGameIDs = reconciledGameIDs
     managedDownloadedGameIDs = reconciledManagedGameIDs
+    localQuickStateGameIDs = quickStateGameIDs
     if selection == .downloaded {
       await reloadGames()
     }
+  }
+
+  /// Refreshes resume availability after a player writes its exit state.
+  func reloadLocalQuickStates() async {
+    let gameIDs = await service.localQuickStateGameIDs(in: session)
+    guard gameIDs != localQuickStateGameIDs else {
+      return
+    }
+    localQuickStateGameIDs = gameIDs
   }
 
   /// Records that a game was just played, so Recently Played reflects it
   /// immediately rather than after the next synchronization.
   func recordPlay(gameID: Int) async {
     playHistory = await service.recordPlay(gameID: gameID, in: session)
+    if let currentSnapshot = snapshot {
+      snapshot = currentSnapshot.applying(playHistory)
+    }
+    games = games.map {
+      guard $0.id == gameID else {
+        return $0
+      }
+      return $0.withLastPlayedAt(playHistory.lastPlayed(gameID: gameID))
+    }
     if selection == .recentlyPlayed {
       await reloadGames()
     }
@@ -1596,12 +1606,14 @@ final class LibraryModel {
     return playHistory.gameIDsByRecency.compactMap { gamesByID[$0] }
   }
 
-  private func apply(_ librarySnapshot: LibrarySnapshot) {
-    snapshot = librarySnapshot
+  private func apply(_ incomingSnapshot: LibrarySnapshot) {
+    let sanitizedSnapshot = incomingSnapshot.withoutVirtualCollections()
     // RomM only records a play made through its own web player, and OpenVault
     // never reports one back, so the two records are independent and the newer
     // of the pair wins.
-    playHistory = playHistory.merging(games: librarySnapshot.games)
+    playHistory = playHistory.merging(games: sanitizedSnapshot.games)
+    let librarySnapshot = sanitizedSnapshot.applying(playHistory)
+    snapshot = librarySnapshot
     favoriteGameIDs = RomMFavorites.gameIDs(
       collections: librarySnapshot.collections,
       memberships: librarySnapshot.collectionMemberships
@@ -1640,28 +1652,19 @@ final class LibraryModel {
         virtualType: $0.virtualType
       )
     }
-    collectionPreviewGames = Self.makeCollectionPreviews(
-      from: librarySnapshot,
-      visibleGameIDs: visibleGameIDs
-    )
     allGameCount = visibleGames.count
     lastSuccessfulSync = librarySnapshot.synchronizedAt
     systemIDsWithArtwork = []
     systemIDsWithoutArtwork = []
     validateSelection()
 
-    if selection == .virtualCollections {
-      games = []
-      totalGameCount = 0
-    } else {
-      let page = pageFromSnapshot(
-        from: librarySnapshot,
-        offset: 0,
-        limit: librarySnapshot.games.count
-      )
-      games = page.games
-      totalGameCount = page.total
-    }
+    let page = pageFromSnapshot(
+      from: librarySnapshot,
+      offset: 0,
+      limit: librarySnapshot.games.count
+    )
+    games = page.games
+    totalGameCount = page.total
   }
 
   private func apply(
@@ -1714,15 +1717,6 @@ final class LibraryModel {
     switch selection {
     case .allGames, .downloaded, .recentlyPlayed:
       break
-    case .virtualCollections
-      where collections.contains(where: {
-        if case .virtual = $0.id {
-          true
-        } else {
-          false
-        }
-      }):
-      break
     case .system(let id) where systems.contains(where: { $0.id == id }):
       break
     case .systems(let ids)
@@ -1733,50 +1727,8 @@ final class LibraryModel {
       break
     case .collection(let id) where collections.contains(where: { $0.id == id }):
       break
-    case .virtualCollections, .system, .systems, .collection:
+    case .system, .systems, .collection:
       selection = .allGames
     }
-  }
-
-  private static func makeCollectionPreviews(
-    from snapshot: LibrarySnapshot,
-    visibleGameIDs: Set<Int>
-  ) -> [LibraryCollection.ID: [GameSummary]] {
-    let gamesByID = Dictionary(
-      uniqueKeysWithValues: snapshot.games.map { ($0.id, $0) }
-    )
-
-    return Dictionary(
-      uniqueKeysWithValues: snapshot.collectionMemberships.map { membership in
-        var gamesWithArtwork: [GameSummary] = []
-        var gamesWithoutArtwork: [GameSummary] = []
-
-        for gameID in membership.gameIDs {
-          guard
-            visibleGameIDs.contains(gameID),
-            let game = gamesByID[gameID]
-          else {
-            continue
-          }
-
-          if game.coverURL != nil {
-            if gamesWithArtwork.count < 4 {
-              gamesWithArtwork.append(game)
-            }
-          } else if gamesWithoutArtwork.count < 4 {
-            gamesWithoutArtwork.append(game)
-          }
-
-          if gamesWithArtwork.count == 4 {
-            break
-          }
-        }
-
-        return (
-          membership.collectionID,
-          Array((gamesWithArtwork + gamesWithoutArtwork).prefix(4))
-        )
-      }
-    )
   }
 }

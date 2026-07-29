@@ -55,6 +55,7 @@ protocol LibraryServing: Sendable {
   ) async throws -> GameDeletionResult
   func downloadedGameIDs(in session: ServerSession) async -> Set<Int>
   func managedDownloadedGameIDs(in session: ServerSession) async -> Set<Int>
+  func localQuickStateGameIDs(in session: ServerSession) async -> Set<Int>
   func prepareGameForPlay(
     _ game: GameDetails,
     in session: ServerSession,
@@ -143,6 +144,10 @@ extension LibraryServing {
 
   func managedDownloadedGameIDs(in session: ServerSession) async -> Set<Int> {
     await downloadedGameIDs(in: session)
+  }
+
+  func localQuickStateGameIDs(in session: ServerSession) async -> Set<Int> {
+    []
   }
 
   func exportGame(_ game: GameDetails, in session: ServerSession) async throws -> URL {
@@ -272,6 +277,7 @@ actor RomMLibraryService: LibraryServing {
   private let downloadsDirectory: URL
   private let managedROMDirectory: URL
   private let runtimeCacheDirectory: URL
+  private let libretroDirectory: URL
   private let firmwareDirectory: URL
   private let saveDirectory: URL
   private let archiveExtractor: any GameArchiveExtracting
@@ -285,6 +291,7 @@ actor RomMLibraryService: LibraryServing {
     downloadsDirectory: URL? = nil,
     managedROMDirectory: URL? = nil,
     runtimeCacheDirectory: URL? = nil,
+    libretroDirectory: URL? = nil,
     firmwareDirectory: URL? = nil,
     saveDirectory: URL? = nil,
     archiveExtractor: any GameArchiveExtracting = ZIPFoundationGameArchiveExtractor(),
@@ -317,6 +324,17 @@ actor RomMLibraryService: LibraryServing {
       ?? URL.temporaryDirectory
       .appending(path: "OpenVault", directoryHint: .isDirectory)
       .appending(path: "ROMs", directoryHint: .isDirectory)
+    self.libretroDirectory =
+      libretroDirectory
+      ?? FileManager.default.urls(
+        for: .applicationSupportDirectory,
+        in: .userDomainMask
+      ).first?
+      .appending(path: "OpenVault", directoryHint: .isDirectory)
+      .appending(path: "Libretro", directoryHint: .isDirectory)
+      ?? URL.temporaryDirectory
+      .appending(path: "OpenVault", directoryHint: .isDirectory)
+      .appending(path: "Libretro", directoryHint: .isDirectory)
     self.firmwareDirectory =
       firmwareDirectory
       ?? FileManager.default.urls(
@@ -345,8 +363,15 @@ actor RomMLibraryService: LibraryServing {
   }
 
   func cachedSnapshot(in session: ServerSession) async throws -> LibrarySnapshot? {
-    guard let snapshot = try await cache.snapshot(for: session.serverURL) else {
+    guard let cachedSnapshot = try await cache.snapshot(for: session.serverURL) else {
       return nil
+    }
+    let snapshot = cachedSnapshot.withoutVirtualCollections()
+    if snapshot != cachedSnapshot {
+      try await cache.replaceSnapshot(snapshot, for: session.serverURL)
+      OpenVaultLog.library.notice(
+        "Removed legacy virtual collections from the cached library"
+      )
     }
     let serverFavoriteGameIDs = RomMFavorites.gameIDs(
       collections: snapshot.collections,
@@ -416,10 +441,16 @@ actor RomMLibraryService: LibraryServing {
       at: session.serverURL,
       token: token
     )
-    let (remoteSystems, remoteCollections) = try await (
+    let (remoteSystems, fetchedCollections) = try await (
       systemsRequest,
       collectionsRequest
     )
+    let remoteCollections = fetchedCollections.filter {
+      if case .virtual = $0.id {
+        return false
+      }
+      return true
+    }
 
     var allGames: [GameSummary]
     do {
@@ -736,13 +767,18 @@ actor RomMLibraryService: LibraryServing {
 
   func collections(in session: ServerSession) async throws -> [LibraryCollection] {
     if let snapshot = try await cache.snapshot(for: session.serverURL) {
-      return snapshot.collections
+      return snapshot.withoutVirtualCollections().collections
     }
 
     return try await api.collections(
       at: session.serverURL,
       token: authenticationToken()
-    )
+    ).filter {
+      if case .virtual = $0.id {
+        return false
+      }
+      return true
+    }
   }
 
   func games(
@@ -1092,6 +1128,30 @@ actor RomMLibraryService: LibraryServing {
 
   func managedDownloadedGameIDs(in session: ServerSession) async -> Set<Int> {
     storedGameIDs(in: managedROMServerDirectory(in: session))
+  }
+
+  /// Games whose exact local content path has a persisted Libretro quick state.
+  ///
+  /// Quick states predate the library-level resume badge and are intentionally
+  /// stored beside the core, keyed by the content path. Reconstructing that
+  /// relationship from disk recognizes those existing states without
+  /// requiring a migration or trusting RomM's separate server-state metadata.
+  func localQuickStateGameIDs(in session: ServerSession) async -> Set<Int> {
+    let contentKeys = quickStateContentKeys()
+    guard !contentKeys.isEmpty else {
+      return []
+    }
+
+    return gameIDs(
+      matchingQuickStateContentKeys: contentKeys,
+      in: managedROMServerDirectory(in: session)
+    )
+    .union(
+      gameIDs(
+        matchingQuickStateContentKeys: contentKeys,
+        in: runtimeCacheServerDirectory(in: session)
+      )
+    )
   }
 
   func deleteGames(
@@ -1450,6 +1510,7 @@ actor RomMLibraryService: LibraryServing {
       withIntermediateDirectories: true
     )
 
+    let metadata = loadSaveSyncMetadata(for: localSaveURL)
     let configuration = CartridgeSaveSyncConfiguration(
       serverURL: session.serverURL,
       gameID: game.id,
@@ -1457,10 +1518,10 @@ actor RomMLibraryService: LibraryServing {
       uploadFileName: saveFileName(for: game, storage: storage),
       emulator: emulator,
       slot: "autosave",
-      storage: storage
+      storage: storage,
+      remoteSaveUpdatedAt: metadata?.remoteUpdatedAt
     )
     let localHash = saveContentHash(for: configuration)
-    let metadata = loadSaveSyncMetadata(for: localSaveURL)
 
     guard allowsRemoteAccess else {
       OpenVaultLog.libretro.info(
@@ -1616,7 +1677,7 @@ actor RomMLibraryService: LibraryServing {
         OpenVaultLog.libretro.notice(
           "Imported RomM cartridge save \(save.id, privacy: .public) for game \(game.id, privacy: .public)"
         )
-        return configuration
+        return configuration.withRemoteSaveUpdatedAt(save.updatedAt)
       } catch RomMAPIError.notFound {
         OpenVaultLog.libretro.info(
           "RomM save \(save.id, privacy: .public) is missing; trying the previous revision"
@@ -2310,6 +2371,98 @@ actor RomMLibraryService: LibraryServing {
         return gameID
       }
     )
+  }
+
+  private func quickStateContentKeys() -> Set<String> {
+    let fileManager = FileManager.default
+    guard
+      let coreDirectories = try? fileManager.contentsOfDirectory(
+        at: libretroDirectory,
+        includingPropertiesForKeys: [.isDirectoryKey],
+        options: [.skipsHiddenFiles]
+      )
+    else {
+      return []
+    }
+
+    var keys: Set<String> = []
+    for coreDirectory in coreDirectories {
+      guard
+        (try? coreDirectory.resourceValues(forKeys: [.isDirectoryKey])
+          .isDirectory) == true,
+        let contentDirectories = try? fileManager.contentsOfDirectory(
+          at: coreDirectory,
+          includingPropertiesForKeys: [.isDirectoryKey],
+          options: [.skipsHiddenFiles]
+        )
+      else {
+        continue
+      }
+
+      for contentDirectory in contentDirectories {
+        let quickStateURL = contentDirectory
+          .appending(path: "States", directoryHint: .isDirectory)
+          .appending(path: "Quick.state")
+        guard
+          let values = try? quickStateURL.resourceValues(
+            forKeys: [.isRegularFileKey, .fileSizeKey]
+          ),
+          values.isRegularFile == true,
+          (values.fileSize ?? 0) > 0
+        else {
+          continue
+        }
+        keys.insert(contentDirectory.lastPathComponent)
+      }
+    }
+    return keys
+  }
+
+  private func gameIDs(
+    matchingQuickStateContentKeys contentKeys: Set<String>,
+    in serverDirectory: URL
+  ) -> Set<Int> {
+    let fileManager = FileManager.default
+    guard
+      let gameDirectories = try? fileManager.contentsOfDirectory(
+        at: serverDirectory,
+        includingPropertiesForKeys: [.isDirectoryKey],
+        options: [.skipsHiddenFiles]
+      )
+    else {
+      return []
+    }
+
+    var gameIDs: Set<Int> = []
+    for gameDirectory in gameDirectories {
+      guard
+        let gameID = Int(gameDirectory.lastPathComponent),
+        let enumerator = fileManager.enumerator(
+          at: gameDirectory,
+          includingPropertiesForKeys: [.isRegularFileKey],
+          options: [.skipsHiddenFiles]
+        )
+      else {
+        continue
+      }
+
+      for case let contentURL as URL in enumerator {
+        guard
+          (try? contentURL.resourceValues(forKeys: [.isRegularFileKey])
+            .isRegularFile) == true
+        else {
+          continue
+        }
+        if contentKeys.contains(
+          LibretroContentIdentity.key(for: contentURL)
+        ) {
+          gameIDs.insert(gameID)
+          enumerator.skipDescendants()
+          break
+        }
+      }
+    }
+    return gameIDs
   }
 
   private func isValidCachedGame(

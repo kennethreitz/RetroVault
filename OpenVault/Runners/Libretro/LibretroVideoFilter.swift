@@ -22,6 +22,9 @@ enum LibretroVideoFilter: String, CaseIterable, Identifiable, Sendable {
     /// Scanlines and a phosphor mask over a sharp-bilinear resample.
     case crt
 
+    /// The same CRT simulation with tube curvature and darkened corners.
+    case crtCurved = "crt-curved"
+
     var id: String { rawValue }
 
     var displayName: String {
@@ -34,6 +37,8 @@ enum LibretroVideoFilter: String, CaseIterable, Identifiable, Sendable {
             "xBR"
         case .crt:
             "CRT"
+        case .crtCurved:
+            "CRT (Curved)"
         }
     }
 
@@ -49,7 +54,20 @@ enum LibretroVideoFilter: String, CaseIterable, Identifiable, Sendable {
             "Reshapes pixel-art edges into curves and diagonals. Suits 2D "
                 + "games; leaves 3D cores looking waxy."
         case .crt:
-            "Scanlines and a phosphor mask, approximating a consumer CRT."
+            "A crisp flat CRT with scanlines, RGB phosphors, and brief "
+                + "phosphor persistence."
+        case .crtCurved:
+            "The persistent RGB phosphor treatment with curved tube geometry "
+                + "and softly darkened corners."
+        }
+    }
+
+    var usesFrameHistory: Bool {
+        switch self {
+        case .crt, .crtCurved:
+            true
+        case .nearest, .sharpBilinear, .xbr:
+            false
         }
     }
 
@@ -64,6 +82,8 @@ enum LibretroVideoFilter: String, CaseIterable, Identifiable, Sendable {
             "openVaultXBRFragment"
         case .crt:
             "openVaultCRTFragment"
+        case .crtCurved:
+            "openVaultCRTCurvedFragment"
         }
     }
 }
@@ -490,13 +510,179 @@ enum LibretroMetalShader {
             return float4(res, 1.0);
         }
 
-        // Scanlines and an aperture-grille mask over a sharp-bilinear
-        // resample. Weighting happens on linearised colour so the mask darkens
-        // the picture the way a real tube does rather than crushing it, and
-        // the result is re-encoded before it reaches the drawable.
+        static float3 openVaultToLinear(float3 color) {
+            return pow(max(color, 0.0), float3(2.2));
+        }
+
+        static float3 openVaultFromLinear(float3 color) {
+            return pow(max(color, 0.0), float3(1.0 / 2.2));
+        }
+
+        // A bright phosphor does not go completely dark between two 60 Hz
+        // frames. Retaining a small amount of the prior frame makes the
+        // alternating-frame transparency used by period games appear
+        // translucent instead of visibly blinking.
+        //
+        // The decay is deliberately applied to display-encoded color before
+        // the CRT treatment is linearized. A 62% remnant in linear light
+        // becomes roughly 80% after gamma encoding, which is physically
+        // defensible but looks like motion blur on an LCD. In display space
+        // it remains visible without softening every moving edge.
+        static float3 openVaultPhosphorPersistence(
+            float3 current,
+            float3 previous
+        ) {
+            constexpr float decay = 0.62;
+            return max(current, previous * decay);
+        }
+
+        // A consumer CRT does not have square RGB pixels. Its shadow mask
+        // exposes short red, green, and blue phosphor slots in staggered
+        // triads. Each slot here is two physical drawable pixels wide and two
+        // high, followed by a one-pixel horizontal grille gap. On a Retina
+        // panel that makes a slot roughly one point across: visible up close,
+        // but fine enough to blend into color at normal viewing distance.
+        //
+        // The mask is deliberately energy-neutral across a complete triad so
+        // white remains white instead of acquiring a color cast.
+        static float3 openVaultRGBSlotMask(
+            float2 physicalPixel,
+            float strength
+        ) {
+            uint pixelX = uint(floor(max(physicalPixel.x, 0.0)));
+            uint pixelY = uint(floor(max(physicalPixel.y, 0.0)));
+            uint rowInBank = pixelY % 3u;
+            uint bank = (pixelY / 3u) % 2u;
+            uint shiftedX = pixelX + bank * 2u;
+            uint phosphor = (shiftedX / 2u) % 3u;
+
+            float3 mask = float3(0.78);
+            if (phosphor == 0u) {
+                mask.r = 1.22;
+            } else if (phosphor == 1u) {
+                mask.g = 1.22;
+            } else {
+                mask.b = 1.22;
+            }
+
+            // The unlit row between slot banks is the horizontal part of the
+            // shadow mask. Keep it present but not black so scanlines remain
+            // the dominant structure instead of producing a mesh overlay.
+            if (rowInBank == 2u) {
+                mask *= 0.78;
+            }
+
+            return mix(float3(1.0), mask * 1.165, strength);
+        }
+
+        // Barrel distortion is deliberately isolated here. The normal CRT
+        // path never calls it, so choosing "CRT" cannot bend or crop a frame.
+        static float2 openVaultCRTCurvedCoordinate(float2 coordinate) {
+            float2 centered = coordinate * 2.0 - 1.0;
+            float2 squared = centered * centered;
+            centered.x *= 1.0 + squared.y * 0.045;
+            centered.y *= 1.0 + squared.x * 0.035;
+            return centered * 0.5 + 0.5;
+        }
+
+        static float4 openVaultCRT(
+            float2 textureCoordinate,
+            texture2d<float> frame,
+            texture2d<float> previousFrame,
+            constant OpenVaultVideoUniforms &uniforms,
+            bool curved
+        ) {
+            float2 coordinate = curved
+                ? openVaultCRTCurvedCoordinate(textureCoordinate)
+                : textureCoordinate;
+
+            // Curvature exposes the outside of the virtual tube at the
+            // corners. Keep those pixels opaque black instead of smearing the
+            // edge texels into the border.
+            if (
+                coordinate.x < 0.0 || coordinate.x > 1.0
+                || coordinate.y < 0.0 || coordinate.y > 1.0
+            ) {
+                return float4(0.0, 0.0, 0.0, 1.0);
+            }
+
+            float2 sourceSize = max(
+                float2(uniforms.sourceWidth, uniforms.sourceHeight),
+                float2(1.0)
+            );
+            float2 targetSize = max(
+                float2(uniforms.targetWidth, uniforms.targetHeight),
+                float2(1.0)
+            );
+            // Apply the same crisp reconstruction as the flat CRT after
+            // warping the texture coordinate. The older curved path used a
+            // wide luminance-dependent beam plus a four-sample glass halo;
+            // together those softened fine pixel art considerably.
+            float3 color = openVaultPhosphorPersistence(
+                openVaultSharpBilinear(
+                    coordinate,
+                    frame,
+                    uniforms
+                ).rgb,
+                openVaultSharpBilinear(
+                    coordinate,
+                    previousFrame,
+                    uniforms
+                ).rgb
+            );
+            color = openVaultToLinear(color);
+
+            // Keep scanlines source-aligned so the curved treatment retains
+            // distinct rows without blending neighboring source pixels.
+            float scanlinePhase = fract(coordinate.y * sourceSize.y);
+            float distanceFromCenter = scanlinePhase - 0.5;
+            float scanline =
+                exp2(-8.0 * distanceFromCenter * distanceFromCenter);
+
+            float2 outputScale = targetSize / sourceSize;
+            float scanlineStrength = clamp(
+                (outputScale.y - 1.5) / 1.5,
+                0.0,
+                1.0
+            );
+            color *= mix(1.0, scanline, scanlineStrength);
+
+            // The slot mask is indexed in physical drawable pixels, not
+            // SwiftUI points, so Retina displays receive the full phosphor
+            // structure rather than a point-scaled approximation.
+            float maskStrength = clamp(
+                (min(outputScale.x, outputScale.y) - 2.0) / 2.0,
+                0.0,
+                1.0
+            );
+            color *= openVaultRGBSlotMask(
+                textureCoordinate * targetSize,
+                maskStrength * 0.58
+            );
+
+            // Curvature gets its own soft glass edge. The flat CRT path has
+            // no vignette, geometry change, or loss of picture area.
+            if (curved) {
+                float2 edgeDistance =
+                    min(coordinate, 1.0 - coordinate);
+                float edge = smoothstep(
+                    0.0,
+                    0.025,
+                    min(edgeDistance.x, edgeDistance.y)
+                );
+                color *= edge;
+            }
+
+            // Restore only the energy removed by visible scanlines. This
+            // keeps a small window from becoming artificially overexposed.
+            color *= mix(1.08, 1.52, scanlineStrength);
+            return float4(openVaultFromLinear(color), 1.0);
+        }
+
         fragment float4 openVaultCRTFragment(
             OpenVaultPixelVertex input [[stage_in]],
             texture2d<float> frame [[texture(0)]],
+            texture2d<float> previousFrame [[texture(1)]],
             constant OpenVaultVideoUniforms &uniforms [[buffer(0)]]
         ) {
             float4 sampled = openVaultSharpBilinear(
@@ -504,46 +690,66 @@ enum LibretroMetalShader {
                 frame,
                 uniforms
             );
-            float3 color = pow(max(sampled.rgb, 0.0), float3(2.2));
+            float3 previousColor =
+                openVaultSharpBilinear(
+                    input.textureCoordinate,
+                    previousFrame,
+                    uniforms
+                ).rgb;
+            float3 color = openVaultToLinear(
+                openVaultPhosphorPersistence(sampled.rgb, previousColor)
+            );
 
-            // Scanline weight from the vertical position inside the source
-            // scanline, so the lines track the core's resolution rather than
-            // the window size.
+            // Keep the original sharp CRT treatment: source-aligned
+            // scanlines over sharp-bilinear pixels, without reconstruction or
+            // halation softening the image.
             float scanlinePhase =
                 fract(input.textureCoordinate.y * uniforms.sourceHeight);
             float distanceFromCenter = scanlinePhase - 0.5;
             float scanline =
                 exp2(-8.0 * distanceFromCenter * distanceFromCenter);
 
-            // Below roughly 3x there are too few output rows per source line
-            // to draw a gap without it turning into moire, so fade the effect
-            // out rather than let it alias.
             float verticalScale =
                 uniforms.targetHeight / max(uniforms.sourceHeight, 1.0);
             float scanlineStrength =
                 clamp((verticalScale - 1.5) / 1.5, 0.0, 1.0);
             scanline = mix(1.0, scanline, scanlineStrength);
 
-            // Aperture grille keyed to the output pixel column, cycling
-            // red-green-blue across every three physical pixels.
-            uint column = uint(input.position.x) % 3u;
-            float3 mask = float3(0.85);
-            if (column == 0u) {
-                mask = float3(1.0, 0.8, 0.8);
-            } else if (column == 1u) {
-                mask = float3(0.8, 1.0, 0.8);
-            } else {
-                mask = float3(0.8, 0.8, 1.0);
-            }
+            float horizontalScale =
+                uniforms.targetWidth / max(uniforms.sourceWidth, 1.0);
+            float maskStrength = clamp(
+                (min(horizontalScale, verticalScale) - 1.75) / 2.25,
+                0.0,
+                1.0
+            );
+            float3 mask = openVaultRGBSlotMask(
+                input.position.xy,
+                maskStrength * 0.72
+            );
 
             color *= scanline;
             color *= mask;
-            // Scanlines and mask together remove roughly a third of the
-            // energy. Put back only what the scanlines actually took, so a
-            // window too small to draw them does not come out overexposed.
-            color *= mix(1.15, 1.6, scanlineStrength);
+            color *= mix(1.08, 1.52, scanlineStrength);
 
-            return float4(pow(max(color, 0.0), float3(1.0 / 2.2)), 1.0);
+            return float4(
+                pow(max(color, 0.0), float3(1.0 / 2.2)),
+                1.0
+            );
+        }
+
+        fragment float4 openVaultCRTCurvedFragment(
+            OpenVaultPixelVertex input [[stage_in]],
+            texture2d<float> frame [[texture(0)]],
+            texture2d<float> previousFrame [[texture(1)]],
+            constant OpenVaultVideoUniforms &uniforms [[buffer(0)]]
+        ) {
+            return openVaultCRT(
+                input.textureCoordinate,
+                frame,
+                previousFrame,
+                uniforms,
+                true
+            );
         }
         """
 }

@@ -25,6 +25,12 @@ struct SettingsView: View {
     @AppStorage(LibretroPlayerPreferences.opensInFullScreenKey)
     private var opensGamesInFullScreen =
         LibretroPlayerPreferences.opensInFullScreenByDefault
+    @AppStorage(LibretroWiiControllerPreferences.profileKey)
+    private var wiiControllerProfile =
+        LibretroWiiControllerPreferences.defaultProfile
+    @AppStorage(LibretroDigitalInputPreferences.mapsLeftAnalogToDPadKey)
+    private var mapsLeftAnalogToDPad =
+        LibretroDigitalInputPreferences.mapsLeftAnalogToDPadByDefault
     @AppStorage(DSUPreferences.isEnabledKey)
     private var usesDSUController = DSUPreferences.enabledByDefault
     @AppStorage(DSUPreferences.hostKey)
@@ -145,6 +151,37 @@ struct SettingsView: View {
 
             Section("Emulation") {
                 LabeledContent("Runtime", value: "Bundled Libretro")
+
+                Picker("Wii Controller", selection: $wiiControllerProfile) {
+                    ForEach(LibretroWiiControllerProfile.allCases) { profile in
+                        Text(profile.displayName).tag(profile)
+                    }
+                }
+
+                Text(
+                    """
+                    Presented to Wii games when they start. Sideways Wii Remote \
+                    suits games designed around holding the remote like a \
+                    traditional controller. This does not affect GameCube games.
+                    """
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                Toggle(
+                    "Map Left Stick to D-Pad for Digital Systems",
+                    isOn: $mapsLeftAnalogToDPad
+                )
+
+                Text(
+                    """
+                    Lets the left stick control digital-only games such as NES, \
+                    Game Boy Advance, and Wii games using the sideways Wii Remote. \
+                    Analog-capable controller configurations are not changed.
+                    """
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
                 Toggle(
                     "Enable Fast Forward with R3",

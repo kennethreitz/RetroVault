@@ -20,6 +20,7 @@ struct LibretroRunRequest: Codable, Hashable, Sendable {
     let title: String
     let coreID: String
     let contentURL: URL?
+    let systemName: String?
     let systemDirectory: URL?
     let saveSync: CartridgeSaveSyncConfiguration?
     let playerOrigin: LibretroPlayerOrigin?
@@ -29,6 +30,7 @@ struct LibretroRunRequest: Codable, Hashable, Sendable {
         title: String,
         coreID: String,
         contentURL: URL?,
+        systemName: String? = nil,
         systemDirectory: URL? = nil,
         saveSync: CartridgeSaveSyncConfiguration? = nil,
         playerOrigin: LibretroPlayerOrigin? = nil,
@@ -37,6 +39,7 @@ struct LibretroRunRequest: Codable, Hashable, Sendable {
         self.title = title
         self.coreID = coreID
         self.contentURL = contentURL
+        self.systemName = systemName
         self.systemDirectory = systemDirectory
         self.saveSync = saveSync
         self.playerOrigin = playerOrigin
@@ -56,6 +59,7 @@ struct LibretroRunRequest: Codable, Hashable, Sendable {
             title: title,
             coreID: coreID,
             contentURL: contentURL,
+            systemName: systemName,
             systemDirectory: systemDirectory,
             saveSync: saveSync,
             playerOrigin: playerOrigin,
@@ -68,6 +72,7 @@ struct LibretroRunRequest: Codable, Hashable, Sendable {
             title: title,
             coreID: coreID,
             contentURL: contentURL,
+            systemName: systemName,
             systemDirectory: systemDirectory,
             saveSync: saveSync,
             playerOrigin: origin,
@@ -80,6 +85,174 @@ struct LibretroRunRequest: Codable, Hashable, Sendable {
         coreID: "libretro-2048",
         contentURL: nil
     )
+}
+
+enum LibretroQuickStateRestorePolicy {
+    static func shouldRestore(
+        requestAllowsRestore: Bool,
+        remoteSaveUpdatedAt: Date?,
+        quickStateUpdatedAt: Date?
+    ) -> Bool {
+        guard requestAllowsRestore else {
+            return false
+        }
+        guard
+            let remoteSaveUpdatedAt,
+            let quickStateUpdatedAt
+        else {
+            return true
+        }
+        return remoteSaveUpdatedAt <= quickStateUpdatedAt
+    }
+}
+
+enum LibretroWiiControllerProfile: String, CaseIterable, Identifiable, Sendable {
+    case classicControllerPro = "classic-controller-pro"
+    case sidewaysWiiRemote = "sideways-wii-remote"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .classicControllerPro:
+            "Classic Controller Pro"
+        case .sidewaysWiiRemote:
+            "Wii Remote (Sideways)"
+        }
+    }
+}
+
+enum LibretroWiiControllerPreferences {
+    static let profileKey = "libretro.wii.controller-profile.v1"
+    static let defaultProfile = LibretroWiiControllerProfile.classicControllerPro
+
+    static func profile(
+        from defaults: UserDefaults = .standard
+    ) -> LibretroWiiControllerProfile {
+        guard
+            let rawValue = defaults.string(forKey: profileKey),
+            let profile = LibretroWiiControllerProfile(rawValue: rawValue)
+        else {
+            return defaultProfile
+        }
+        return profile
+    }
+}
+
+enum LibretroDigitalInputPreferences {
+    static let mapsLeftAnalogToDPadKey =
+        "libretro.input.left-analog-to-dpad.v1"
+    static let mapsLeftAnalogToDPadByDefault = true
+
+    static func mapsLeftAnalogToDPad(
+        from defaults: UserDefaults = .standard
+    ) -> Bool {
+        defaults.object(forKey: mapsLeftAnalogToDPadKey) as? Bool
+            ?? mapsLeftAnalogToDPadByDefault
+    }
+}
+
+enum LibretroControllerDevice {
+    static let joypad: UInt32 = 1
+    /// Dolphin's sideways Wii Remote libretro device subtype.
+    static let sidewaysWiiRemote: UInt32 = (2 << 8) | joypad
+    /// Dolphin's WiiMote + Classic Controller Pro libretro device subtype.
+    static let wiiClassicControllerPro: UInt32 = (5 << 8) | joypad
+
+    static func primaryDevice(
+        coreID: String,
+        systemName: String?,
+        wiiProfile: LibretroWiiControllerProfile =
+            LibretroWiiControllerPreferences.profile()
+    ) -> UInt32 {
+        guard
+            coreID.caseInsensitiveCompare("libretro-dolphin") == .orderedSame,
+            let systemName,
+            ["wii", "nintendo wii"].contains(
+                systemName
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+            )
+        else {
+            return joypad
+        }
+        switch wiiProfile {
+        case .classicControllerPro:
+            return wiiClassicControllerPro
+        case .sidewaysWiiRemote:
+            return sidewaysWiiRemote
+        }
+    }
+}
+
+enum LibretroAnalogToDPadPolicy {
+    private static let digitalOnlyCoreIDs: Set<String> = [
+        "libretro-arduous",
+        "libretro-beetle-ngp",
+        "libretro-beetle-vb",
+        "libretro-beetle-wswan",
+        "libretro-bsnes-mercury-balanced",
+        "libretro-fake08",
+        "libretro-gambatte",
+        "libretro-gearcoleco",
+        "libretro-geargrafx",
+        "libretro-gearsystem",
+        "libretro-genesis-plus-gx",
+        "libretro-melonds",
+        "libretro-mgba",
+        "libretro-nestopia",
+        "libretro-picodrive",
+        "libretro-pokemini",
+        "libretro-prosystem",
+        "libretro-stella2014",
+    ]
+
+    static func applies(
+        coreID: String,
+        controllerDevice: UInt32,
+        preferenceEnabled: Bool =
+            LibretroDigitalInputPreferences.mapsLeftAnalogToDPad()
+    ) -> Bool {
+        guard preferenceEnabled else {
+            return false
+        }
+        if controllerDevice == LibretroControllerDevice.sidewaysWiiRemote {
+            return true
+        }
+        return digitalOnlyCoreIDs.contains(coreID.lowercased())
+    }
+}
+
+enum LibretroInputPortRouting {
+    static let controllerPortCount = 2
+
+    static func localPorts(
+        hasDSU: Bool,
+        controllerCount: Int
+    ) -> [Int] {
+        let firstPort = hasDSU ? 1 : 0
+        guard
+            controllerCount > 0,
+            firstPort < controllerPortCount
+        else {
+            return []
+        }
+        let count = min(
+            controllerCount,
+            controllerPortCount - firstPort
+        )
+        return Array(firstPort..<(firstPort + count))
+    }
+}
+
+/// The stable directory key shared by the runtime and library resume scanner.
+enum LibretroContentIdentity {
+    static func key(for contentURL: URL?) -> String {
+        let identity = contentURL?.path ?? "content-free"
+        return SHA256.hash(data: Data(identity.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
 }
 
 enum LibretroRewindPolicy {
@@ -216,6 +389,11 @@ struct LibretroVideoFrame: Sendable {
     var aspectRatio: Float = 0
 }
 
+struct LibretroVideoSnapshot: Sendable {
+    let frame: LibretroVideoFrame
+    let revision: UInt64
+}
+
 struct LibretroRewindBuffer: Sendable {
     let byteLimit: Int
     let entryLimit: Int
@@ -295,10 +473,12 @@ struct LibretroControllerExitChord: Sendable {
 final class LibretroVideoBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private var frame: LibretroVideoFrame?
+    private var revision: UInt64 = 0
 
     func publish(_ frame: LibretroVideoFrame) {
         lock.lock()
         self.frame = frame
+        revision &+= 1
         lock.unlock()
     }
 
@@ -306,6 +486,15 @@ final class LibretroVideoBuffer: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return frame
+    }
+
+    func versionedSnapshot() -> LibretroVideoSnapshot? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let frame else {
+            return nil
+        }
+        return LibretroVideoSnapshot(frame: frame, revision: revision)
     }
 }
 
@@ -351,6 +540,27 @@ final class LibretroInputState: @unchecked Sendable {
         let modifiers: UInt16
     }
 
+    private struct ControllerPortState {
+        var controllerButtons: UInt16 = 0
+        var polledButtons: UInt16 = 0
+        var leftAnalogX: Int16 = 0
+        var leftAnalogY: Int16 = 0
+        var rightAnalogX: Int16 = 0
+        var rightAnalogY: Int16 = 0
+    }
+
+    private struct ResolvedPad {
+        var buttons: UInt16
+        var isSelectPressed: Bool
+        var isStartPressed: Bool
+        var isLeftStickPressed: Bool
+        var isRightStickPressed: Bool
+        var leftAnalogX: Int16
+        var leftAnalogY: Int16
+        var rightAnalogX: Int16
+        var rightAnalogY: Int16
+    }
+
     private let lock = NSLock()
     private var keyboardButtons: UInt16 = 0
     private var pendingKeyboardPresses: UInt16 = 0
@@ -359,12 +569,10 @@ final class LibretroInputState: @unchecked Sendable {
     private var pressedKeys: Set<UInt32> = []
     private var keyModifiers: UInt16 = 0
     private var pendingKeyEvents: [KeyEvent] = []
-    private var controllerButtons: UInt16 = 0
-    private var polledButtons: UInt16 = 0
-    private var leftAnalogX: Int16 = 0
-    private var leftAnalogY: Int16 = 0
-    private var rightAnalogX: Int16 = 0
-    private var rightAnalogY: Int16 = 0
+    private var controllerPorts = Array(
+        repeating: ControllerPortState(),
+        count: LibretroInputPortRouting.controllerPortCount
+    )
     private var pointerX: Int16 = 0
     private var pointerY: Int16 = 0
     private var pointerPressed = false
@@ -372,14 +580,22 @@ final class LibretroInputState: @unchecked Sendable {
     private var transportControls = LibretroTransportControls()
     private var enablesRewind = true
     private var enablesFastForward = true
-    private var exitChord = LibretroControllerExitChord()
+    private var exitChords = Array(
+        repeating: LibretroControllerExitChord(),
+        count: LibretroInputPortRouting.controllerPortCount
+    )
     private var exitRequested = false
+    private var assignedLocalControllers = Array<GCController?>(
+        repeating: nil,
+        count: LibretroInputPortRouting.controllerPortCount
+    )
     private var padSource: (any DSUPadReading)?
     private var touchCalibration = DSUTouchCalibration()
     private var dsuPointer: LibretroDSUInput.Pointer?
     private var sensors = LibretroSensorValues()
     private var readsAccelerometer = false
     private var readsGyroscope = false
+    private var mapsLeftAnalogToDPad = false
 
     /// Attaches an optional network pad, currently a DSU ("cemuhook") server,
     /// whose state is merged with the locally attached controller.
@@ -391,6 +607,12 @@ final class LibretroInputState: @unchecked Sendable {
             sensors = LibretroSensorValues()
             touchCalibration = DSUTouchCalibration()
         }
+        lock.unlock()
+    }
+
+    func setMapsLeftAnalogToDPad(_ maps: Bool) {
+        lock.lock()
+        mapsLeftAnalogToDPad = maps
         lock.unlock()
     }
 
@@ -481,7 +703,8 @@ final class LibretroInputState: @unchecked Sendable {
         lock.lock()
         keyboardButtons = 0
         pendingKeyboardPresses = 0
-        polledButtons = controllerButtons
+        controllerPorts[0].polledButtons =
+            controllerPorts[0].controllerButtons
         // Losing focus with keys held would otherwise leave the core holding
         // them forever, so report the release rather than just forgetting.
         for key in pressedKeys {
@@ -515,10 +738,9 @@ final class LibretroInputState: @unchecked Sendable {
         // Read the network pad outside our own lock so a busy DSU server can
         // never stall the emulator thread behind it.
         let dsuState = padSource?.currentPad()
-
-        let controllers = GCController.controllers()
-        let controller = GCController.current ?? controllers.first
-        let local = controller.flatMap(LibretroGamepadInput.init(controller:))
+        let local = stableLocalControllers().compactMap {
+            LibretroGamepadInput(controller: $0)
+        }
 
         lock.lock()
         defer { lock.unlock() }
@@ -531,87 +753,181 @@ final class LibretroInputState: @unchecked Sendable {
             )
         }
 
-        guard local != nil || remote != nil else {
-            _ = exitChord.update(startPressed: false, selectPressed: false)
-            controllerButtons = 0
-            polledButtons = keyboardButtons | pendingKeyboardPresses
-            leftAnalogX = digitalAxis(
-                negative: polledButtons & LibretroButton.left.mask != 0,
-                positive: polledButtons & LibretroButton.right.mask != 0
-            )
-            leftAnalogY = digitalAxis(
-                negative: polledButtons & LibretroButton.up.mask != 0,
-                positive: polledButtons & LibretroButton.down.mask != 0
-            )
-            rightAnalogX = 0
-            rightAnalogY = 0
-            transportControls = LibretroTransportControls()
-            dsuPointer = nil
-            sensors = LibretroSensorValues()
-            pendingKeyboardPresses = 0
-            return
+        var routedPads = Array<ResolvedPad?>(
+            repeating: nil,
+            count: LibretroInputPortRouting.controllerPortCount
+        )
+        if let remote {
+            // DSU is the explicitly configured network pad, so it owns player
+            // one whenever it is live. The first ordinary macOS controller is
+            // then player two rather than being merged into the same port.
+            routedPads[0] = resolvedPad(remote)
+        }
+        // Without a live DSU pad, ordinary controllers naturally occupy
+        // player one and player two. With DSU, the first local pad begins at
+        // player two.
+        let localPorts = LibretroInputPortRouting.localPorts(
+            hasDSU: remote != nil,
+            controllerCount: local.count
+        )
+        for (pad, port) in zip(local, localPorts) {
+            routedPads[port] = resolvedPad(pad)
         }
 
-        // Both pads drive the same Libretro port, so their buttons combine and
-        // whichever stick is pushed further wins.
-        var buttons = (local?.buttons ?? 0) | (remote?.buttons ?? 0)
-        let selectPressed =
-            local?.isSelectPressed == true || remote?.isSelectPressed == true
-        let startPressed =
-            local?.isStartPressed == true || remote?.isStartPressed == true
-        let leftThumbstickButtonPressed =
-            local?.isLeftStickPressed == true || remote?.isLeftStickPressed == true
-        let rightThumbstickButtonPressed =
-            local?.isRightStickPressed == true || remote?.isRightStickPressed == true
+        for port in 0..<LibretroInputPortRouting.controllerPortCount {
+            var state = ControllerPortState()
+            if var pad = routedPads[port] {
+                if mapsLeftAnalogToDPad {
+                    pad.buttons = Self.buttonsMappingLeftAnalogToDPad(
+                        buttons: pad.buttons,
+                        x: pad.leftAnalogX,
+                        y: pad.leftAnalogY
+                    )
+                }
+                let isExitChordPressed =
+                    pad.isStartPressed && pad.isSelectPressed
+                if exitChords[port].update(
+                    startPressed: pad.isStartPressed,
+                    selectPressed: pad.isSelectPressed
+                ) {
+                    exitRequested = true
+                }
+                if !isExitChordPressed {
+                    pad.buttons.set(
+                        .select,
+                        when: pad.isSelectPressed
+                    )
+                    pad.buttons.set(
+                        .start,
+                        when: pad.isStartPressed
+                    )
+                }
+                // R3/L3 are player-one transport shortcuts. Player two gets
+                // ordinary stick-button input so multiplayer games can use it.
+                pad.buttons.set(
+                    .l3,
+                    when:
+                        pad.isLeftStickPressed
+                        && (port != 0 || !enablesRewind)
+                )
+                pad.buttons.set(
+                    .r3,
+                    when:
+                        pad.isRightStickPressed
+                        && (port != 0 || !enablesFastForward)
+                )
+                state.controllerButtons = pad.buttons
+                state.leftAnalogX = pad.leftAnalogX
+                state.leftAnalogY = pad.leftAnalogY
+                state.rightAnalogX = pad.rightAnalogX
+                state.rightAnalogY = pad.rightAnalogY
+            } else {
+                _ = exitChords[port].update(
+                    startPressed: false,
+                    selectPressed: false
+                )
+            }
+            state.polledButtons = state.controllerButtons
+            controllerPorts[port] = state
+        }
 
-        let isExitChordPressed = startPressed && selectPressed
-        if exitChord.update(
-            startPressed: startPressed,
-            selectPressed: selectPressed
-        ) {
-            exitRequested = true
+        controllerPorts[0].polledButtons |=
+            keyboardButtons | pendingKeyboardPresses
+        if routedPads[0] == nil {
+            controllerPorts[0].leftAnalogX = digitalAxis(
+                negative:
+                    controllerPorts[0].polledButtons
+                    & LibretroButton.left.mask != 0,
+                positive:
+                    controllerPorts[0].polledButtons
+                    & LibretroButton.right.mask != 0
+            )
+            controllerPorts[0].leftAnalogY = digitalAxis(
+                negative:
+                    controllerPorts[0].polledButtons
+                    & LibretroButton.up.mask != 0,
+                positive:
+                    controllerPorts[0].polledButtons
+                    & LibretroButton.down.mask != 0
+            )
         }
-        if !isExitChordPressed {
-            buttons.set(.select, when: selectPressed)
-            buttons.set(.start, when: startPressed)
-        }
-        buttons.set(
-            .l3,
-            when: leftThumbstickButtonPressed && !enablesRewind
-        )
-        buttons.set(
-            .r3,
-            when: rightThumbstickButtonPressed && !enablesFastForward
-        )
-        controllerButtons = buttons
-        polledButtons = keyboardButtons | pendingKeyboardPresses | controllerButtons
-        leftAnalogX = dominantAxis(
-            analogAxis(local?.leftStickX ?? 0),
-            remote?.leftAnalogX ?? 0
-        )
-        leftAnalogY = dominantAxis(
-            analogAxis(local?.leftStickY ?? 0),
-            remote?.leftAnalogY ?? 0
-        )
-        rightAnalogX = dominantAxis(
-            analogAxis(local?.rightStickX ?? 0),
-            remote?.rightAnalogX ?? 0
-        )
-        rightAnalogY = dominantAxis(
-            analogAxis(local?.rightStickY ?? 0),
-            remote?.rightAnalogY ?? 0
-        )
+
+        let playerOne = routedPads[0]
         transportControls = .controller(
             leftThumbstickButtonPressed:
-                leftThumbstickButtonPressed,
+                playerOne?.isLeftStickPressed == true,
             rightThumbstickButtonPressed:
-                rightThumbstickButtonPressed,
+                playerOne?.isRightStickPressed == true,
             enablesRewind: enablesRewind,
             enablesFastForward: enablesFastForward
         )
         dsuPointer = remote?.pointer
         sensors = remote?.sensors ?? LibretroSensorValues()
         pendingKeyboardPresses = 0
+    }
+
+    /// Keeps physical controllers assigned to a player while they remain
+    /// connected. `GCController.current` follows recent activity and would
+    /// otherwise swap players whenever player two pressed a button.
+    private func stableLocalControllers() -> [GCController] {
+        let connected = GCController.controllers()
+        for port in assignedLocalControllers.indices {
+            guard let assigned = assignedLocalControllers[port] else {
+                continue
+            }
+            if !connected.contains(where: { $0 === assigned }) {
+                assignedLocalControllers[port] = nil
+            }
+        }
+
+        var unassigned = connected.filter { controller in
+            !assignedLocalControllers.contains {
+                $0 === controller
+            }
+        }
+        if
+            assignedLocalControllers[0] == nil,
+            let current = GCController.current,
+            let index = unassigned.firstIndex(where: { $0 === current })
+        {
+            assignedLocalControllers[0] = unassigned.remove(at: index)
+        }
+        for port in assignedLocalControllers.indices
+        where assignedLocalControllers[port] == nil {
+            guard !unassigned.isEmpty else {
+                break
+            }
+            assignedLocalControllers[port] = unassigned.removeFirst()
+        }
+        return assignedLocalControllers.compactMap { $0 }
+    }
+
+    private func resolvedPad(_ pad: LibretroGamepadInput) -> ResolvedPad {
+        ResolvedPad(
+            buttons: pad.buttons,
+            isSelectPressed: pad.isSelectPressed,
+            isStartPressed: pad.isStartPressed,
+            isLeftStickPressed: pad.isLeftStickPressed,
+            isRightStickPressed: pad.isRightStickPressed,
+            leftAnalogX: analogAxis(pad.leftStickX),
+            leftAnalogY: analogAxis(pad.leftStickY),
+            rightAnalogX: analogAxis(pad.rightStickX),
+            rightAnalogY: analogAxis(pad.rightStickY)
+        )
+    }
+
+    private func resolvedPad(_ pad: LibretroDSUInput.Pad) -> ResolvedPad {
+        ResolvedPad(
+            buttons: pad.buttons,
+            isSelectPressed: pad.isSelectPressed,
+            isStartPressed: pad.isStartPressed,
+            isLeftStickPressed: pad.isLeftStickPressed,
+            isRightStickPressed: pad.isRightStickPressed,
+            leftAnalogX: pad.leftAnalogX,
+            leftAnalogY: pad.leftAnalogY,
+            rightAnalogX: pad.rightAnalogX,
+            rightAnalogY: pad.rightAnalogY
+        )
     }
 
     static func faceButtonMask(
@@ -637,6 +953,31 @@ final class LibretroInputState: @unchecked Sendable {
         }
 
         return buttons
+    }
+
+    static func buttonsMappingLeftAnalogToDPad(
+        buttons: UInt16,
+        x: Int16,
+        y: Int16
+    ) -> UInt16 {
+        let directionalMask =
+            LibretroButton.up.mask
+            | LibretroButton.down.mask
+            | LibretroButton.left.mask
+            | LibretroButton.right.mask
+        // A physical D-pad is authoritative. Avoid synthesizing the opposite
+        // direction when a player rests a thumb on the stick while using it.
+        guard buttons & directionalMask == 0 else {
+            return buttons
+        }
+
+        let threshold = Int16.max / 2
+        var mapped = buttons
+        mapped.set(.left, when: x <= -threshold)
+        mapped.set(.right, when: x >= threshold)
+        mapped.set(.up, when: y <= -threshold)
+        mapped.set(.down, when: y >= threshold)
+        return mapped
     }
 
     func consumeExitRequest() -> Bool {
@@ -670,9 +1011,12 @@ final class LibretroInputState: @unchecked Sendable {
         lock.unlock()
     }
 
-    func value(for id: UInt32) -> Int16 {
+    func value(for id: UInt32, port: UInt32 = 0) -> Int16 {
         lock.lock()
-        let buttons = polledButtons
+        let buttons =
+            Int(port) < controllerPorts.count
+            ? controllerPorts[Int(port)].polledButtons
+            : 0
         lock.unlock()
 
         if id == LibretroABI.joypadMaskID {
@@ -751,19 +1095,27 @@ final class LibretroInputState: @unchecked Sendable {
         }
     }
 
-    func analogValue(index: UInt32, id: UInt32) -> Int16 {
+    func analogValue(
+        index: UInt32,
+        id: UInt32,
+        port: UInt32 = 0
+    ) -> Int16 {
         lock.lock()
         defer { lock.unlock() }
+        guard Int(port) < controllerPorts.count else {
+            return 0
+        }
+        let state = controllerPorts[Int(port)]
 
         return switch (index, id) {
         case (LibretroABI.analogLeftIndex, LibretroABI.analogXID):
-            leftAnalogX
+            state.leftAnalogX
         case (LibretroABI.analogLeftIndex, LibretroABI.analogYID):
-            leftAnalogY
+            state.leftAnalogY
         case (LibretroABI.analogRightIndex, LibretroABI.analogXID):
-            rightAnalogX
+            state.rightAnalogX
         case (LibretroABI.analogRightIndex, LibretroABI.analogYID):
-            rightAnalogY
+            state.rightAnalogY
         default:
             0
         }
@@ -1302,7 +1654,7 @@ final class LibretroStagedContent {
 
 private enum LibretroABI {
     static let apiVersion: UInt32 = 1
-    static let joypadDevice: UInt32 = 1
+    static let joypadDevice = LibretroControllerDevice.joypad
     static let analogDevice: UInt32 = 5
     static let joypadMaskID: UInt32 = 256
     static let analogLeftIndex: UInt32 = 0
@@ -2838,19 +3190,27 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         index: UInt32,
         id: UInt32
     ) -> Int16 {
-        guard port == 0 else {
+        guard port < 2 else {
             return 0
         }
 
         switch device & 0xFF {
         case LibretroABI.joypadDevice:
-            return index == 0 ? inputState.value(for: id) : 0
+            return index == 0
+                ? inputState.value(for: id, port: port)
+                : 0
         case LibretroABI.analogDevice:
-            return inputState.analogValue(index: index, id: id)
+            return inputState.analogValue(
+                index: index,
+                id: id,
+                port: port
+            )
         case LibretroABI.pointerDevice:
-            return index == 0 ? inputState.pointerValue(for: id) : 0
+            return port == 0 && index == 0
+                ? inputState.pointerValue(for: id)
+                : 0
         case LibretroKeyboard.device:
-            return inputState.keyValue(for: id)
+            return port == 0 ? inputState.keyValue(for: id) : 0
         default:
             return 0
         }
@@ -2989,10 +3349,22 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             // Cores that emulate real port hardware bind their input only when
             // the frontend declares what is plugged in, and the device a port
             // accepts can depend on the loaded title.
-            loadedCore.setControllerPortDevice(
-                port: 0,
-                device: LibretroABI.joypadDevice
+            let controllerDevice = LibretroControllerDevice.primaryDevice(
+                coreID: request.coreID,
+                systemName: request.systemName
             )
+            inputState.setMapsLeftAnalogToDPad(
+                LibretroAnalogToDPadPolicy.applies(
+                    coreID: request.coreID,
+                    controllerDevice: controllerDevice
+                )
+            )
+            for port in UInt32(0)..<2 {
+                loadedCore.setControllerPortDevice(
+                    port: port,
+                    device: controllerDevice
+                )
+            }
             // A core that registered a keyboard callback while loading wants
             // real keys, so hand it the whole keyboard instead of the RetroPad
             // shortcuts the keyboard otherwise stands in for.
@@ -3002,8 +3374,27 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             try audioOutput.configure(sampleRate: avInfo.sampleRate)
             restoreSaveMemory(into: loadedCore)
             runtimeEnvironment.makeHardwareContextCurrent()
+            let quickStateUpdatedAt = try? quickStateURL.resourceValues(
+                forKeys: [.contentModificationDateKey]
+            ).contentModificationDate
+            let restoresQuickState =
+                LibretroQuickStateRestorePolicy.shouldRestore(
+                    requestAllowsRestore:
+                        request.restoresQuickStateOnLaunch,
+                    remoteSaveUpdatedAt:
+                        request.saveSync?.remoteSaveUpdatedAt,
+                    quickStateUpdatedAt: quickStateUpdatedAt
+                )
+            if
+                request.restoresQuickStateOnLaunch,
+                !restoresQuickState
+            {
+                OpenVaultLog.libretro.notice(
+                    "Skipped an older local quick state because RomM has a newer cartridge save"
+                )
+            }
             let quickStateRestore =
-                request.restoresQuickStateOnLaunch
+                restoresQuickState
                 ? restoreQuickStateIfAvailable(into: loadedCore)
                 : .notFound
             emit(
@@ -3116,10 +3507,16 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     continue
                 }
 
-                if !wasRewinding || didRewind {
-                    runtimeEnvironment.makeHardwareContextCurrent()
-                    loadedCore.run()
-                }
+                // The core must still run when a held rewind request finds no
+                // older state. Libretro controllers are polled from `run()`;
+                // skipping it here leaves the cached L3 state pressed forever,
+                // so releasing the button can never resume the game. This is
+                // particularly easy to hit on PlayStation, whose large states
+                // provide a shorter history. We deliberately do not capture a
+                // new rewind state below while L3 remains held, avoiding a
+                // one-frame rewind/advance loop at the start of history.
+                runtimeEnvironment.makeHardwareContextCurrent()
+                loadedCore.run()
                 if !didRewind, !wasRewinding {
                     captureRewindStateIfNeeded(
                         using: loadedCore,
@@ -3399,10 +3796,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         ).first ?? URL.homeDirectory
             .appending(path: "Library/Application Support", directoryHint: .isDirectory)
         let safeCoreID = request.coreID.replacingOccurrences(of: "/", with: "-")
-        let contentIdentity = request.contentURL?.path ?? "content-free"
-        let contentKey = SHA256.hash(data: Data(contentIdentity.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
+        let contentKey = LibretroContentIdentity.key(
+            for: request.contentURL
+        )
         let root = applicationSupport
             .appending(path: "OpenVault", directoryHint: .isDirectory)
             .appending(path: "Libretro", directoryHint: .isDirectory)

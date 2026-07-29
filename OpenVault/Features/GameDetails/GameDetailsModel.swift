@@ -39,15 +39,24 @@ final class GameDetailsModel {
     private(set) var userMetadataErrorMessage: String?
 
     private var hasLoaded = false
+    private let libretroInstallation: LibretroInstallation?
 
     init(
         game: GameSummary,
         session: ServerSession,
-        service: any LibraryServing
+        service: any LibraryServing,
+        libretroInstallation: LibretroInstallation? = try? .bundled()
     ) {
         self.game = game
         self.session = session
         self.service = service
+        self.libretroInstallation = libretroInstallation
+        playbackCore = libretroInstallation?.compatibleCore(
+            systemName: game.systemName,
+            fileExtension: "",
+            includingExperimental:
+                LibretroCorePreferences.enablesExperimentalCores()
+        )
     }
 
     func load() async {
@@ -314,6 +323,7 @@ final class GameDetailsModel {
                 title: game.name,
                 coreID: playbackCore.id,
                 contentURL: prepared.0,
+                systemName: game.systemName,
                 systemDirectory: prepared.1,
                 saveSync: prepared.2
             )
@@ -375,18 +385,19 @@ final class GameDetailsModel {
         // Read here rather than left to `compatibleCore`'s default, so the
         // core set this resolves against is the one in effect when the game
         // was opened.
-        playbackCore = try? LibretroInstallation.bundled()
-            .compatibleCore(
-                systemName: details.systemName,
-                fileExtension: details.fileExtension,
-                archiveMemberNames: details.files.flatMap {
-                    $0.archiveMembers.map(\.name)
-                },
-                contentFileNames: details.files
-                    .filter { $0.isTopLevel }
-                    .map(\.name),
-                includingExperimental:
-                    LibretroCorePreferences.enablesExperimentalCores()
-            )
+        if let resolvedCore = libretroInstallation?.compatibleCore(
+            systemName: details.systemName,
+            fileExtension: details.fileExtension,
+            archiveMemberNames: details.files.flatMap {
+                $0.archiveMembers.map(\.name)
+            },
+            contentFileNames: details.files
+                .filter { $0.isTopLevel }
+                .map(\.name),
+            includingExperimental:
+                LibretroCorePreferences.enablesExperimentalCores()
+        ) {
+            playbackCore = resolvedCore
+        }
     }
 }

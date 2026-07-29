@@ -297,6 +297,41 @@ struct LibraryKeyboardNavigationTests {
 
 @Suite("Big Picture catalog")
 struct BigPictureCatalogTests {
+  @Test("Does not resume a quick state older than RomM's cartridge save")
+  func skipsStaleQuickStateAfterRomMSaveSync() {
+    let quickStateDate = Date(timeIntervalSince1970: 1_000)
+    let remoteSaveDate = Date(timeIntervalSince1970: 2_000)
+
+    #expect(
+      !LibretroQuickStateRestorePolicy.shouldRestore(
+        requestAllowsRestore: true,
+        remoteSaveUpdatedAt: remoteSaveDate,
+        quickStateUpdatedAt: quickStateDate
+      )
+    )
+    #expect(
+      LibretroQuickStateRestorePolicy.shouldRestore(
+        requestAllowsRestore: true,
+        remoteSaveUpdatedAt: quickStateDate,
+        quickStateUpdatedAt: remoteSaveDate
+      )
+    )
+    #expect(
+      LibretroQuickStateRestorePolicy.shouldRestore(
+        requestAllowsRestore: true,
+        remoteSaveUpdatedAt: nil,
+        quickStateUpdatedAt: quickStateDate
+      )
+    )
+    #expect(
+      !LibretroQuickStateRestorePolicy.shouldRestore(
+        requestAllowsRestore: false,
+        remoteSaveUpdatedAt: quickStateDate,
+        quickStateUpdatedAt: remoteSaveDate
+      )
+    )
+  }
+
   @Test("Only advertises separate resume and play actions for save states")
   func presentsGameLaunchActions() {
     #expect(
@@ -551,7 +586,7 @@ struct BigPictureCatalogTests {
 
   @Test("Builds recent, favorite, downloaded, system, and collection menus offline")
   func buildsControllerFirstCatalog() {
-    let collectionID = LibraryCollection.ID.virtual("mario")
+    let collectionID = LibraryCollection.ID.smart(11)
     let favoritesID = LibraryCollection.ID.regular(10)
     let olderGame = GameSummary(
       id: 1,
@@ -597,8 +632,7 @@ struct BigPictureCatalogTests {
           LibraryCollection(
             id: collectionID,
             name: "Mario",
-            gameCount: 2,
-            virtualType: "collection"
+            gameCount: 2
           ),
         ],
         games: [olderGame, handheldGame, newerGame],
@@ -1010,6 +1044,12 @@ struct BigPictureCatalogTests {
       BigPictureKeyboardNavigation.command(for: .delete) == .back
     )
     #expect(
+      BigPictureKeyboardNavigation.command(forMacKeyCode: 51) == .back
+    )
+    #expect(
+      BigPictureKeyboardNavigation.command(forMacKeyCode: 117) == nil
+    )
+    #expect(
       BigPictureKeyboardNavigation.command(for: .return) == .activate
     )
     #expect(
@@ -1318,30 +1358,23 @@ struct LibraryCacheTests {
     )
     #expect(snapshot.systems.first?.gameCount == 3)
     #expect(snapshot.collections.first { $0.id == .regular(10) }?.gameCount == 2)
-    #expect(snapshot.collections.first { $0.id == .virtual("virtual-tetris") }?.gameCount == 1)
+    #expect(!snapshot.collections.contains { collection in
+      if case .virtual = collection.id {
+        return true
+      }
+      return false
+    })
     #expect(
       snapshot.collectionMemberships.first {
         $0.collectionID == .regular(10)
       }?.gameIDs == [1, 3]
     )
-    #expect(
-      snapshot.collectionMemberships.first {
-        $0.collectionID == .virtual("virtual-tetris")
-      }?.gameIDs == [1]
-    )
-    #expect(
-      snapshot.collections.first {
-        $0.id == .virtual("virtual-tetris")
-      }?.memberGameIDs == nil
-    )
-    #expect(
-      snapshot.page(
-        matching: .collection(.virtual("virtual-tetris")),
-        searchTerm: nil,
-        offset: 0,
-        limit: 10
-      ).games.map(\.id) == [1]
-    )
+    #expect(!snapshot.collectionMemberships.contains {
+      if case .virtual = $0.collectionID {
+        return true
+      }
+      return false
+    })
     #expect(snapshot.games.first(where: { $0.id == 1 })?.hasSave == true)
     #expect(snapshot.games.first(where: { $0.id == 2 })?.hasState == true)
     #expect(await cache.snapshot(for: serverURL) == snapshot)
@@ -1419,6 +1452,127 @@ struct LibraryCacheTests {
 
     #expect(merged.gameIDsByRecency == [2, 1])
     #expect(merged.lastPlayed(gameID: 3) == nil)
+  }
+
+  @Test("Projects merged play history onto sortable library rows")
+  func projectsPlayHistoryOntoLibraryRows() {
+    let older = Date(timeIntervalSince1970: 1_000_000)
+    let newer = older.addingTimeInterval(120)
+    var history = LocalPlayHistory()
+    history.recordPlay(gameID: 1, at: older)
+    history.recordPlay(gameID: 2, at: newer)
+
+    let snapshot = LibrarySnapshot(
+      synchronizedAt: newer,
+      systems: [],
+      collections: [],
+      games: [
+        GameSummary(
+          id: 1,
+          name: "Older",
+          systemID: 1,
+          systemName: "Game Boy",
+          coverURL: nil
+        ),
+        GameSummary(
+          id: 2,
+          name: "Newer",
+          systemID: 1,
+          systemName: "Game Boy",
+          coverURL: nil
+        ),
+        GameSummary(
+          id: 3,
+          name: "Never",
+          systemID: 1,
+          systemName: "Game Boy",
+          coverURL: nil
+        ),
+      ],
+      collectionMemberships: []
+    ).applying(history)
+
+    #expect(snapshot.games[0].lastPlayedAt == older)
+    #expect(snapshot.games[1].lastPlayedAt == newer)
+    #expect(snapshot.games[2].lastPlayedAt == nil)
+  }
+
+  @Test("Finds typed game-name prefixes only in alphabetical list order")
+  func findsTypedGameNamePrefixes() {
+    let games = [
+      GameSummary(
+        id: 1,
+        name: "Castlevania",
+        systemID: 1,
+        systemName: "Game Boy",
+        coverURL: nil
+      ),
+      GameSummary(
+        id: 2,
+        name: "Éclair",
+        systemID: 1,
+        systemName: "Game Boy",
+        coverURL: nil
+      ),
+      GameSummary(
+        id: 3,
+        name: "The Legend of Zelda",
+        systemID: 1,
+        systemName: "Game Boy",
+        coverURL: nil
+      ),
+    ]
+
+    #expect(
+      LibraryTypeSelection.isAlphabeticallySorted(
+        games,
+        prioritizedGameIDs: []
+      )
+    )
+    #expect(LibraryTypeSelection.index(matching: "ca", in: games) == 0)
+    #expect(LibraryTypeSelection.index(matching: "ec", in: games) == 1)
+    #expect(LibraryTypeSelection.index(matching: "the l", in: games) == 2)
+    #expect(LibraryTypeSelection.index(matching: "zel", in: games) == nil)
+    #expect(
+      !LibraryTypeSelection.isAlphabeticallySorted(
+        Array(games.reversed()),
+        prioritizedGameIDs: []
+      )
+    )
+  }
+
+  @Test("Treats favorite-first alphabetical groups as type-selectable")
+  func recognizesFavoriteFirstAlphabeticalGroups() {
+    let games = [
+      GameSummary(
+        id: 1,
+        name: "Mario",
+        systemID: 1,
+        systemName: "Game Boy",
+        coverURL: nil
+      ),
+      GameSummary(
+        id: 2,
+        name: "Zelda",
+        systemID: 1,
+        systemName: "Game Boy",
+        coverURL: nil
+      ),
+      GameSummary(
+        id: 3,
+        name: "Asteroids",
+        systemID: 1,
+        systemName: "Game Boy",
+        coverURL: nil
+      ),
+    ]
+
+    #expect(
+      LibraryTypeSelection.isAlphabeticallySorted(
+        games,
+        prioritizedGameIDs: [1, 2]
+      )
+    )
   }
 
   @Test("Presents recently played games newest first in Big Picture")
@@ -1698,42 +1852,45 @@ struct LibraryCacheTests {
   }
 
   @MainActor
-  @Test("Builds offline artwork previews for the virtual collection gallery")
-  func buildsVirtualCollectionPreviews() async throws {
-    let collectionID = LibraryCollection.ID.virtual("virtual-nintendo")
-    let games = [
-      GameSummary(
-        id: 1,
-        name: "Super Mario World",
-        systemID: 1,
-        systemName: "Super Nintendo Entertainment System",
-        coverURL: URL(string: "https://romm.example.com/mario.webp")
-      ),
-      GameSummary(
-        id: 2,
-        name: "Mario Bros.",
-        systemID: 2,
-        systemName: "Nintendo Entertainment System",
-        coverURL: nil
-      ),
-    ]
+  @Test("Drops virtual collections retained by an older offline cache")
+  func dropsLegacyVirtualCollections() async throws {
+    let regularID = LibraryCollection.ID.regular(10)
+    let virtualID = LibraryCollection.ID.virtual("virtual-nintendo")
     let snapshot = LibrarySnapshot(
       synchronizedAt: Date(timeIntervalSince1970: 1_000),
       systems: [],
       collections: [
         LibraryCollection(
-          id: collectionID,
+          id: regularID,
+          name: "Favorites",
+          gameCount: 1,
+          isFavorite: true
+        ),
+        LibraryCollection(
+          id: virtualID,
           name: "Mario",
-          gameCount: 2,
+          gameCount: 1,
           virtualType: "collection"
+        ),
+      ],
+      games: [
+        GameSummary(
+          id: 1,
+          name: "Super Mario World",
+          systemID: 1,
+          systemName: "Super Nintendo Entertainment System",
+          coverURL: nil
         )
       ],
-      games: games,
       collectionMemberships: [
         LibrarySnapshot.CollectionMembership(
-          collectionID: collectionID,
-          gameIDs: [2, 1]
-        )
+          collectionID: regularID,
+          gameIDs: [1]
+        ),
+        LibrarySnapshot.CollectionMembership(
+          collectionID: virtualID,
+          gameIDs: [1]
+        ),
       ]
     )
     let session = ServerSession(
@@ -1747,19 +1904,8 @@ struct LibraryCacheTests {
 
     await model.load()
 
-    #expect(model.collectionPreviewGames[collectionID]?.map(\.id) == [1, 2])
-
-    model.selection = .virtualCollections
-    await model.reloadGames()
-
-    #expect(model.title == "Virtual Collections")
-    #expect(model.games.isEmpty)
-    #expect(model.totalGameCount == 0)
-
-    model.selection = .collection(collectionID)
-    await model.reloadGames()
-
-    #expect(model.displayedGames.map(\.id) == [1, 2])
+    #expect(model.collections.map(\.id) == [regularID])
+    #expect(model.displayedGames.map(\.id) == [1])
   }
 }
 

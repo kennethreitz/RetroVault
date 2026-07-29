@@ -83,7 +83,7 @@ struct RomMAPIClientTests {
     }
   }
 
-  @Test("Decodes systems, collections, and a filtered game page")
+  @Test("Decodes systems, supported collections, and a filtered game page")
   func decodesLibraryResponses() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [StubURLProtocol.self]
@@ -118,28 +118,6 @@ struct RomMAPIClientTests {
       case "/api/collections/smart":
         json = """
           [{"id": 11, "name": "Recently Added", "rom_count": 20, "rom_ids": [42]}]
-          """
-      case "/api/collections/virtual":
-        let components = try #require(
-          request.url.flatMap {
-            URLComponents(url: $0, resolvingAgainstBaseURL: false)
-          }
-        )
-        #expect(
-          components.queryItems?.contains(
-            URLQueryItem(name: "type", value: "all")
-          ) == true
-        )
-        json = """
-          [
-            {
-              "id": "virtual-chrono",
-              "name": "Chrono",
-              "type": "collection",
-              "rom_count": 1,
-              "rom_ids": [42]
-            }
-          ]
           """
       case "/api/roms/42":
         json = """
@@ -397,7 +375,7 @@ struct RomMAPIClientTests {
     )
 
     #expect(systems.map(\.name) == ["Empty System", "Game Boy", "Super Nintendo"])
-    #expect(collections.count == 3)
+    #expect(collections.count == 2)
     #expect(
       collections.contains {
         $0.id == .regular(10)
@@ -406,13 +384,6 @@ struct RomMAPIClientTests {
       }
     )
     #expect(collections.contains { $0.id == .smart(11) })
-    #expect(
-      collections.contains {
-        $0.id == .virtual("virtual-chrono")
-          && $0.virtualType == "collection"
-          && $0.memberGameIDs == [42]
-      }
-    )
     #expect(page.games.filter(\.isBIOS).count == 2)
     #expect(page.games.filter { !$0.isBIOS }.map(\.name) == ["Chrono Trigger"])
     #expect(page.games.first(where: { !$0.isBIOS })?.name == "Chrono Trigger")
@@ -595,70 +566,6 @@ struct RomMAPIClientTests {
       at: ServerURL("https://romm.example.com"),
       token: token,
       matching: .collection(.smart(11)),
-      searchTerm: nil,
-      ordering: .name,
-      offset: 0,
-      limit: 60
-    )
-
-    #expect(page.games.map(\.id) == [42])
-  }
-
-  @Test("Filters games with a RomM virtual collection")
-  func filtersVirtualCollection() async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [StubURLProtocol.self]
-    let session = URLSession(configuration: configuration)
-    let token = try ClientToken(rawValue: "rmm_" + String(repeating: "f", count: 64))
-
-    StubURLProtocol.handler = { request in
-      let components = try #require(
-        request.url.flatMap {
-          URLComponents(url: $0, resolvingAgainstBaseURL: false)
-        }
-      )
-      let queryItems = components.queryItems ?? []
-      #expect(
-        queryItems.contains(
-          URLQueryItem(name: "virtual_collection_id", value: "virtual-chrono")
-        )
-      )
-      #expect(!queryItems.contains { $0.name == "collection_id" })
-      #expect(!queryItems.contains { $0.name == "smart_collection_id" })
-
-      let response = HTTPURLResponse(
-        url: try #require(request.url),
-        statusCode: 200,
-        httpVersion: nil,
-        headerFields: ["Content-Type": "application/json"]
-      )!
-      let json = """
-        {
-          "items": [
-            {
-              "id": 42,
-              "platform_id": 2,
-              "platform_display_name": "Super Nintendo",
-              "fs_name_no_ext": "Chrono Trigger",
-              "name": "Chrono Trigger",
-              "path_cover_small": null,
-              "path_cover_large": null,
-              "url_cover": null
-            }
-          ],
-          "total": 1,
-          "limit": 60,
-          "offset": 0
-        }
-        """
-      return (response, Data(json.utf8))
-    }
-    defer { StubURLProtocol.handler = nil }
-
-    let page = try await URLSessionRomMClient(session: session).games(
-      at: ServerURL("https://romm.example.com"),
-      token: token,
-      matching: .collection(.virtual("virtual-chrono")),
       searchTerm: nil,
       ordering: .name,
       offset: 0,

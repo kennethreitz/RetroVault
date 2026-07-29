@@ -452,17 +452,18 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
     /// different pipeline state that was already built at startup, so a
     /// change mid-game costs nothing and takes effect on the next frame.
     var filter: LibretroVideoFilter
-    private var sourceTexture: MTLTexture?
+    private var sourceTextures: [MTLTexture] = []
+    private var currentSourceTextureIndex: Int?
+    private var previousSourceTextureIndex: Int?
+    private var lastUploadedFrameRevision: UInt64?
     private var sourceSize = CGSize.zero
     private var sourceAspectRatio: CGFloat = 0
     private var pointerPressed = false
     private var pointerTrackingArea: NSTrackingArea?
     private var cursorHideTask: Task<Void, Never>?
     private var isPointerInside = false
-    /// The cursor is hidden from the moment the view appears, rather than
-    /// after a core has revealed how it reads input, so it is never briefly
-    /// visible over a game that will never want it.
-    private var cursorIsHidden = true
+    private var cursorIsHiddenByThisView = false
+    private var observedWindow: NSWindow?
 
     init(
         videoBuffer: LibretroVideoBuffer,
@@ -539,9 +540,12 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
-    deinit {
+    isolated deinit {
         cursorHideTask?.cancel()
-        NSCursor.setHiddenUntilMouseMoves(false)
+        NotificationCenter.default.removeObserver(self)
+        if cursorIsHiddenByThisView {
+            NSCursor.unhide()
+        }
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
@@ -571,14 +575,24 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         )
         addTrackingArea(trackingArea)
         pointerTrackingArea = trackingArea
-        // Cursor rects are recomputed as the view's geometry settles, and a
-        // rect that is never invalidated is never applied.
-        window?.invalidateCursorRects(for: self)
+        synchronizePointerLocation()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        startObservingWindow()
+        // SwiftUI can replace the Metal view underneath a stationary pointer.
+        // Re-evaluate after that layout pass rather than waiting for a mouse
+        // movement that may never arrive.
+        Task { @MainActor [weak self] in
+            self?.synchronizePointerLocation()
+        }
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if newWindow == nil {
+        if newWindow !== observedWindow {
             restoreCursor()
+            stopObservingWindow()
         }
         super.viewWillMove(toWindow: newWindow)
     }
@@ -651,22 +665,8 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
     private func restoreCursor() {
         cursorHideTask?.cancel()
         cursorHideTask = nil
+        setCursorHidden(false)
     }
-
-    /// A fully transparent cursor.
-    ///
-    /// Hiding the pointer through a cursor rect rather than `NSCursor.hide()`
-    /// means AppKit restores it on its own whenever the pointer leaves the
-    /// view or the window stops being key. An unbalanced `hide()` leaves the
-    /// cursor invisible across the whole system.
-    private static let invisibleCursor: NSCursor = {
-        let image = NSImage(size: NSSize(width: 1, height: 1))
-        image.lockFocus()
-        NSColor.clear.set()
-        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
-        image.unlockFocus()
-        return NSCursor(image: image, hotSpot: .zero)
-    }()
 
     /// Whether moving the mouse should bring the cursor back.
     ///
@@ -680,58 +680,122 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         input.readsPointer && !input.readsKeyboard
     }
 
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        guard cursorIsHidden else {
+    /// Owns one balanced AppKit cursor hide while this game view needs it.
+    ///
+    /// A transparent cursor rect depends on a later mouse movement before
+    /// AppKit applies it. That loses when SwiftUI swaps Big Picture for the
+    /// player underneath a pointer that is already stationary. A paired
+    /// `hide()` / `unhide()` changes visibility immediately instead.
+    private func setCursorHidden(_ hidden: Bool) {
+        guard hidden != cursorIsHiddenByThisView else {
             return
         }
-        addCursorRect(bounds, cursor: Self.invisibleCursor)
+        cursorIsHiddenByThisView = hidden
+        if hidden {
+            NSCursor.hide()
+        } else {
+            NSCursor.unhide()
+        }
     }
 
-    /// Installs or removes the transparent cursor rect.
-    ///
-    /// The rect starts installed and is only ever recomputed here, because a
-    /// cursor rect that is never invalidated is also never applied.
-    private func setCursorHidden(_ hidden: Bool) {
-        guard cursorIsHidden != hidden else {
+    private func synchronizePointerLocation() {
+        guard
+            let window,
+            window.isKeyWindow
+        else {
+            isPointerInside = false
+            restoreCursor()
             return
         }
-        cursorIsHidden = hidden
-        window?.invalidateCursorRects(for: self)
+
+        let windowPoint = window.convertPoint(
+            fromScreen: NSEvent.mouseLocation
+        )
+        let localPoint = convert(windowPoint, from: nil)
+        isPointerInside = bounds.contains(localPoint)
+        if isPointerInside {
+            recordPointerActivity()
+        } else {
+            restoreCursor()
+        }
+    }
+
+    private func startObservingWindow() {
+        guard observedWindow !== window else {
+            return
+        }
+        stopObservingWindow()
+        guard let window else {
+            return
+        }
+        observedWindow = window
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playerWindowDidBecomeKey(_:)),
+            name: NSWindow.didBecomeKeyNotification,
+            object: window
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playerWindowDidResignKey(_:)),
+            name: NSWindow.didResignKeyNotification,
+            object: window
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playerWindowWillClose(_:)),
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
+    }
+
+    private func stopObservingWindow() {
+        if let observedWindow {
+            NotificationCenter.default.removeObserver(
+                self,
+                name: nil,
+                object: observedWindow
+            )
+        }
+        observedWindow = nil
+    }
+
+    @objc
+    private func playerWindowDidBecomeKey(_ notification: Notification) {
+        synchronizePointerLocation()
+    }
+
+    @objc
+    private func playerWindowDidResignKey(_ notification: Notification) {
+        restoreCursor()
+    }
+
+    @objc
+    private func playerWindowWillClose(_ notification: Notification) {
+        restoreCursor()
     }
 
     func draw(in view: MTKView) {
         guard
-            let frame = videoBuffer.snapshot(),
+            let snapshot = videoBuffer.versionedSnapshot(),
             let drawable = currentDrawable,
             let renderPassDescriptor = currentRenderPassDescriptor,
             let commandBuffer = commandQueue.makeCommandBuffer()
         else {
             return
         }
+        let frame = snapshot.frame
 
         guard
             frame.width > 0,
             frame.height > 0,
             frame.pixels.count >= frame.width * frame.height * 4,
-            let texture = texture(for: frame)
+            let textures = textures(for: snapshot)
         else {
             return
         }
         sourceSize = CGSize(width: frame.width, height: frame.height)
         sourceAspectRatio = CGFloat(frame.aspectRatio)
-
-        frame.pixels.withUnsafeBytes { bytes in
-            guard let baseAddress = bytes.baseAddress else {
-                return
-            }
-            texture.replace(
-                region: MTLRegionMake2D(0, 0, frame.width, frame.height),
-                mipmapLevel: 0,
-                withBytes: baseAddress,
-                bytesPerRow: frame.width * 4
-            )
-        }
 
         renderPassDescriptor.colorAttachments[0].loadAction = .clear
         renderPassDescriptor.colorAttachments[0].storeAction = .store
@@ -773,7 +837,16 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         encoder.setRenderPipelineState(
             pipelineStates[filter] ?? fallbackPipelineState
         )
-        encoder.setFragmentTexture(texture, index: 0)
+        encoder.setFragmentTexture(textures.current, index: 0)
+        if filter.usesFrameHistory {
+            // On the first frame both bindings intentionally point at the
+            // current image, which makes persistence a no-op until a genuine
+            // prior emulated frame exists.
+            encoder.setFragmentTexture(
+                textures.previous ?? textures.current,
+                index: 1
+            )
+        }
         // The filters need the on-screen size of a source pixel, which is the
         // viewport the layout just chose rather than the whole drawable.
         var uniforms = LibretroVideoUniforms(
@@ -836,15 +909,60 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         )
     }
 
-    private func texture(for frame: LibretroVideoFrame) -> MTLTexture? {
+    private func textures(
+        for snapshot: LibretroVideoSnapshot
+    ) -> (current: MTLTexture, previous: MTLTexture?)? {
+        let frame = snapshot.frame
         if
-            let sourceTexture,
-            sourceTexture.width == frame.width,
-            sourceTexture.height == frame.height
+            sourceTextures.first?.width != frame.width
+                || sourceTextures.first?.height != frame.height
+                || sourceTextures.count != 3
         {
-            return sourceTexture
+            guard allocateSourceTextures(for: frame) else {
+                return nil
+            }
         }
 
+        if lastUploadedFrameRevision != snapshot.revision {
+            let writeIndex: Int
+            if let currentSourceTextureIndex {
+                writeIndex = sourceTextures.indices.first {
+                    $0 != currentSourceTextureIndex
+                        && $0 != previousSourceTextureIndex
+                } ?? 0
+                previousSourceTextureIndex = currentSourceTextureIndex
+            } else {
+                writeIndex = 0
+            }
+
+            let texture = sourceTextures[writeIndex]
+            frame.pixels.withUnsafeBytes { bytes in
+                guard let baseAddress = bytes.baseAddress else {
+                    return
+                }
+                texture.replace(
+                    region: MTLRegionMake2D(0, 0, frame.width, frame.height),
+                    mipmapLevel: 0,
+                    withBytes: baseAddress,
+                    bytesPerRow: frame.width * 4
+                )
+            }
+            currentSourceTextureIndex = writeIndex
+            lastUploadedFrameRevision = snapshot.revision
+        }
+
+        guard let currentSourceTextureIndex else {
+            return nil
+        }
+        let previous = previousSourceTextureIndex.map {
+            sourceTextures[$0]
+        }
+        return (sourceTextures[currentSourceTextureIndex], previous)
+    }
+
+    private func allocateSourceTextures(
+        for frame: LibretroVideoFrame
+    ) -> Bool {
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .bgra8Unorm,
             width: frame.width,
@@ -853,9 +971,16 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         )
         descriptor.storageMode = .shared
         descriptor.usage = .shaderRead
-        sourceTexture = device?.makeTexture(descriptor: descriptor)
-        sourceTexture?.label = "OpenVault Libretro frame"
-        return sourceTexture
+
+        sourceTextures = (0..<3).compactMap { index in
+            let texture = device?.makeTexture(descriptor: descriptor)
+            texture?.label = "OpenVault Libretro frame \(index + 1)"
+            return texture
+        }
+        currentSourceTextureIndex = nil
+        previousSourceTextureIndex = nil
+        lastUploadedFrameRevision = nil
+        return sourceTextures.count == 3
     }
 
     private func updatePointer(with event: NSEvent) {

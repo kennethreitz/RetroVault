@@ -30,7 +30,7 @@ Keychain storage remains required before a release build ships.
 - Sandboxed credential storage for development, with Keychain migration
   required before release
 - Platforms and paginated library metadata
-- Read-only user-created, smart, and automatic virtual collections
+- Read-only user-created and smart collections
 - Built-in Downloaded collection for local ROM availability
 - DTO-to-domain mapping
 - SwiftData metadata cache
@@ -52,9 +52,9 @@ Keychain storage remains required before a release build ships.
 - A fresh installation can connect using a valid pairing code without storing
   the user's account password.
 - The initial sidebar presents All Games, Systems, and Collections from RomM.
-- Automatic virtual collections remain collapsed by default, can be expanded
-  as a separate sidebar group, and remain navigable from the cached library
-  while RomM is unavailable.
+- Automatic virtual collections are intentionally excluded because their
+  generated membership data is disproportionately expensive for large
+  libraries. Regular and smart collections remain available offline.
 - Selecting a game opens a full-page native details view with its artwork,
   description, normalized metadata, user state, files, hashes, related-content
   counts, and screenshots.

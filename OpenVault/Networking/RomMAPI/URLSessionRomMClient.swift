@@ -247,26 +247,11 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
       at: serverURL.endpoint("api/collections/smart"),
       token: token
     )
-    var virtualComponents = URLComponents(
-      url: serverURL.endpoint("api/collections/virtual"),
-      resolvingAgainstBaseURL: false
-    )
-    virtualComponents?.queryItems = [
-      URLQueryItem(name: "type", value: "all")
-    ]
-    guard let virtualURL = virtualComponents?.url else {
-      throw RomMAPIError.invalidResponse
-    }
-    async let virtualData = authenticatedData(
-      at: virtualURL,
-      token: token
-    )
 
     do {
-      let (regular, smart, virtual) = try await (
+      let (regular, smart) = try await (
         regularData,
-        smartData,
-        virtualData
+        smartData
       )
       let regularCollections = try decoder.decode([CollectionDTO].self, from: regular)
         .map {
@@ -288,24 +273,10 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
             memberGameIDs: $0.gameIDs
           )
         }
-      let virtualCollections = try decoder.decode([VirtualCollectionDTO].self, from: virtual)
-        .map {
-          LibraryCollection(
-            id: .virtual($0.id),
-            name: $0.name,
-            gameCount: $0.gameCount,
-            virtualType: $0.type,
-            memberGameIDs: $0.gameIDs
-          )
-        }
 
-      return (regularCollections + smartCollections + virtualCollections)
+      return (regularCollections + smartCollections)
         .sorted {
-          let comparison = $0.name.localizedStandardCompare($1.name)
-          if comparison == .orderedSame {
-            return ($0.virtualType ?? "") < ($1.virtualType ?? "")
-          }
-          return comparison == .orderedAscending
+          $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
     } catch let error as RomMAPIError {
       throw error
@@ -1018,22 +989,6 @@ private struct CollectionRomsRequestDTO: Encodable {
 
   enum CodingKeys: String, CodingKey {
     case romIDs = "rom_ids"
-  }
-}
-
-private struct VirtualCollectionDTO: Decodable {
-  let id: String
-  let name: String
-  let type: String
-  let gameCount: Int
-  let gameIDs: [Int]
-
-  enum CodingKeys: String, CodingKey {
-    case id
-    case name
-    case type
-    case gameCount = "rom_count"
-    case gameIDs = "rom_ids"
   }
 }
 

@@ -68,7 +68,8 @@ struct BigPictureView: View {
     .background {
       BigPictureWindowProbe(
         isPlaybackActive: activePlayerRequest != nil,
-        opensInFullScreen: opensInFullScreen
+        opensInFullScreen: opensInFullScreen,
+        onBackspaceRequested: handleEscape
       ) { window in
         bigPictureWindow = window
       }
@@ -409,7 +410,7 @@ struct BigPictureView: View {
         if
           let selectedGame,
           BigPictureGameLaunchPresentation.showsPlayFromBeginning(
-            hasSaveState: selectedGame.hasState == true
+            hasSaveState: hasResumeState(for: selectedGame)
           )
         {
           actionHint(
@@ -425,7 +426,7 @@ struct BigPictureView: View {
           label:
             selectedGame.map {
               BigPictureGameLaunchPresentation.primaryActionTitle(
-                hasSaveState: $0.hasState == true
+                hasSaveState: hasResumeState(for: $0)
               ).uppercased()
             } ?? "OPEN"
         )
@@ -878,12 +879,17 @@ struct BigPictureView: View {
     return catalog.systems.first(where: { $0.id == systemID })
   }
 
+  private func hasResumeState(for game: GameSummary) -> Bool {
+    game.hasState == true
+      || model.localQuickStateGameIDs.contains(game.id)
+  }
+
   private func gameOptions(
     for game: GameSummary
   ) -> [BigPictureGameOption] {
     let isFavorite = model.favoriteGameIDs.contains(game.id)
     let isDownloaded = model.downloadedGameIDs.contains(game.id)
-    let hasSaveState = game.hasState == true
+    let hasSaveState = hasResumeState(for: game)
 
     var options = [
       BigPictureGameOption(
@@ -1656,6 +1662,7 @@ struct BigPictureView: View {
     controllerNavigation.synchronize(with: .current)
 
     Task { @MainActor in
+      await model.reloadLocalQuickStates()
       await Task.yield()
       hasInterfaceFocus = true
       bigPictureWindow?.makeKeyAndOrderFront(nil)
@@ -1831,6 +1838,8 @@ struct BigPictureSystemDownloadPresentation: Equatable, Sendable {
 }
 
 enum BigPictureKeyboardNavigation {
+  static let backspaceKeyCode: UInt16 = 51
+
   static func command(for key: KeyEquivalent) -> BigPictureCommand? {
     switch key {
     case .return, .space:
@@ -1840,6 +1849,10 @@ enum BigPictureKeyboardNavigation {
     default:
       nil
     }
+  }
+
+  static func command(forMacKeyCode keyCode: UInt16) -> BigPictureCommand? {
+    keyCode == backspaceKeyCode ? .back : nil
   }
 }
 
@@ -2277,18 +2290,21 @@ enum BigPictureSelectionNavigation {
 private struct BigPictureWindowProbe: NSViewRepresentable {
   let isPlaybackActive: Bool
   let opensInFullScreen: Bool
+  let onBackspaceRequested: @MainActor () -> Void
   let didMoveToWindow: @MainActor (NSWindow?) -> Void
 
   func makeNSView(context: Context) -> BigPictureProbeView {
     let view = BigPictureProbeView()
     view.setPlaybackActive(isPlaybackActive)
     view.setOpensInFullScreen(opensInFullScreen)
+    view.onBackspaceRequested = onBackspaceRequested
     view.didMoveToWindow = didMoveToWindow
     return view
   }
 
   func updateNSView(_ nsView: BigPictureProbeView, context: Context) {
     nsView.didMoveToWindow = didMoveToWindow
+    nsView.onBackspaceRequested = onBackspaceRequested
     nsView.setPlaybackActive(isPlaybackActive)
     nsView.setOpensInFullScreen(opensInFullScreen)
     nsView.configureWindow()
@@ -2392,10 +2408,12 @@ private final class BigPictureProbeView: NSView {
   private static let cursorIdleInterval: TimeInterval = 1.5
 
   var didMoveToWindow: (@MainActor (NSWindow?) -> Void)?
+  var onBackspaceRequested: (@MainActor () -> Void)?
   private weak var observedWindow: NSWindow?
   private var previousWindowState: BigPictureWindowState?
   private var fullScreenRequest: Task<Void, Never>?
   private var cursorHideTask: Task<Void, Never>?
+  private var keyboardMonitor: Any?
   private var pointerTrackingArea: NSTrackingArea?
   private var initialFullScreenGate = BigPictureInitialFullScreenGate()
   private var previousPresentationOptions:
@@ -2514,8 +2532,11 @@ private final class BigPictureProbeView: NSView {
     self.opensInFullScreen = opensInFullScreen
   }
 
-  deinit {
+  isolated deinit {
     cursorHideTask?.cancel()
+    if let keyboardMonitor {
+      NSEvent.removeMonitor(keyboardMonitor)
+    }
     NSCursor.setHiddenUntilMouseMoves(false)
     NotificationCenter.default.removeObserver(self)
   }
@@ -2528,6 +2549,28 @@ private final class BigPictureProbeView: NSView {
     stopObservingWindow()
     observedWindow = window
     previousWindowState = BigPictureWindowState(window: window)
+    keyboardMonitor = NSEvent.addLocalMonitorForEvents(
+      matching: .keyDown
+    ) { [weak self, weak window] event in
+      guard
+        let self,
+        window?.isKeyWindow == true,
+        !self.isPlaybackActive,
+        BigPictureKeyboardNavigation.command(
+          forMacKeyCode: event.keyCode
+        ) == .back,
+        event.modifierFlags
+          .intersection([.command, .control, .option])
+          .isEmpty
+      else {
+        return event
+      }
+
+      if !event.isARepeat {
+        self.onBackspaceRequested?()
+      }
+      return nil
+    }
     NotificationCenter.default.addObserver(
       self,
       selector: #selector(windowDidBecomeKey(_:)),
@@ -2563,6 +2606,10 @@ private final class BigPictureProbeView: NSView {
   private func stopObservingWindow() {
     fullScreenRequest?.cancel()
     fullScreenRequest = nil
+    if let keyboardMonitor {
+      NSEvent.removeMonitor(keyboardMonitor)
+      self.keyboardMonitor = nil
+    }
     restoreCursor()
     endImmersivePresentation()
     if let observedWindow {

@@ -259,9 +259,43 @@ struct CartridgeSaveSyncConfiguration: Codable, Hashable, Sendable {
   let emulator: String
   let slot: String
   let storage: Storage?
+  let remoteSaveUpdatedAt: Date?
+
+  init(
+    serverURL: ServerURL,
+    gameID: Int,
+    localSaveURL: URL,
+    uploadFileName: String,
+    emulator: String,
+    slot: String,
+    storage: Storage?,
+    remoteSaveUpdatedAt: Date? = nil
+  ) {
+    self.serverURL = serverURL
+    self.gameID = gameID
+    self.localSaveURL = localSaveURL
+    self.uploadFileName = uploadFileName
+    self.emulator = emulator
+    self.slot = slot
+    self.storage = storage
+    self.remoteSaveUpdatedAt = remoteSaveUpdatedAt
+  }
 
   var effectiveStorage: Storage {
     storage ?? .saveRAM
+  }
+
+  func withRemoteSaveUpdatedAt(_ updatedAt: Date?) -> Self {
+    Self(
+      serverURL: serverURL,
+      gameID: gameID,
+      localSaveURL: localSaveURL,
+      uploadFileName: uploadFileName,
+      emulator: emulator,
+      slot: slot,
+      storage: storage,
+      remoteSaveUpdatedAt: updatedAt
+    )
   }
 }
 

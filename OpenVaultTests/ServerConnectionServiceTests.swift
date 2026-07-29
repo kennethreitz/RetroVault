@@ -999,6 +999,77 @@ struct LibraryTests {
         #expect(await service.managedDownloadedGameIDs(in: session) == [1_134])
     }
 
+    @Test("Finds local quick states for their downloaded games")
+    func findsLocalQuickStates() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let managedROMDirectory = root.appending(
+            path: "ROMs",
+            directoryHint: .isDirectory
+        )
+        let libretroDirectory = root.appending(
+            path: "Libretro",
+            directoryHint: .isDirectory
+        )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let serverKey = SHA256.hash(
+            data: Data(session.serverURL.value.absoluteString.utf8)
+        )
+        .map { String(format: "%02x", $0) }
+        .joined()
+        let gameURL = managedROMDirectory
+            .appending(path: serverKey, directoryHint: .isDirectory)
+            .appending(path: "42", directoryHint: .isDirectory)
+            .appending(path: "version", directoryHint: .isDirectory)
+            .appending(path: "Tetris.gb")
+        try FileManager.default.createDirectory(
+            at: gameURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([0x42]).write(to: gameURL)
+
+        let stateURL = libretroDirectory
+            .appending(path: "libretro-gambatte", directoryHint: .isDirectory)
+            .appending(
+                path: LibretroContentIdentity.key(for: gameURL),
+                directoryHint: .isDirectory
+            )
+            .appending(path: "States", directoryHint: .isDirectory)
+            .appending(path: "Quick.state")
+        try FileManager.default.createDirectory(
+            at: stateURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([0x01, 0x02]).write(to: stateURL)
+
+        let service = RomMLibraryService(
+            api: MockRomMClient(
+                token: try ClientToken(
+                    rawValue: "rmm_" + String(repeating: "a", count: 64)
+                ),
+                user: RomMUser(
+                    id: 1,
+                    username: "kenneth",
+                    scopes: ["roms.read"]
+                )
+            ),
+            credentialStore: MemoryCredentialStore(),
+            managedROMDirectory: managedROMDirectory,
+            libretroDirectory: libretroDirectory
+        )
+
+        #expect(
+            await service.localQuickStateGameIDs(in: session) == [42]
+        )
+    }
+
     @Test("Preserves archives for cores that load them as game content")
     func preservesCoreNativeArchive() async throws {
         let token = try ClientToken(
@@ -1257,6 +1328,10 @@ struct LibraryTests {
         #expect(await api.downloadedSaveIDs == [142, 141])
         #expect(try Data(contentsOf: configuration.localSaveURL) == importedData)
         #expect(configuration.uploadFileName == "Super Mario World (U) [!].srm")
+        #expect(
+            configuration.remoteSaveUpdatedAt
+                == Date(timeIntervalSince1970: 1_000)
+        )
 
         #expect(
             try await service.syncCartridgeSaveAfterPlay(configuration)
@@ -1287,7 +1362,8 @@ struct LibraryTests {
         )
         await api.setLatestGameDetails(newerRemoteGame)
         let refreshCountBeforeLaunch = await api.gameDetailsRequestCount
-        _ = try await service.prepareCartridgeSaveForPlay(
+        let refreshedConfiguration =
+            try await service.prepareCartridgeSaveForPlay(
             game,
             in: session,
             emulator: "OpenVault",
@@ -1299,6 +1375,10 @@ struct LibraryTests {
         #expect(
             try Data(contentsOf: configuration.localSaveURL)
                 == newerRemoteData
+        )
+        #expect(
+            refreshedConfiguration?.remoteSaveUpdatedAt
+                == Date(timeIntervalSince1970: 4_000)
         )
 
         let unsynchronizedData = Data(repeating: 0x33, count: 2_048)

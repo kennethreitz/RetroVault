@@ -419,6 +419,12 @@ struct LibretroCoreManifestTests {
             )?.id == "libretro-pcsx-rearmed"
         )
         #expect(
+            manifest.compatibleCore(
+                systemName: "PlayStation",
+                fileExtension: ""
+            )?.id == "libretro-pcsx-rearmed"
+        )
+        #expect(
             manifest.core(id: "libretro-pcsx-rearmed")?
                 .fileExtensions.first == "m3u"
         )
@@ -701,6 +707,11 @@ struct LibretroCoreManifestTests {
                 == .nearest
         )
         #expect(LibretroVideoFilter.nearest.displayName == "Off")
+        #expect(!LibretroVideoFilter.nearest.usesFrameHistory)
+        #expect(!LibretroVideoFilter.sharpBilinear.usesFrameHistory)
+        #expect(!LibretroVideoFilter.xbr.usesFrameHistory)
+        #expect(LibretroVideoFilter.crt.usesFrameHistory)
+        #expect(LibretroVideoFilter.crtCurved.usesFrameHistory)
         #expect(
             LibretroInternalResolutionPreferences.resolution(
                 from: defaults ?? .standard
@@ -1250,6 +1261,199 @@ struct LibretroCoreManifestTests {
         let freshRequest = bigPictureRequest.startingFresh()
         #expect(!freshRequest.restoresQuickStateOnLaunch)
         #expect(freshRequest.playerOrigin == .bigPicture)
+    }
+
+    @Test("Presents a Classic Controller Pro to Wii games in Dolphin")
+    func selectsWiiClassicControllerPro() throws {
+        let wiiRequest = LibretroRunRequest(
+            title: "Wii Test",
+            coreID: "libretro-dolphin",
+            contentURL: nil,
+            systemName: "Nintendo Wii"
+        )
+        let gameCubeRequest = LibretroRunRequest(
+            title: "GameCube Test",
+            coreID: "libretro-dolphin",
+            contentURL: nil,
+            systemName: "Nintendo GameCube"
+        )
+
+        #expect(
+            LibretroControllerDevice.primaryDevice(
+                coreID: wiiRequest.coreID,
+                systemName: wiiRequest.systemName,
+                wiiProfile: .classicControllerPro
+            ) == LibretroControllerDevice.wiiClassicControllerPro
+        )
+        #expect(
+            LibretroControllerDevice.primaryDevice(
+                coreID: gameCubeRequest.coreID,
+                systemName: gameCubeRequest.systemName
+            ) == LibretroControllerDevice.joypad
+        )
+
+        let restoredRequest = wiiRequest.launched(from: .bigPicture)
+            .startingFresh()
+        #expect(restoredRequest.systemName == "Nintendo Wii")
+    }
+
+    @Test("Can present a sideways Wii Remote to Wii games in Dolphin")
+    func selectsSidewaysWiiRemote() {
+        #expect(
+            LibretroControllerDevice.primaryDevice(
+                coreID: "libretro-dolphin",
+                systemName: "Wii",
+                wiiProfile: .sidewaysWiiRemote
+            ) == LibretroControllerDevice.sidewaysWiiRemote
+        )
+
+        let defaults = UserDefaults(
+            suiteName: "LibretroCoreTests.wii-controller"
+        )
+        defaults?.removePersistentDomain(
+            forName: "LibretroCoreTests.wii-controller"
+        )
+        #expect(
+            LibretroWiiControllerPreferences.profile(
+                from: defaults ?? .standard
+            ) == .classicControllerPro
+        )
+        defaults?.set(
+            LibretroWiiControllerProfile.sidewaysWiiRemote.rawValue,
+            forKey: LibretroWiiControllerPreferences.profileKey
+        )
+        #expect(
+            LibretroWiiControllerPreferences.profile(
+                from: defaults ?? .standard
+            ) == .sidewaysWiiRemote
+        )
+        defaults?.removePersistentDomain(
+            forName: "LibretroCoreTests.wii-controller"
+        )
+    }
+
+    @Test("Routes DSU and a local controller to separate players")
+    func routesTwoControllerSources() {
+        #expect(
+            LibretroInputPortRouting.localPorts(
+                hasDSU: true,
+                controllerCount: 1
+            ) == [1]
+        )
+        #expect(
+            LibretroInputPortRouting.localPorts(
+                hasDSU: false,
+                controllerCount: 2
+            ) == [0, 1]
+        )
+        #expect(
+            LibretroInputPortRouting.localPorts(
+                hasDSU: true,
+                controllerCount: 2
+            ) == [1]
+        )
+    }
+
+    @Test("Maps the left stick to a D-pad with a dead zone")
+    func mapsLeftAnalogToDPad() {
+        let threshold = Int16.max / 2
+        let unrelated = LibretroButton.a.mask | LibretroButton.start.mask
+
+        #expect(
+            LibretroInputState.buttonsMappingLeftAnalogToDPad(
+                buttons: unrelated,
+                x: -threshold,
+                y: -threshold
+            )
+                == unrelated
+                    | LibretroButton.left.mask
+                    | LibretroButton.up.mask
+        )
+        #expect(
+            LibretroInputState.buttonsMappingLeftAnalogToDPad(
+                buttons: unrelated,
+                x: threshold - 1,
+                y: -(threshold - 1)
+            ) == unrelated
+        )
+        #expect(
+            LibretroInputState.buttonsMappingLeftAnalogToDPad(
+                buttons: LibretroButton.down.mask,
+                x: 0,
+                y: -Int16.max
+            ) == LibretroButton.down.mask
+        )
+    }
+
+    @Test("Enables analog-to-D-pad only for digital configurations")
+    func selectsAnalogToDPadConfigurations() {
+        #expect(
+            LibretroAnalogToDPadPolicy.applies(
+                coreID: "libretro-nestopia",
+                controllerDevice: LibretroControllerDevice.joypad,
+                preferenceEnabled: true
+            )
+        )
+        #expect(
+            LibretroAnalogToDPadPolicy.applies(
+                coreID: "libretro-mgba",
+                controllerDevice: LibretroControllerDevice.joypad,
+                preferenceEnabled: true
+            )
+        )
+        #expect(
+            LibretroAnalogToDPadPolicy.applies(
+                coreID: "libretro-dolphin",
+                controllerDevice:
+                    LibretroControllerDevice.sidewaysWiiRemote,
+                preferenceEnabled: true
+            )
+        )
+        #expect(
+            !LibretroAnalogToDPadPolicy.applies(
+                coreID: "libretro-dolphin",
+                controllerDevice:
+                    LibretroControllerDevice.wiiClassicControllerPro,
+                preferenceEnabled: true
+            )
+        )
+        #expect(
+            !LibretroAnalogToDPadPolicy.applies(
+                coreID: "libretro-parallel-n64",
+                controllerDevice: LibretroControllerDevice.joypad,
+                preferenceEnabled: true
+            )
+        )
+        #expect(
+            !LibretroAnalogToDPadPolicy.applies(
+                coreID: "libretro-nestopia",
+                controllerDevice: LibretroControllerDevice.joypad,
+                preferenceEnabled: false
+            )
+        )
+    }
+
+    @Test("Analog-to-D-pad defaults on and can be disabled")
+    func persistsAnalogToDPadPreference() throws {
+        let suiteName = "LibretroCoreTests.analog-to-dpad"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+
+        #expect(
+            LibretroDigitalInputPreferences.mapsLeftAnalogToDPad(
+                from: defaults
+            )
+        )
+        defaults.set(
+            false,
+            forKey: LibretroDigitalInputPreferences.mapsLeftAnalogToDPadKey
+        )
+        #expect(
+            !LibretroDigitalInputPreferences.mapsLeftAnalogToDPad(
+                from: defaults
+            )
+        )
+        defaults.removePersistentDomain(forName: suiteName)
     }
 
     @MainActor

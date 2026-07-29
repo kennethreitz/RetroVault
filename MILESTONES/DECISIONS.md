@@ -148,9 +148,11 @@ enum ServerConfiguration: Sendable {
   unsupported, and empty-system groups.
 - User-created RomM collections are read-only navigation destinations. Smart
   collections use a collapsible subgroup whose expanded state is remembered.
-- RomM's automatically generated virtual collections are synchronized with
-  their complete membership and cached for offline navigation. They use a
-  separate, collapsed-by-default subgroup whose expanded state is remembered.
+- RomM's automatically generated virtual collections are not synchronized or
+  displayed. Their large generated membership sets impose too much network,
+  memory, and cache cost on preservation-scale libraries. Existing cached
+  virtual collections are discarded during cache migration; regular and smart
+  collections remain supported.
 - Downloaded is a built-in, server-scoped local collection. It includes ROMs
   that exist in OpenVault's durable managed ROM library or disposable playback
   cache. External exports do not affect Downloaded membership.

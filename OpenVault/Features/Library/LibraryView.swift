@@ -123,6 +123,68 @@ enum LibraryKeyboardNavigation {
   }
 }
 
+enum LibraryTypeSelection {
+  static func isSearchCharacter(_ characters: String) -> Bool {
+    guard characters.count == 1 else {
+      return false
+    }
+    let searchableCharacters = CharacterSet.alphanumerics
+      .union(.punctuationCharacters)
+      .union(.whitespaces)
+    return characters.unicodeScalars.allSatisfy {
+      searchableCharacters.contains($0)
+    }
+  }
+
+  static func index(
+    matching prefix: String,
+    in games: [GameSummary]
+  ) -> Int? {
+    let normalizedPrefix = normalized(prefix)
+    guard !normalizedPrefix.isEmpty else {
+      return nil
+    }
+    return games.firstIndex {
+      normalized(
+        $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
+      ).hasPrefix(normalizedPrefix)
+    }
+  }
+
+  static func isAlphabeticallySorted(
+    _ games: [GameSummary],
+    prioritizedGameIDs: Set<Int>
+  ) -> Bool {
+    var previousNameByPriority: [Bool: String] = [:]
+    var hasSeenUnprioritizedGame = false
+
+    for game in games {
+      let isPrioritized = prioritizedGameIDs.contains(game.id)
+      if isPrioritized, hasSeenUnprioritizedGame {
+        return false
+      }
+      if !isPrioritized {
+        hasSeenUnprioritizedGame = true
+      }
+
+      if let previousName = previousNameByPriority[isPrioritized],
+        previousName.localizedStandardCompare(game.name) == .orderedDescending
+      {
+        return false
+      }
+      previousNameByPriority[isPrioritized] = game.name
+    }
+    return true
+  }
+
+  private static func normalized(_ value: String) -> String {
+    value.folding(
+      options: [.caseInsensitive, .diacriticInsensitive],
+      locale: .current
+    )
+  }
+}
+
 private enum LibraryPreferenceKey {
   static let hidesBIOSGames = "library.hides-bios-games.v1"
   static let hidesGamesWithoutArtwork = "library.hides-games-without-artwork"
@@ -140,7 +202,6 @@ private enum LibraryPreferenceKey {
   static let showsArtworkBrowser = "library.column-browser.artwork.v1"
   static let browserOrder = "library.column-browser.order.v1"
   static let expandsSmartCollections = "library.smart-collections.expanded.v1"
-  static let expandsVirtualCollections = "library.virtual-collections.expanded.v1"
   static let sidebarSystemSort = "library.sidebar-system-sort.v1"
 }
 
@@ -499,8 +560,6 @@ struct LibraryView: View {
   @State private var libraryAlert: LibraryAlert?
   @AppStorage(LibraryPreferenceKey.expandsSmartCollections)
   private var showsSmartCollections = true
-  @AppStorage(LibraryPreferenceKey.expandsVirtualCollections)
-  private var showsVirtualCollections = false
   @AppStorage(LibraryPreferenceKey.hidesBIOSGames)
   private var persistedHidesBIOSGames = true
   @AppStorage(LibraryPreferenceKey.hidesGamesWithoutArtwork)
@@ -561,21 +620,6 @@ struct LibraryView: View {
               }
             }
 
-            if !virtualCollections.isEmpty {
-              DisclosureGroup(isExpanded: $showsVirtualCollections) {
-                ForEach(virtualCollections) { collection in
-                  Label(collection.name, systemImage: collection.systemImage)
-                    .badge(collection.gameCount)
-                    .tag(LibrarySelection.collection(collection.id))
-                    .id(LibrarySelection.collection(collection.id))
-                }
-              } label: {
-                Label("Virtual Collections", systemImage: "wand.and.stars")
-                  .badge(virtualCollections.count)
-              }
-              .tag(LibrarySelection.virtualCollections)
-              .id(LibrarySelection.virtualCollections)
-            }
           }
 
           Section {
@@ -676,47 +720,34 @@ struct LibraryView: View {
     } detail: {
       NavigationStack {
         Group {
-          if model.selection == .virtualCollections {
-            VirtualCollectionGalleryView(
-              collections: filteredVirtualCollections,
-              previewGames: model.collectionPreviewGames,
-              session: model.session,
-              service: model.service,
+          switch currentPresentation {
+          case .list:
+            LibraryTableView(
+              model: model,
+              automaticallyFocusesContent: !hasSidebarFocus,
+              setHidesGamesWithoutArtwork: setHidesGamesWithoutArtwork,
+              requestFavoriteChange: requestFavoriteChange,
+              requestGameDownload: requestGameDownload,
+              requestGameDownloadRemoval: requestGameDownloadRemoval,
+              requestGameExport: requestGameExport,
+              requestGameDeletion: requestGameDeletion,
               controllerRouter: controllerRouter,
               focusSidebar: focusSidebar
-            ) { collection in
-              selectSidebarDestination(.collection(collection.id))
-            }
-          } else {
-            switch currentPresentation {
-            case .list:
-              LibraryTableView(
-                model: model,
-                automaticallyFocusesContent: !hasSidebarFocus,
-                setHidesGamesWithoutArtwork: setHidesGamesWithoutArtwork,
-                requestFavoriteChange: requestFavoriteChange,
-                requestGameDownload: requestGameDownload,
-                requestGameDownloadRemoval: requestGameDownloadRemoval,
-                requestGameExport: requestGameExport,
-                requestGameDeletion: requestGameDeletion,
-                controllerRouter: controllerRouter,
-                focusSidebar: focusSidebar
-              )
-            case .artwork:
-              LibraryGridView(
-                model: model,
-                sort: artworkSort,
-                automaticallyFocusesContent: !hasSidebarFocus,
-                setHidesGamesWithoutArtwork: setHidesGamesWithoutArtwork,
-                requestFavoriteChange: requestFavoriteChange,
-                requestGameDownload: requestGameDownload,
-                requestGameDownloadRemoval: requestGameDownloadRemoval,
-                requestGameExport: requestGameExport,
-                requestGameDeletion: requestGameDeletion,
-                controllerRouter: controllerRouter,
-                focusSidebar: focusSidebar
-              )
-            }
+            )
+          case .artwork:
+            LibraryGridView(
+              model: model,
+              sort: artworkSort,
+              automaticallyFocusesContent: !hasSidebarFocus,
+              setHidesGamesWithoutArtwork: setHidesGamesWithoutArtwork,
+              requestFavoriteChange: requestFavoriteChange,
+              requestGameDownload: requestGameDownload,
+              requestGameDownloadRemoval: requestGameDownloadRemoval,
+              requestGameExport: requestGameExport,
+              requestGameDeletion: requestGameDeletion,
+              controllerRouter: controllerRouter,
+              focusSidebar: focusSidebar
+            )
           }
         }
         .onMoveCommand { direction in
@@ -729,29 +760,22 @@ struct LibraryView: View {
         .searchable(
           text: $searchText,
           placement: .toolbar,
-          prompt:
-            model.selection == .virtualCollections
-            ? "Search Collections"
-            : "Search Games"
+          prompt: "Search Games"
         )
         .toolbar {
-          if model.selection != .virtualCollections {
-            ToolbarItem {
-              Picker("Library View", selection: presentationBinding) {
-                Label("List", systemImage: "list.bullet")
-                  .tag(LibraryPresentation.list)
-                Label("Artwork", systemImage: "square.grid.2x2")
-                  .tag(LibraryPresentation.artwork)
-              }
-              .pickerStyle(.segmented)
-              .labelsHidden()
-              .help("Choose List or Artwork view")
+          ToolbarItem {
+            Picker("Library View", selection: presentationBinding) {
+              Label("List", systemImage: "list.bullet")
+                .tag(LibraryPresentation.list)
+              Label("Artwork", systemImage: "square.grid.2x2")
+                .tag(LibraryPresentation.artwork)
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .help("Choose List or Artwork view")
           }
 
-          if model.selection != .virtualCollections,
-            currentPresentation == .artwork
-          {
+          if currentPresentation == .artwork {
             ToolbarItem {
               Menu {
                 ForEach(ArtworkSort.allCases) { option in
@@ -786,29 +810,27 @@ struct LibraryView: View {
             .disabled(model.isLoading || model.isSynchronizing)
           }
 
-          if model.selection != .virtualCollections {
-            ToolbarItem {
-              Menu {
-                Toggle(
-                  "Hide [BIOS] Games",
-                  isOn: hidesBIOSGamesBinding
-                )
+          ToolbarItem {
+            Menu {
+              Toggle(
+                "Hide [BIOS] Games",
+                isOn: hidesBIOSGamesBinding
+              )
 
-                if currentPresentation == .artwork {
-                  Divider()
-                  Toggle(
-                    "Hide Games Without Artwork",
-                    isOn: hidesGamesWithoutArtworkBinding
-                  )
-                }
-              } label: {
-                Label(
-                  "Library Filters",
-                  systemImage: isLibraryFilterActive
-                    ? "line.3.horizontal.decrease.circle.fill"
-                    : "line.3.horizontal.decrease.circle"
+              if currentPresentation == .artwork {
+                Divider()
+                Toggle(
+                  "Hide Games Without Artwork",
+                  isOn: hidesGamesWithoutArtworkBinding
                 )
               }
+            } label: {
+              Label(
+                "Library Filters",
+                systemImage: isLibraryFilterActive
+                  ? "line.3.horizontal.decrease.circle.fill"
+                  : "line.3.horizontal.decrease.circle"
+              )
             }
           }
 
@@ -870,10 +892,6 @@ struct LibraryView: View {
         searchText: searchText
       )
     ) {
-      guard model.selection != .virtualCollections else {
-        return
-      }
-
       do {
         try await Task.sleep(for: .milliseconds(300))
         guard !Task.isCancelled else {
@@ -973,30 +991,6 @@ struct LibraryView: View {
     }
   }
 
-  private var virtualCollections: [LibraryCollection] {
-    model.collections.filter {
-      if case .virtual = $0.id {
-        true
-      } else {
-        false
-      }
-    }
-  }
-
-  private var filteredVirtualCollections: [LibraryCollection] {
-    let normalizedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    let collections =
-      normalizedSearch.isEmpty
-      ? virtualCollections
-      : virtualCollections.filter {
-        $0.name.localizedCaseInsensitiveContains(normalizedSearch)
-          || ($0.virtualType?.localizedCaseInsensitiveContains(normalizedSearch) == true)
-      }
-    return collections.sorted {
-      $0.name.localizedStandardCompare($1.name) == .orderedAscending
-    }
-  }
-
   private var emptySystems: [LibrarySystem] {
     sidebarSystemSort.sorted(
       model.systems.filter { $0.gameCount == 0 }
@@ -1011,7 +1005,7 @@ struct LibraryView: View {
     return switch model.selection {
     case .system, .systems, .collection:
       true
-    case .allGames, .downloaded, .recentlyPlayed, .virtualCollections:
+    case .allGames, .downloaded, .recentlyPlayed:
       false
     }
   }
@@ -1054,8 +1048,6 @@ struct LibraryView: View {
       allGamesPresentation
     case .downloaded, .recentlyPlayed:
       collectionPresentation
-    case .virtualCollections:
-      .artwork
     case .system, .systems:
       systemPresentation
     case .collection:
@@ -1072,8 +1064,6 @@ struct LibraryView: View {
           allGamesPresentation = newValue
         case .downloaded, .recentlyPlayed:
           collectionPresentation = newValue
-        case .virtualCollections:
-          break
         case .system, .systems:
           systemPresentation = newValue
         case .collection:
@@ -1199,11 +1189,6 @@ struct LibraryView: View {
       return
     }
 
-    if model.selection == .virtualCollections
-      || selection == .virtualCollections
-    {
-      searchText = ""
-    }
     model.selection = selection
     Task {
       await model.reloadGames()
@@ -1461,16 +1446,6 @@ struct LibraryView: View {
           .collection($0.id)
         }
       )
-    }
-    if !virtualCollections.isEmpty {
-      selections.append(.virtualCollections)
-      if showsVirtualCollections {
-        selections.append(
-          contentsOf: virtualCollections.map {
-            .collection($0.id)
-          }
-        )
-      }
     }
     selections.append(
       contentsOf: supportedPopulatedSystems.map {
@@ -1981,255 +1956,6 @@ private struct GameDeletionConfirmationSheet: View {
   }
 }
 
-private struct VirtualCollectionGalleryView: View {
-  @Environment(\.accessibilityReduceMotion) private var reducesMotion
-
-  let collections: [LibraryCollection]
-  let previewGames: [LibraryCollection.ID: [GameSummary]]
-  let session: ServerSession
-  let service: any LibraryServing
-  let controllerRouter: LibraryControllerRouter
-  let focusSidebar: () -> Void
-  let openCollection: (LibraryCollection) -> Void
-
-  @State private var selectedIndex = 0
-  @State private var scrollTargetID: LibraryCollection.ID?
-  @State private var gridWidth: CGFloat = 0
-  @Namespace private var selectionHighlight
-
-  private let columns = [
-    GridItem(.adaptive(minimum: 230, maximum: 340), spacing: 22, alignment: .top)
-  ]
-
-  var body: some View {
-    if collections.isEmpty {
-      ContentUnavailableView {
-        Label("No Matching Collections", systemImage: "wand.and.stars")
-      } description: {
-        Text("Try a different collection search.")
-      }
-    } else {
-      ScrollView {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
-          ForEach(collections) { collection in
-            Button {
-              openCollection(collection)
-            } label: {
-              VirtualCollectionCard(
-                collection: collection,
-                games: previewGames[collection.id] ?? [],
-                session: session,
-                service: service
-              )
-            }
-            .buttonStyle(.plain)
-            .help("Open \(collection.name)")
-            .id(collection.id)
-            .overlay {
-              if collections.indices.contains(selectedIndex),
-                collections[selectedIndex].id == collection.id
-              {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                  .stroke(Color.accentColor, lineWidth: 3)
-                  .matchedGeometryEffect(
-                    id: "virtual-collection-selection",
-                    in: selectionHighlight
-                  )
-                  .allowsHitTesting(false)
-              }
-            }
-          }
-          .onGeometryChange(for: CGFloat.self) { geometry in
-            geometry.size.width
-          } action: { width in
-            gridWidth = width
-          }
-        }
-      }
-      .contentMargins(28, for: .scrollContent)
-      .scrollPosition(id: $scrollTargetID, anchor: .center)
-      .overlay(alignment: .topTrailing) {
-        Text(
-          collections.count == 1
-            ? "1 collection"
-            : "\(collections.count.formatted()) collections"
-        )
-        .font(.callout)
-        .foregroundStyle(.secondary)
-        .padding(.top, 12)
-        .padding(.trailing, 18)
-        .allowsHitTesting(false)
-      }
-      .onReceive(controllerRouter.commands) { command in
-        handleControllerCommand(command)
-      }
-      .onChange(of: collections.map(\.id)) { _, _ in
-        selectedIndex = min(
-          selectedIndex,
-          max(collections.count - 1, 0)
-        )
-      }
-    }
-  }
-
-  private var columnCount: Int {
-    max(1, Int((gridWidth + 22) / (230 + 22)))
-  }
-
-  private func handleControllerCommand(
-    _ command: LibraryControllerCommand
-  ) {
-    switch command {
-    case .focusContent:
-      updateScrollTarget()
-    case .up:
-      moveSelection(by: -columnCount)
-    case .down:
-      moveSelection(by: columnCount)
-    case .left:
-      guard selectedIndex % columnCount != 0 else {
-        focusSidebar()
-        return
-      }
-      moveSelection(by: -1)
-    case .right:
-      moveSelection(by: 1)
-    case .activate:
-      guard collections.indices.contains(selectedIndex) else {
-        return
-      }
-      openCollection(collections[selectedIndex])
-    case .back:
-      focusSidebar()
-    case .openBigPicture:
-      break
-    }
-  }
-
-  private func moveSelection(by offset: Int) {
-    guard !collections.isEmpty else {
-      return
-    }
-    withAnimation(
-      reducesMotion ? nil : .snappy(duration: 0.16, extraBounce: 0)
-    ) {
-      selectedIndex = min(
-        max(selectedIndex + offset, 0),
-        collections.count - 1
-      )
-      updateScrollTarget()
-    }
-  }
-
-  private func updateScrollTarget() {
-    guard collections.indices.contains(selectedIndex) else {
-      return
-    }
-    scrollTargetID = collections[selectedIndex].id
-  }
-}
-
-private struct VirtualCollectionCard: View {
-  let collection: LibraryCollection
-  let games: [GameSummary]
-  let session: ServerSession
-  let service: any LibraryServing
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      collectionArtwork
-        .frame(height: 160)
-
-      VStack(alignment: .leading, spacing: 8) {
-        Text(collection.name)
-          .font(.headline)
-          .lineLimit(2)
-
-        HStack(spacing: 8) {
-          Label(collectionTypeLabel, systemImage: collection.systemImage)
-            .lineLimit(1)
-
-          Spacer(minLength: 8)
-
-          Text(
-            collection.gameCount == 1
-              ? "1 game"
-              : "\(collection.gameCount.formatted()) games"
-          )
-          .monospacedDigit()
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-      }
-      .padding(14)
-    }
-    .background(.quaternary.opacity(0.7))
-    .clipShape(.rect(cornerRadius: 14))
-    .overlay {
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .stroke(.separator.opacity(0.45), lineWidth: 0.5)
-    }
-    .contentShape(.rect(cornerRadius: 14))
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel(
-      "\(collection.name), \(collection.gameCount.formatted()) games"
-    )
-  }
-
-  @ViewBuilder
-  private var collectionArtwork: some View {
-    let artworkGames = games.filter { $0.coverURL != nil }
-
-    ZStack {
-      Rectangle()
-        .fill(.quaternary)
-
-      if artworkGames.isEmpty {
-        Image(systemName: collection.systemImage)
-          .font(.system(size: 42, weight: .light))
-          .foregroundStyle(.tertiary)
-      } else {
-        GeometryReader { geometry in
-          let coverCount = CGFloat(artworkGames.count)
-          let coverWidth = min(
-            geometry.size.width / coverCount,
-            geometry.size.height * 0.75
-          )
-
-          HStack(spacing: 4) {
-            ForEach(artworkGames) { game in
-              RomMImageView(
-                url: game.coverURL,
-                session: session,
-                service: service,
-                targetSize: CGSize(width: 240, height: 320),
-                contentMode: .fit,
-                placeholderSystemImage: "gamecontroller",
-                cornerRadius: 6,
-                imagePadding: 2
-              )
-              .frame(width: coverWidth)
-            }
-          }
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-          .padding(10)
-        }
-      }
-    }
-    .clipped()
-  }
-
-  private var collectionTypeLabel: String {
-    guard let virtualType = collection.virtualType, !virtualType.isEmpty else {
-      return "Automatic"
-    }
-    return
-      virtualType
-      .replacingOccurrences(of: "_", with: " ")
-      .capitalized
-  }
-}
-
 private struct LibraryGameSelectionContextMenu<PrimaryActions: View>: View {
   let model: LibraryModel
   let selectedGames: [GameSummary]
@@ -2398,6 +2124,9 @@ private struct LibraryTableView: View {
   @State private var sortingRequestID = UUID()
   @State private var tableIdentity = UUID()
   @State private var selectedGameIDs: Set<Int> = []
+  @State private var typeSelectionPrefix = ""
+  @State private var lastTypeSelectionAt = Date.distantPast
+  @State private var isAlphabeticallySorted = true
   @State private var preparingGameID: Int?
   @State private var preparingProgress: RomMDownloadProgress?
   @State private var playbackAlert: LibraryAlert?
@@ -2489,10 +2218,22 @@ private struct LibraryTableView: View {
     .task(id: tableRowsKey) {
       await rebuildSortedGames()
     }
-    .onChange(of: model.selection) { _, _ in
+    .onAppear {
+      if model.selection == .recentlyPlayed {
+        sortOrder = recentlyPlayedSortOrder
+      }
+    }
+    .onChange(of: model.selection) { oldSelection, newSelection in
       clearBrowserFilters()
       selectedGameIDs.removeAll()
       controllerBrowserColumnIndex = nil
+      if newSelection == .recentlyPlayed {
+        sortOrder = recentlyPlayedSortOrder
+      } else if oldSelection == .recentlyPlayed {
+        sortOrder = [
+          KeyPathComparator(\GameSummary.name)
+        ]
+      }
     }
     .onChange(of: model.searchTerm) { _, _ in
       selectedGameIDs.removeAll()
@@ -2709,6 +2450,26 @@ private struct LibraryTableView: View {
           .customizationID("updated")
           .defaultVisibility(.hidden)
       }
+
+      TableColumn("When Played", value: \GameSummary.whenPlayedSortValue) { game in
+        if let date = game.lastPlayedAt {
+          Text(
+            date,
+            format: .dateTime
+              .month(.abbreviated)
+              .day()
+              .year()
+              .hour()
+              .minute()
+          )
+        } else {
+          Text("Never")
+            .foregroundStyle(.secondary)
+        }
+      }
+      .width(min: 130, ideal: 165)
+      .customizationID("whenPlayed")
+      .defaultVisibility(.hidden)
     }
     .scrollPosition(id: $controllerTableScrollTargetID, anchor: .center)
     .contextMenu(forSelectionType: Int.self) { selectedIDs in
@@ -2755,6 +2516,9 @@ private struct LibraryTableView: View {
 
       selectedGameIDs = Set(sortedGames.lazy.map(\.id))
       return .handled
+    }
+    .onKeyPress(phases: .down) { keyPress in
+      handleTypeSelection(keyPress)
     }
     .overlay {
       if filteredGames.isEmpty {
@@ -2956,6 +2720,62 @@ private struct LibraryTableView: View {
       selectedGameIDs = [gameID]
       controllerTableScrollTargetID = gameID
     }
+  }
+
+  private func handleTypeSelection(
+    _ keyPress: KeyPress
+  ) -> KeyPress.Result {
+    guard
+      hasTableFocus,
+      isAlphabeticallySorted,
+      keyPress.modifiers.intersection([.command, .control, .option]).isEmpty,
+      LibraryTypeSelection.isSearchCharacter(keyPress.characters)
+    else {
+      return .ignored
+    }
+
+    let now = Date()
+    let continuesExistingPrefix =
+      now.timeIntervalSince(lastTypeSelectionAt) < 1.0
+    let existingPrefix = continuesExistingPrefix ? typeSelectionPrefix : ""
+    if existingPrefix.isEmpty,
+      keyPress.characters.trimmingCharacters(in: .whitespaces).isEmpty
+    {
+      return .ignored
+    }
+    let candidatePrefix = existingPrefix + keyPress.characters
+
+    let matchIndex =
+      LibraryTypeSelection.index(
+        matching: candidatePrefix,
+        in: sortedGames
+      )
+      ?? LibraryTypeSelection.index(
+        matching: keyPress.characters,
+        in: sortedGames
+      )
+
+    guard let matchIndex else {
+      typeSelectionPrefix = candidatePrefix
+      lastTypeSelectionAt = now
+      return .handled
+    }
+
+    typeSelectionPrefix =
+      LibraryTypeSelection.index(
+        matching: candidatePrefix,
+        in: sortedGames
+      ) == nil
+      ? keyPress.characters
+      : candidatePrefix
+    lastTypeSelectionAt = now
+
+    let gameID = sortedGames[matchIndex].id
+    withAnimation(reducesMotion ? nil : .easeOut(duration: 0.12)) {
+      selectedGameIDs = [gameID]
+      controllerTableScrollTargetID = gameID
+    }
+    return .handled
   }
 
   private var columnBrowser: some View {
@@ -3533,16 +3353,24 @@ private struct LibraryTableView: View {
       hasTableFocus || (!hasPreparedRows && automaticallyFocusesContent)
     guard !games.isEmpty else {
       sortedGames = []
+      isAlphabeticallySorted = false
       hasPreparedRows = true
       isSorting = false
       return
     }
 
     isSorting = true
-    let sorted = await Task.detached(priority: .userInitiated) {
-      RomMFavorites.prioritizing(
+    let result = await Task.detached(priority: .userInitiated) {
+      let sorted = RomMFavorites.prioritizing(
         games.sorted(using: requestedSortOrder),
         gameIDs: favoriteGameIDs
+      )
+      return (
+        games: sorted,
+        isAlphabetical: LibraryTypeSelection.isAlphabeticallySorted(
+          sorted,
+          prioritizedGameIDs: favoriteGameIDs
+        )
       )
     }.value
 
@@ -3553,14 +3381,24 @@ private struct LibraryTableView: View {
       return
     }
 
-    sortedGames = sorted
-    selectedGameIDs.formIntersection(sorted.lazy.map(\.id))
+    sortedGames = result.games
+    isAlphabeticallySorted = result.isAlphabetical
+    selectedGameIDs.formIntersection(result.games.lazy.map(\.id))
     tableIdentity = UUID()
     hasPreparedRows = true
     if shouldRestoreTableFocus {
       hasTableFocus = true
     }
     isSorting = false
+  }
+
+  private var recentlyPlayedSortOrder: [KeyPathComparator<GameSummary>] {
+    [
+      KeyPathComparator(
+        \GameSummary.whenPlayedSortValue,
+        order: .reverse
+      )
+    ]
   }
 
   private var loadKey: LibraryTableLoadKey {
@@ -4754,6 +4592,10 @@ extension GameSummary {
       return "—"
     }
     return String(updatedAt.prefix(10))
+  }
+
+  fileprivate var whenPlayedSortValue: Date {
+    lastPlayedAt ?? .distantPast
   }
 }
 

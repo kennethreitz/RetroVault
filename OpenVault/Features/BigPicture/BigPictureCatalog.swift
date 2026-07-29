@@ -83,9 +83,19 @@ struct BigPictureCatalog: Sendable {
         : comparison == .orderedAscending
     }
     let visibleGameIDs = Set(alphabeticalGames.map(\.id))
+    let supportedCollections = source.collections.filter {
+      if case .virtual = $0.id {
+        return false
+      }
+      return true
+    }
+    let supportedCollectionIDs = Set(supportedCollections.map(\.id))
+    let supportedMemberships = source.collectionMemberships.filter {
+      supportedCollectionIDs.contains($0.collectionID)
+    }
     let favoriteIDs = RomMFavorites.gameIDs(
-      collections: source.collections,
-      memberships: source.collectionMemberships
+      collections: supportedCollections,
+      memberships: supportedMemberships
     )
     favoriteGameIDs = favoriteIDs
 
@@ -95,11 +105,11 @@ struct BigPictureCatalog: Sendable {
         $0.name.localizedStandardCompare($1.name) == .orderedAscending
       }
     let membershipByCollectionID = Dictionary(
-      uniqueKeysWithValues: source.collectionMemberships.map {
+      uniqueKeysWithValues: supportedMemberships.map {
         ($0.collectionID, $0.gameIDs)
       }
     )
-    collections = source.collections
+    collections = supportedCollections
       .filter { collection in
         membershipByCollectionID[collection.id]?.contains {
           visibleGameIDs.contains($0)
@@ -119,7 +129,7 @@ struct BigPictureCatalog: Sendable {
       uniqueKeysWithValues: alphabeticalGames.map { ($0.id, $0) }
     )
     gamesByCollection = Dictionary(
-      uniqueKeysWithValues: source.collectionMemberships.map { membership in
+      uniqueKeysWithValues: supportedMemberships.map { membership in
         (
           membership.collectionID,
           membership.gameIDs.compactMap { gameID in
