@@ -25,6 +25,9 @@ enum DSUPreferences {
     static let portKey = "dsu.client.port.v1"
     static let slotKey = "dsu.client.slot.v1"
     static let layoutKey = "dsu.client.layout.v1"
+    /// Diagnostic only, and off unless set by hand:
+    /// `defaults write org.kennethreitz.OpenVault dsu.client.latency.v1 -bool true`
+    static let latencyLoggingKey = "dsu.client.latency.v1"
 
     static let enabledByDefault = false
     static let defaultLayout = ControllerFaceButtonLayout.standard
@@ -77,6 +80,83 @@ protocol DSUPadReading: AnyObject, Sendable {
 
     /// How to read the pad's face buttons, since the protocol does not say.
     var padLayout: ControllerFaceButtonLayout { get }
+}
+
+/// Measures the gap between a DSU server sampling the controller and this
+/// client storing the packet — the cost of going through a bridge rather than
+/// reading the device directly.
+///
+/// The server stamps microseconds on `CLOCK_UPTIME_RAW`, which is the clock
+/// `DispatchTime.uptimeNanoseconds` reads, so the two are comparable across
+/// processes without any handshake. A server stamping anything else — most
+/// stamp a process-relative monotonic clock — yields deltas outside any
+/// plausible range; those are counted and reported as unmeasurable rather than
+/// averaged into a number that would look like latency.
+private struct DSULatencySampler {
+    /// A packet apparently older than a second, or stamped in the future, is a
+    /// clock mismatch rather than a slow hop.
+    private static let plausible: ClosedRange<Int64> = 0...1_000_000
+    private static let reportInterval: UInt64 = 2_000_000_000
+    /// A stalled reporting window must not grow the buffer without bound.
+    private static let sampleLimit = 4_096
+
+    private var samples: [Int64] = []
+    private var discarded = 0
+    private var windowStart: UInt64 = 0
+
+    /// Records one packet, returning a line to log once per reporting window.
+    mutating func record(
+        stampedMicroseconds: UInt64,
+        arrivalNanoseconds: UInt64
+    ) -> String? {
+        if windowStart == 0 {
+            windowStart = arrivalNanoseconds
+        }
+
+        if stampedMicroseconds > 0 {
+            let delta =
+                Int64(arrivalNanoseconds / 1_000) - Int64(clamping: stampedMicroseconds)
+            if Self.plausible.contains(delta) {
+                if samples.count < Self.sampleLimit {
+                    samples.append(delta)
+                }
+            } else {
+                discarded += 1
+            }
+        }
+
+        guard arrivalNanoseconds &- windowStart >= Self.reportInterval else {
+            return nil
+        }
+        defer {
+            samples.removeAll(keepingCapacity: true)
+            discarded = 0
+            windowStart = arrivalNanoseconds
+        }
+
+        guard !samples.isEmpty else {
+            guard discarded > 0 else {
+                return nil
+            }
+            return """
+                latency unmeasurable — \(discarded) packets carried a clock \
+                this process cannot compare against
+                """
+        }
+
+        let sorted = samples.sorted()
+        return """
+            hop over \(sorted.count) packets: \
+            median \(Self.milliseconds(sorted, 0.5)), \
+            p95 \(Self.milliseconds(sorted, 0.95)), \
+            max \(Self.milliseconds(sorted, 1))
+            """
+    }
+
+    private static func milliseconds(_ sorted: [Int64], _ fraction: Double) -> String {
+        let index = Int((Double(sorted.count - 1) * fraction).rounded())
+        return String(format: "%.2f ms", Double(sorted[index]) / 1_000)
+    }
 }
 
 /// A DSU ("cemuhook") client. It subscribes to a server over UDP and keeps the
@@ -133,6 +213,10 @@ final class DSUClient: @unchecked Sendable {
     private var padTimestamps: [UInt8: UInt64] = [:]
     private var storedStatus: Status = .idle
     private var isRunning = false
+    private let isMeasuringLatency = UserDefaults.standard.bool(
+        forKey: DSUPreferences.latencyLoggingKey
+    )
+    private var latency = DSULatencySampler()
 
     init(configuration: DSUConfiguration) {
         self.configuration = configuration
@@ -346,10 +430,18 @@ final class DSUClient: @unchecked Sendable {
             lock.unlock()
             return
         }
+        let arrival = DispatchTime.now().uptimeNanoseconds
         pads[pad.slot] = pad
-        padTimestamps[pad.slot] = DispatchTime.now().uptimeNanoseconds
+        padTimestamps[pad.slot] = arrival
         var announcement: String?
+        var latencyReport: String?
         if pad.slot == configuration.slot {
+            if isMeasuringLatency {
+                latencyReport = latency.record(
+                    stampedMicroseconds: pad.motion.timestamp,
+                    arrivalNanoseconds: arrival
+                )
+            }
             let status: Status =
                 pad.isConnected
                 ? .receiving(slot: pad.slot, hasMotion: pad.reportsMotion)
@@ -363,6 +455,9 @@ final class DSUClient: @unchecked Sendable {
 
         if let announcement {
             OpenVaultLog.network.notice("DSU: \(announcement, privacy: .public)")
+        }
+        if let latencyReport {
+            OpenVaultLog.network.notice("DSU: \(latencyReport, privacy: .public)")
         }
     }
 
