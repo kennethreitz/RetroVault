@@ -760,6 +760,34 @@ struct LibretroCoreManifestTests {
         )
     }
 
+    @Test("Escape leaves gameplay fullscreen before closing the player")
+    func resolvesGameplayEscapeAction() {
+        #expect(
+            LibretroEscapeAction.resolve(
+                isFullScreen: true,
+                playerOrigin: .bigPicture
+            ) == .leaveFullScreen
+        )
+        #expect(
+            LibretroEscapeAction.resolve(
+                isFullScreen: true,
+                playerOrigin: nil
+            ) == .leaveFullScreen
+        )
+        #expect(
+            LibretroEscapeAction.resolve(
+                isFullScreen: false,
+                playerOrigin: .bigPicture
+            ) == .exitPlayer
+        )
+        #expect(
+            LibretroEscapeAction.resolve(
+                isFullScreen: false,
+                playerOrigin: nil
+            ) == .stopSession
+        )
+    }
+
     @Test("Smart CRT curves television systems and keeps newer systems flat")
     func resolvesSmartCRTGeometryForSystem() {
         #expect(

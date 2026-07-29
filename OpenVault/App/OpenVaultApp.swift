@@ -42,6 +42,7 @@ struct OpenVaultApp: App {
         .commands {
             DiagnosticsCommands()
             GameInfoCommands()
+            FullScreenCommands()
         }
 
         WindowGroup("OpenVault Player", for: LibretroRunRequest.self) { $request in
@@ -62,6 +63,7 @@ struct OpenVaultApp: App {
         .commands {
             DiagnosticsCommands()
             GameInfoCommands()
+            FullScreenCommands()
         }
 
         WindowGroup("Game Information", for: GameInfoRequest.self) { $request in
@@ -86,6 +88,7 @@ struct OpenVaultApp: App {
         .commands {
             DiagnosticsCommands()
             GameInfoCommands()
+            FullScreenCommands()
         }
 
         WindowGroup("OpenVault Logs", id: "diagnostics") {
@@ -96,6 +99,7 @@ struct OpenVaultApp: App {
         .commands {
             DiagnosticsCommands()
             GameInfoCommands()
+            FullScreenCommands()
         }
 
         Settings {
@@ -104,6 +108,18 @@ struct OpenVaultApp: App {
         .commands {
             DiagnosticsCommands()
             GameInfoCommands()
+            FullScreenCommands()
+        }
+    }
+}
+
+private struct FullScreenCommands: Commands {
+    var body: some Commands {
+        CommandGroup(after: .windowArrangement) {
+            Button("Toggle Full Screen") {
+                NSApplication.shared.keyWindow?.toggleFullScreen(nil)
+            }
+            .keyboardShortcut("f", modifiers: .command)
         }
     }
 }

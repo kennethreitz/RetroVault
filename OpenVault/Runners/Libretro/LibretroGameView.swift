@@ -135,11 +135,15 @@ struct LibretroGameView: View {
             }
         }
         .onExitCommand {
-            if session.request.playerOrigin == .bigPicture {
-                session.exitPlayer()
-            } else if isFullScreen {
+            switch LibretroEscapeAction.resolve(
+                isFullScreen: isFullScreen,
+                playerOrigin: session.request.playerOrigin
+            ) {
+            case .leaveFullScreen:
                 playerWindow?.toggleFullScreen(nil)
-            } else {
+            case .exitPlayer:
+                session.exitPlayer()
+            case .stopSession:
                 session.stop()
             }
         }
@@ -206,6 +210,23 @@ struct LibretroGameView: View {
                         )
                     }
                     .disabled(!isRunning)
+
+                    Button {
+                        session.toggleMute()
+                    } label: {
+                        Label(
+                            session.isMuted ? "Unmute" : "Mute",
+                            systemImage: session.isMuted
+                                ? "speaker.slash.fill"
+                                : "speaker.wave.2.fill"
+                        )
+                    }
+                    .disabled(!isRunning)
+                    .help(
+                        session.isMuted
+                            ? "Restore game audio"
+                            : "Mute game audio"
+                    )
 
                     Button {
                         session.reset()
@@ -395,6 +416,22 @@ struct LibretroGameView: View {
         } else {
             playerWindow?.performClose(nil)
         }
+    }
+}
+
+enum LibretroEscapeAction: Equatable, Sendable {
+    case leaveFullScreen
+    case exitPlayer
+    case stopSession
+
+    static func resolve(
+        isFullScreen: Bool,
+        playerOrigin: LibretroPlayerOrigin?
+    ) -> Self {
+        if isFullScreen {
+            return .leaveFullScreen
+        }
+        return playerOrigin == .bigPicture ? .exitPlayer : .stopSession
     }
 }
 

@@ -1290,6 +1290,7 @@ final class LibretroSession {
 
     private(set) var phase: Phase = .idle
     private(set) var isPaused = false
+    private(set) var isMuted = false
     private(set) var message: String?
     private(set) var hasQuickState = false
     private(set) var canRewind = false
@@ -1336,6 +1337,7 @@ final class LibretroSession {
 
         phase = .starting
         isPaused = false
+        isMuted = false
         canRewind = false
         shouldClosePlayer = false
         message = nil
@@ -1424,6 +1426,14 @@ final class LibretroSession {
         }
     }
 
+    func toggleMute() {
+        guard case .running = phase else {
+            return
+        }
+        isMuted.toggle()
+        engine.setMuted(isMuted)
+    }
+
     var isReadyToClosePlayer: Bool {
         switch phase {
         case .idle, .stopped, .failed:
@@ -1452,6 +1462,7 @@ final class LibretroSession {
         case .stopped:
             phase = .stopped
             isPaused = false
+            isMuted = false
             canRewind = false
             displaySleep.end()
             if request.saveSync != nil, saveSyncPhase == .idle {
@@ -1461,6 +1472,7 @@ final class LibretroSession {
         case let .failed(error):
             phase = .failed(error)
             isPaused = false
+            isMuted = false
             canRewind = false
             displaySleep.end()
             OpenVaultLog.libretro.error("Libretro session failed: \(error)")
@@ -2212,7 +2224,12 @@ private final class LibretroAudioOutput: @unchecked Sendable {
     private let player = AVAudioPlayerNode()
     private var format: AVAudioFormat?
     private var individualSamples: [Int16] = []
-    private var suppressesAudio = false
+    private var isUserMuted = false
+    private var suppressesTransportAudio = false
+
+    private var suppressesAudio: Bool {
+        isUserMuted || suppressesTransportAudio
+    }
 
     func configure(sampleRate: Double) throws {
         guard sampleRate > 0 else {
@@ -2257,10 +2274,18 @@ private final class LibretroAudioOutput: @unchecked Sendable {
     }
 
     func setTransportAudioSuppressed(_ shouldSuppressAudio: Bool) {
-        guard suppressesAudio != shouldSuppressAudio else {
+        guard suppressesTransportAudio != shouldSuppressAudio else {
             return
         }
-        suppressesAudio = shouldSuppressAudio
+        suppressesTransportAudio = shouldSuppressAudio
+        flush()
+    }
+
+    func setUserMuted(_ isMuted: Bool) {
+        guard isUserMuted != isMuted else {
+            return
+        }
+        isUserMuted = isMuted
         flush()
     }
 
@@ -2283,7 +2308,8 @@ private final class LibretroAudioOutput: @unchecked Sendable {
             }
             individualSamples.removeAll()
         }
-        suppressesAudio = false
+        isUserMuted = false
+        suppressesTransportAudio = false
         player.stop()
         engine.stop()
     }
@@ -3016,6 +3042,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
 
     private enum Command {
         case reset
+        case setMuted(Bool)
         case saveQuickState
         case saveQuickStateAndStop
         case loadQuickState
@@ -3129,6 +3156,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
 
     func reset() {
         enqueue(.reset)
+    }
+
+    func setMuted(_ isMuted: Bool) {
+        enqueue(.setMuted(isMuted))
     }
 
     func saveQuickState() {
@@ -3654,6 +3685,8 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     rewindIsSupported = request.allowsRewind
                     rewindCaptureSchedule.reset()
                     emit(.rewindAvailabilityChanged(false))
+                case let .setMuted(isMuted):
+                    audioOutput.setUserMuted(isMuted)
                 case .saveQuickState:
                     try persistQuickState(using: core)
                 case .saveQuickStateAndStop:
