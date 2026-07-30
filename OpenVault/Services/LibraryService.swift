@@ -1519,7 +1519,11 @@ actor RomMLibraryService: LibraryServing {
       emulator: emulator,
       slot: "autosave",
       storage: storage,
-      remoteSaveUpdatedAt: metadata?.remoteUpdatedAt
+      // Only a save imported during this launch should suppress an older
+      // quick state. The stored sync baseline may describe OpenVault's own
+      // upload from the previous exit, which belongs to the same session as
+      // that quick state and must not prevent Resume.
+      remoteSaveUpdatedAt: nil
     )
     let localHash = saveContentHash(for: configuration)
 

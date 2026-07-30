@@ -280,7 +280,12 @@ enum LibretroInputPortRouting {
 /// The stable directory key shared by the runtime and library resume scanner.
 enum LibretroContentIdentity {
     static func key(for contentURL: URL?) -> String {
-        let identity = contentURL?.path ?? "content-free"
+        let identity =
+            contentURL?
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+            ?? "content-free"
         return SHA256.hash(data: Data(identity.utf8))
             .map { String(format: "%02x", $0) }
             .joined()

@@ -1065,9 +1065,10 @@ struct LibraryTests {
             libretroDirectory: libretroDirectory
         )
 
-        #expect(
-            await service.localQuickStateGameIDs(in: session) == [42]
+        let quickStateGameIDs = await service.localQuickStateGameIDs(
+            in: session
         )
+        #expect(quickStateGameIDs == [42])
     }
 
     @Test("Preserves archives for cores that load them as game content")
@@ -1351,6 +1352,25 @@ struct LibraryTests {
                 == .unchanged
         )
         #expect(await api.uploadedSaves.count == 1)
+
+        let synchronizedUploadGame = mockGameDetails(
+            id: game.id,
+            fileName: game.fileName,
+            systemName: game.systemName,
+            saves: [
+                save(id: 901, updatedAt: Date(timeIntervalSince1970: 3_000))
+            ]
+        )
+        await api.setLatestGameDetails(synchronizedUploadGame)
+        let synchronizedConfiguration =
+            try await service.prepareCartridgeSaveForPlay(
+                game,
+                in: session,
+                emulator: "OpenVault",
+                coreID: "libretro-bsnes-mercury-balanced"
+            )
+        #expect(synchronizedConfiguration?.remoteSaveUpdatedAt == nil)
+        #expect(await api.downloadedSaveIDs == [142, 141])
 
         let newerRemoteGame = mockGameDetails(
             id: game.id,
