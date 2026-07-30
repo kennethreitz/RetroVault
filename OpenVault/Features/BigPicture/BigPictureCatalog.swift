@@ -21,6 +21,15 @@ enum BigPictureScope: Hashable, Sendable {
   case collection(LibraryCollection.ID)
 }
 
+enum BigPictureCatalogPreparation: Equatable, Sendable {
+  /// Enough indexing to make the home screen and every destination usable.
+  /// Individual destinations sort on demand until the fully prepared catalog
+  /// replaces this one.
+  case startup
+  /// Prepares every system and collection list for immediate navigation.
+  case full
+}
+
 struct BigPictureCatalog: Sendable {
   static let empty = BigPictureCatalog(
     source: BigPictureLibrarySource(
@@ -50,6 +59,9 @@ struct BigPictureCatalog: Sendable {
   private let gamesBySystem: [Int: [GameSummary]]
   private let gamesByCollection: [LibraryCollection.ID: [GameSummary]]
   private let downloadedGamesBySystem: [Int: [GameSummary]]
+  private let gamesByID: [Int: GameSummary]
+  private let gameIDsByCollection: [LibraryCollection.ID: [Int]]
+  private let isFullyPrepared: Bool
 
   init(
     source: BigPictureLibrarySource,
@@ -58,9 +70,11 @@ struct BigPictureCatalog: Sendable {
     // parameter so a test can state which core set it means instead of
     // inheriting whatever the running machine has switched on.
     includingExperimental: Bool =
-      LibretroCorePreferences.enablesExperimentalCores()
+      LibretroCorePreferences.enablesExperimentalCores(),
+    preparation: BigPictureCatalogPreparation = .full
   ) {
     synchronizedAt = source.synchronizedAt
+    isFullyPrepared = preparation == .full
 
     let supportedSystems = source.systems.filter {
       $0.gameCount > 0
@@ -76,13 +90,7 @@ struct BigPictureCatalog: Sendable {
       manifest == nil
       ? source.games
       : source.games.filter { supportedSystemIDs.contains($0.systemID) }
-    let alphabeticalGames = playableGames.sorted {
-      let comparison = $0.name.localizedStandardCompare($1.name)
-      return comparison == .orderedSame
-        ? $0.id < $1.id
-        : comparison == .orderedAscending
-    }
-    let visibleGameIDs = Set(alphabeticalGames.map(\.id))
+    let visibleGameIDs = Set(playableGames.map(\.id))
     let supportedCollections = source.collections.filter {
       if case .virtual = $0.id {
         return false
@@ -109,6 +117,7 @@ struct BigPictureCatalog: Sendable {
         ($0.collectionID, $0.gameIDs)
       }
     )
+    gameIDsByCollection = membershipByCollectionID
     collections = supportedCollections
       .filter { collection in
         membershipByCollectionID[collection.id]?.contains {
@@ -118,41 +127,53 @@ struct BigPictureCatalog: Sendable {
       .sorted {
         $0.name.localizedStandardCompare($1.name) == .orderedAscending
       }
-    gamesBySystem = Dictionary(
-      grouping: alphabeticalGames,
-      by: \.systemID
-    ).mapValues {
-      RomMFavorites.prioritizing($0, gameIDs: favoriteIDs)
+
+    let preparedGamesByID = Dictionary(
+      uniqueKeysWithValues: playableGames.map { ($0.id, $0) }
+    )
+    gamesByID = preparedGamesByID
+
+    let alphabeticalGames: [GameSummary]
+    if preparation == .full {
+      alphabeticalGames = Self.alphabeticallySorted(playableGames)
+      gamesBySystem = Dictionary(
+        grouping: alphabeticalGames,
+        by: \.systemID
+      ).mapValues {
+        RomMFavorites.prioritizing($0, gameIDs: favoriteIDs)
+      }
+      gamesByCollection = Dictionary(
+        uniqueKeysWithValues: supportedMemberships.map { membership in
+          (
+            membership.collectionID,
+            membership.gameIDs.compactMap {
+              preparedGamesByID[$0]
+            }
+            .sorted(by: Self.isAlphabeticallyOrdered)
+          )
+        }
+      )
+    } else {
+      // Grouping is linear and makes every system immediately navigable. The
+      // much more expensive global and per-collection sorts happen in the
+      // fully prepared catalog that replaces this one in the background.
+      alphabeticalGames = playableGames
+      gamesBySystem = Dictionary(
+        grouping: playableGames,
+        by: \.systemID
+      )
+      gamesByCollection = [:]
     }
 
-    let gamesByID = Dictionary(
-      uniqueKeysWithValues: alphabeticalGames.map { ($0.id, $0) }
-    )
-    gamesByCollection = Dictionary(
-      uniqueKeysWithValues: supportedMemberships.map { membership in
-        (
-          membership.collectionID,
-          membership.gameIDs.compactMap { gameID in
-            guard visibleGameIDs.contains(gameID) else {
-              return nil
-            }
-            return gamesByID[gameID]
-          }
-          .sorted {
-            let comparison = $0.name.localizedStandardCompare($1.name)
-            return comparison == .orderedSame
-              ? $0.id < $1.id
-              : comparison == .orderedAscending
-          }
-        )
-      }
-    )
     let downloaded = alphabeticalGames.filter {
       source.downloadedGameIDs.contains($0.id)
     }
-    downloadedGames = downloaded
+    downloadedGames =
+      preparation == .full
+      ? downloaded
+      : Self.alphabeticallySorted(downloaded)
     downloadedGamesBySystem = Dictionary(
-      grouping: downloaded,
+      grouping: downloadedGames,
       by: \.systemID
     ).mapValues {
       RomMFavorites.prioritizing($0, gameIDs: favoriteIDs)
@@ -162,18 +183,18 @@ struct BigPictureCatalog: Sendable {
     downloadedSystems = systems.filter {
       downloadedSystemIDs.contains($0.id)
     }
-    favoriteGames = alphabeticalGames.filter {
-      favoriteIDs.contains($0.id)
-    }
-    recentlyAddedGames = Array(
-      Self.sortByDateAdded(alphabeticalGames).prefix(50)
-    )
-    let playableGamesByID = Dictionary(
-      uniqueKeysWithValues: alphabeticalGames.map { ($0.id, $0) }
-    )
+    let favorites = alphabeticalGames.filter { favoriteIDs.contains($0.id) }
+    favoriteGames =
+      preparation == .full
+      ? favorites
+      : Self.alphabeticallySorted(favorites)
+    recentlyAddedGames =
+      preparation == .full
+      ? Array(Self.sortByDateAdded(alphabeticalGames).prefix(50))
+      : Array(Self.sortByCreatedAtString(playableGames).prefix(50))
     recentlyPlayedGames = Array(
       source.playHistory.gameIDsByRecency
-        .compactMap { playableGamesByID[$0] }
+        .compactMap { preparedGamesByID[$0] }
         .prefix(50)
     )
   }
@@ -189,11 +210,11 @@ struct BigPictureCatalog: Sendable {
     case .downloaded:
       downloadedGames
     case .system(let systemID):
-      gamesBySystem[systemID] ?? []
+      preparedSystemGames(systemID)
     case .downloadedSystem(let systemID):
-      downloadedGamesBySystem[systemID] ?? []
+      preparedDownloadedSystemGames(systemID)
     case .collection(let collectionID):
-      gamesByCollection[collectionID] ?? []
+      preparedCollectionGames(collectionID)
     }
   }
 
@@ -255,5 +276,79 @@ struct BigPictureCatalog: Sendable {
       }
     }
     .map(\.game)
+  }
+
+  private func preparedSystemGames(_ systemID: Int) -> [GameSummary] {
+    let games = gamesBySystem[systemID] ?? []
+    guard !isFullyPrepared else {
+      return games
+    }
+    return RomMFavorites.prioritizing(
+      Self.alphabeticallySorted(games),
+      gameIDs: favoriteGameIDs
+    )
+  }
+
+  private func preparedDownloadedSystemGames(
+    _ systemID: Int
+  ) -> [GameSummary] {
+    let games = downloadedGamesBySystem[systemID] ?? []
+    guard !isFullyPrepared else {
+      return games
+    }
+    return RomMFavorites.prioritizing(
+      Self.alphabeticallySorted(games),
+      gameIDs: favoriteGameIDs
+    )
+  }
+
+  private func preparedCollectionGames(
+    _ collectionID: LibraryCollection.ID
+  ) -> [GameSummary] {
+    if isFullyPrepared {
+      return gamesByCollection[collectionID] ?? []
+    }
+    return Self.alphabeticallySorted(
+      gameIDsByCollection[collectionID, default: []].compactMap {
+        gamesByID[$0]
+      }
+    )
+  }
+
+  private static func alphabeticallySorted(
+    _ games: [GameSummary]
+  ) -> [GameSummary] {
+    games.sorted(by: isAlphabeticallyOrdered)
+  }
+
+  private static func isAlphabeticallyOrdered(
+    _ lhs: GameSummary,
+    _ rhs: GameSummary
+  ) -> Bool {
+    let comparison = lhs.name.localizedStandardCompare(rhs.name)
+    return comparison == .orderedSame
+      ? lhs.id < rhs.id
+      : comparison == .orderedAscending
+  }
+
+  /// RomM emits UTC ISO-8601 creation timestamps. Their lexical order is
+  /// chronological, so the startup catalog can identify the newest games
+  /// without parsing thousands of dates. The fully prepared catalog replaces
+  /// this result with the tolerant date-parser path.
+  private static func sortByCreatedAtString(
+    _ games: [GameSummary]
+  ) -> [GameSummary] {
+    games.sorted { lhs, rhs in
+      switch (lhs.createdAt, rhs.createdAt) {
+      case (let left?, let right?) where left != right:
+        return left > right
+      case (_?, nil):
+        return true
+      case (nil, _?):
+        return false
+      default:
+        return isAlphabeticallyOrdered(lhs, rhs)
+      }
+    }
   }
 }

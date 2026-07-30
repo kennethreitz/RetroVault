@@ -1036,20 +1036,54 @@ struct BigPictureView: View {
     let source = model.bigPictureSource
     let manifest = Self.bundledManifest
     let includingExperimental = enablesExperimentalCores
+
+    if catalog.systems.isEmpty, !source.systems.isEmpty {
+      let startupCatalog = await Task.detached(priority: .userInitiated) {
+        BigPictureCatalog(
+          source: source,
+          manifest: manifest,
+          includingExperimental: includingExperimental,
+          preparation: .startup
+        )
+      }.value
+      guard !Task.isCancelled else {
+        return
+      }
+      publishCatalog(startupCatalog)
+    }
+
     let preparedCatalog = await Task.detached(priority: .userInitiated) {
       BigPictureCatalog(
         source: source,
         manifest: manifest,
-        includingExperimental: includingExperimental
+        includingExperimental: includingExperimental,
+        preparation: .full
       )
     }.value
     guard !Task.isCancelled else {
       return
     }
+    publishCatalog(preparedCatalog)
+    isBuildingCatalog = false
+  }
+
+  private func publishCatalog(_ preparedCatalog: BigPictureCatalog) {
+    let selectedRowID =
+      rows.indices.contains(selectedIndex)
+      ? rows[selectedIndex].id
+      : nil
     catalog = preparedCatalog
     rows = makeRows(for: page, catalog: preparedCatalog)
-    isBuildingCatalog = false
-    selectedIndex = min(selectedIndex, max(rows.count - 1, 0))
+    if
+      let selectedRowID,
+      let preservedIndex = rows.firstIndex(where: {
+        $0.id == selectedRowID
+      })
+    {
+      selectedIndex = preservedIndex
+    } else {
+      selectedIndex = min(selectedIndex, max(rows.count - 1, 0))
+    }
   }
 
   private func handle(_ command: BigPictureCommand) {

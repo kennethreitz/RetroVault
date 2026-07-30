@@ -700,6 +700,78 @@ struct BigPictureCatalogTests {
     #expect(catalog.title(for: .collection(collectionID)) == "Mario")
   }
 
+  @Test("Startup catalog is immediately navigable before full indexing")
+  func buildsNavigableStartupCatalog() {
+    let collectionID = LibraryCollection.ID.smart(11)
+    let favoritesID = LibraryCollection.ID.regular(10)
+    let source = BigPictureLibrarySource(
+      synchronizedAt: nil,
+      systems: [
+        LibrarySystem(id: 1, name: "Super Nintendo", gameCount: 3)
+      ],
+      collections: [
+        LibraryCollection(
+          id: favoritesID,
+          name: "Favorites",
+          gameCount: 1
+        ),
+        LibraryCollection(
+          id: collectionID,
+          name: "Platformers",
+          gameCount: 2
+        ),
+      ],
+      games: [
+        GameSummary(
+          id: 1,
+          name: "Zelda",
+          systemID: 1,
+          systemName: "Super Nintendo",
+          coverURL: nil,
+          createdAt: "2025-01-02T03:04:05Z"
+        ),
+        GameSummary(
+          id: 2,
+          name: "Mario",
+          systemID: 1,
+          systemName: "Super Nintendo",
+          coverURL: nil,
+          createdAt: "2026-07-26T12:34:56Z"
+        ),
+        GameSummary(
+          id: 3,
+          name: "Donkey Kong",
+          systemID: 1,
+          systemName: "Super Nintendo",
+          coverURL: nil
+        ),
+      ],
+      collectionMemberships: [
+        LibrarySnapshot.CollectionMembership(
+          collectionID: favoritesID,
+          gameIDs: [1]
+        ),
+        LibrarySnapshot.CollectionMembership(
+          collectionID: collectionID,
+          gameIDs: [2, 3]
+        ),
+      ],
+      downloadedGameIDs: [2, 3],
+      playHistory: LocalPlayHistory()
+    )
+    let catalog = BigPictureCatalog(
+      source: source,
+      manifest: nil,
+      preparation: .startup
+    )
+
+    #expect(catalog.systems.map(\.id) == [1])
+    #expect(catalog.games(in: .system(1)).map(\.id) == [1, 3, 2])
+    #expect(catalog.games(in: .collection(collectionID)).map(\.id) == [3, 2])
+    #expect(catalog.games(in: .downloadedSystem(1)).map(\.id) == [3, 2])
+    #expect(catalog.recentlyAddedGames.map(\.id) == [2, 1, 3])
+  }
+
   @Test("Keeps only systems with a reviewed bundled core")
   func filtersUnsupportedSystems() throws {
     let repositoryURL = URL(fileURLWithPath: #filePath)
