@@ -1489,6 +1489,13 @@ final class LibretroSession {
             message = canContinue
                 ? "Rewound about one second."
                 : "Rewound to the beginning of available history."
+        case let .playbackPauseChanged(isPaused):
+            self.isPaused = isPaused
+            if isPaused {
+                displaySleep.end()
+            } else {
+                displaySleep.begin(reason: "Playing \(request.title)")
+            }
         case let .notice(text):
             message = text
         case .saveMemoryPersisted:
@@ -3038,6 +3045,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         case saveMemoryPersisted
         case rewindAvailabilityChanged(Bool)
         case rewound(canContinue: Bool)
+        case playbackPauseChanged(Bool)
     }
 
     private enum Command {
@@ -3720,6 +3728,12 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     rewindCaptureSchedule.reset()
                     didRewind = true
                     if rewindBuffer.isEmpty {
+                        // The oldest snapshot is a hard playback boundary.
+                        // Pause immediately on the emulation thread so a held
+                        // L3 cannot advance away from the frame it just
+                        // reached before the UI receives the event.
+                        setPaused(true)
+                        emit(.playbackPauseChanged(true))
                         emit(.rewound(canContinue: false))
                     }
                 }
