@@ -300,84 +300,70 @@ struct BigPictureView: View {
   }
 
   private var menuRows: some View {
-    ScrollViewReader { proxy in
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 4) {
-          ForEach(rows.indices, id: \.self) { index in
-            let row = rows[index]
-            Button {
-              selectRow(at: index, scrollsIntoView: false)
-              activate(row)
-            } label: {
-              HStack(spacing: 16) {
-                if page.isGameList {
-                  Image(systemName: "star.fill")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.yellow)
-                    .opacity(row.isFavorite ? 1 : 0)
-                    .accessibilityHidden(!row.isFavorite)
-                    .accessibilityLabel("Favorite")
-                }
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: 4) {
+        ForEach(rows.indices, id: \.self) { index in
+          let row = rows[index]
+          Button {
+            selectRow(at: index, scrollsIntoView: false)
+            activate(row)
+          } label: {
+            HStack(spacing: 16) {
+              if page.isGameList {
+                Image(systemName: "star.fill")
+                  .font(.system(size: 13, weight: .bold))
+                  .foregroundStyle(.yellow)
+                  .opacity(row.isFavorite ? 1 : 0)
+                  .accessibilityHidden(!row.isFavorite)
+                  .accessibilityLabel("Favorite")
+              }
 
-                Text(row.title)
+              Text(row.title)
+                .lineLimit(1)
+
+              Spacer(minLength: 20)
+
+              if let detail = row.detail {
+                Text(detail)
+                  .font(.system(size: rowDetailSize, weight: .bold, design: .rounded))
+                  .foregroundStyle(
+                    index == selectedIndex
+                      ? .black.opacity(0.56)
+                      : .white.opacity(0.46)
+                  )
+                  .monospacedDigit()
                   .lineLimit(1)
-
-                Spacer(minLength: 20)
-
-                if let detail = row.detail {
-                  Text(detail)
-                    .font(.system(size: rowDetailSize, weight: .bold, design: .rounded))
-                    .foregroundStyle(
-                      index == selectedIndex
-                        ? .black.opacity(0.56)
-                        : .white.opacity(0.46)
-                    )
-                    .monospacedDigit()
-                    .lineLimit(1)
-                }
               }
-              .font(.system(size: rowFontSize, weight: .black, design: .rounded))
-              .foregroundStyle(index == selectedIndex ? .black : .white)
-              .padding(.horizontal, 20)
-              .frame(height: rowHeight)
-              .background {
-                if index == selectedIndex {
-                  Capsule()
-                    .fill(.white)
-                    .matchedGeometryEffect(
-                      id: "big-picture-selection",
-                      in: selectionHighlight
-                    )
-                }
-              }
-              .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
-            .id(row.id)
-            .accessibilityAddTraits(
-              index == selectedIndex ? .isSelected : []
-            )
+            .font(.system(size: rowFontSize, weight: .black, design: .rounded))
+            .foregroundStyle(index == selectedIndex ? .black : .white)
+            .padding(.horizontal, 20)
+            .frame(height: rowHeight)
+            .background {
+              if index == selectedIndex {
+                Capsule()
+                  .fill(.white)
+                  .matchedGeometryEffect(
+                    id: "big-picture-selection",
+                    in: selectionHighlight
+                  )
+              }
+            }
+            .contentShape(Capsule())
           }
-        }
-        .padding(.vertical, 6)
-      }
-      .id(page)
-      .scrollIndicators(.hidden)
-      .onChange(of: scrollTargetID) { _, targetID in
-        guard let targetID else {
-          return
-        }
-        withAnimation(reducesMotion ? nil : .easeOut(duration: 0.14)) {
-          proxy.scrollTo(targetID, anchor: .center)
-        }
-
-        Task { @MainActor in
-          if scrollTargetID == targetID {
-            scrollTargetID = nil
-          }
+          .buttonStyle(.plain)
+          .id(row.id)
+          .accessibilityAddTraits(
+            index == selectedIndex ? .isSelected : []
+          )
         }
       }
+      .scrollTargetLayout()
+      .padding(.vertical, 6)
     }
+    .id(page)
+    .scrollIndicators(.hidden)
+    .scrollPosition(id: $scrollTargetID, anchor: .center)
   }
 
   private var footer: some View {
