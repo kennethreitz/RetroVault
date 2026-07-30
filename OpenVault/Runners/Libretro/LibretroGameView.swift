@@ -52,7 +52,13 @@ struct LibretroGameView: View {
                             forSystemName: session.request.systemName
                         )
                     )
-                        .ignoresSafeArea()
+                    // Keep windowed gameplay inside the native content area
+                    // so the title bar never covers the picture. Fullscreen
+                    // still extends beneath the hover-only toolbar to avoid
+                    // resizing the drawable when the controls appear.
+                    .ignoresSafeArea(
+                        edges: isFullScreen ? .all : []
+                    )
                 case .stopped:
                     ContentUnavailableView {
                         Label("Session Ended", systemImage: "stop.circle")
