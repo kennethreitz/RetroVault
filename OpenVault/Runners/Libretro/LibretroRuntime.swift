@@ -1489,13 +1489,6 @@ final class LibretroSession {
             message = canContinue
                 ? "Rewound about one second."
                 : "Rewound to the beginning of available history."
-        case let .playbackPauseChanged(isPaused):
-            self.isPaused = isPaused
-            if isPaused {
-                displaySleep.end()
-            } else {
-                displaySleep.begin(reason: "Playing \(request.title)")
-            }
         case let .notice(text):
             message = text
         case .saveMemoryPersisted:
@@ -3045,7 +3038,6 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         case saveMemoryPersisted
         case rewindAvailabilityChanged(Bool)
         case rewound(canContinue: Bool)
-        case playbackPauseChanged(Bool)
     }
 
     private enum Command {
@@ -3534,6 +3526,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             var nextFrame = ProcessInfo.processInfo.systemUptime
             var wasFastForwarding = false
             var wasRewinding = false
+            var isHoldingAtRewindBoundary = false
 
             while !stopRequested {
                 // A core may change its frame rate mid-game through
@@ -3557,6 +3550,13 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     nextFrame = ProcessInfo.processInfo.systemUptime
                 }
 
+                // Once history is exhausted the core cannot run merely to
+                // discover that L3 was released: doing so advances the game
+                // away from the oldest frame. Poll the physical controller
+                // directly while held at the boundary instead.
+                if isHoldingAtRewindBoundary {
+                    inputState.pollController()
+                }
                 let transportControls =
                     inputState.currentTransportControls()
                 let now = ProcessInfo.processInfo.systemUptime
@@ -3567,7 +3567,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 // nothing.
                 let isRewinding =
                     transportControls.isRewinding && rewindIsSupported
-                if isRewinding {
+                if isHoldingAtRewindBoundary, !isRewinding {
+                    isHoldingAtRewindBoundary = false
+                }
+                if isRewinding, !isHoldingAtRewindBoundary {
                     enqueue(
                         .rewind(steps: Self.heldRewindMultiplier)
                     )
@@ -3593,6 +3596,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     rewindIsSupported: &rewindIsSupported,
                     rewindCaptureSchedule: &rewindCaptureSchedule
                 )
+                if didRewind, rewindBuffer.isEmpty, isRewinding {
+                    isHoldingAtRewindBoundary = true
+                }
 
                 if paused {
                     if didRewind {
@@ -3605,14 +3611,18 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     continue
                 }
 
-                // The core must still run when a held rewind request finds no
-                // older state. Libretro controllers are polled from `run()`;
-                // skipping it here leaves the cached L3 state pressed forever,
-                // so releasing the button can never resume the game. This is
-                // particularly easy to hit on PlayStation, whose large states
-                // provide a shorter history. We deliberately do not capture a
-                // new rewind state below while L3 remains held, avoiding a
-                // one-frame rewind/advance loop at the start of history.
+                // Render the frame that first reaches the boundary, then hold
+                // it without advancing until the direct controller poll above
+                // observes L3 being released.
+                if
+                    isHoldingAtRewindBoundary,
+                    isRewinding,
+                    !didRewind
+                {
+                    Thread.sleep(forTimeInterval: 0.01)
+                    nextFrame = ProcessInfo.processInfo.systemUptime
+                    continue
+                }
                 runtimeEnvironment.makeHardwareContextCurrent()
                 loadedCore.run()
                 if !didRewind, !wasRewinding {
@@ -3728,12 +3738,6 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     rewindCaptureSchedule.reset()
                     didRewind = true
                     if rewindBuffer.isEmpty {
-                        // The oldest snapshot is a hard playback boundary.
-                        // Pause immediately on the emulation thread so a held
-                        // L3 cannot advance away from the frame it just
-                        // reached before the UI receives the event.
-                        setPaused(true)
-                        emit(.playbackPauseChanged(true))
                         emit(.rewound(canContinue: false))
                     }
                 }
