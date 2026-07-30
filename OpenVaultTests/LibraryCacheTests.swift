@@ -327,6 +327,18 @@ struct BigPictureCatalogTests {
         storedFingerprint: nil
       )
     )
+    #expect(
+      !LibretroQuickStateCompatibility.isSupported(
+        coreID: "libretro-dolphin"
+      )
+    )
+    #expect(
+      !LibretroQuickStateCompatibility.isCompatible(
+        coreID: "libretro-dolphin",
+        expectedFingerprint: nil,
+        storedFingerprint: nil
+      )
+    )
   }
 
   @Test("Does not resume a quick state older than RomM's cartridge save")

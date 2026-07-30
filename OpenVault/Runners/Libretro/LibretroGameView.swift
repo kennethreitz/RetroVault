@@ -266,7 +266,7 @@ struct LibretroGameView: View {
                     } label: {
                         Label("State", systemImage: "clock.arrow.circlepath")
                     }
-                    .disabled(!isRunning)
+                    .disabled(!isRunning || !session.allowsQuickStates)
 
                     Button {
                         playerWindow?.toggleFullScreen(nil)

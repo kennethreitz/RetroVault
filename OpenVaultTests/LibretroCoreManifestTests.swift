@@ -1388,8 +1388,8 @@ struct LibretroCoreManifestTests {
         #expect(fifth)
     }
 
-    @Test("Disables rewind for Nintendo 64 cores")
-    func disablesNintendo64Rewind() {
+    @Test("Disables rewind for cores with unsafe state restoration")
+    func disablesUnsafeRewind() {
         #expect(
             !LibretroRewindPolicy.isEnabled(
                 forCoreID: "libretro-parallel-n64"
@@ -1398,6 +1398,11 @@ struct LibretroCoreManifestTests {
         #expect(
             !LibretroRewindPolicy.isEnabled(
                 forCoreID: "libretro-mupen64plus-next"
+            )
+        )
+        #expect(
+            !LibretroRewindPolicy.isEnabled(
+                forCoreID: "libretro-dolphin"
             )
         )
         #expect(

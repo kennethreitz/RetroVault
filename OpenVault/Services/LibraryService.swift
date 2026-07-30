@@ -2404,6 +2404,13 @@ actor RomMLibraryService: LibraryServing {
       }
 
       for contentDirectory in contentDirectories {
+        guard
+          LibretroQuickStateCompatibility.isSupported(
+            coreID: coreDirectory.lastPathComponent
+          )
+        else {
+          continue
+        }
         let quickStateURL = contentDirectory
           .appending(path: "States", directoryHint: .isDirectory)
           .appending(path: "Quick.state")

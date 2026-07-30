@@ -54,6 +54,10 @@ struct LibretroRunRequest: Codable, Hashable, Sendable {
         LibretroRewindPolicy.isEnabled(forCoreID: coreID)
     }
 
+    var allowsQuickStates: Bool {
+        LibretroQuickStateCompatibility.isSupported(coreID: coreID)
+    }
+
     func startingFresh() -> Self {
         Self(
             title: title,
@@ -109,6 +113,13 @@ enum LibretroQuickStateRestorePolicy {
 enum LibretroQuickStateCompatibility {
     static let fingerprintFileName = "Quick.state.core"
 
+    /// Dolphin can crash the host process while deserializing an otherwise
+    /// current state. Keep its durable memory-card saves, but do not offer a
+    /// Resume path until state restoration can be isolated from the app.
+    static func isSupported(coreID: String) -> Bool {
+        coreID.caseInsensitiveCompare("libretro-dolphin") != .orderedSame
+    }
+
     static func requiresCoreFingerprint(coreID: String) -> Bool {
         coreID.caseInsensitiveCompare("libretro-fake08") == .orderedSame
     }
@@ -125,6 +136,9 @@ enum LibretroQuickStateCompatibility {
         expectedFingerprint: String?,
         storedFingerprint: String?
     ) -> Bool {
+        guard isSupported(coreID: coreID) else {
+            return false
+        }
         guard requiresCoreFingerprint(coreID: coreID) else {
             return true
         }
@@ -297,6 +311,7 @@ enum LibretroRewindPolicy {
         let normalizedCoreID = coreID.lowercased()
         return !normalizedCoreID.contains("n64")
             && !normalizedCoreID.contains("mupen64")
+            && !normalizedCoreID.contains("dolphin")
     }
 }
 
@@ -1306,6 +1321,10 @@ final class LibretroSession {
         request.allowsRewind
     }
 
+    var allowsQuickStates: Bool {
+        request.allowsQuickStates
+    }
+
     private let engine: LibretroEngine
     private let syncCartridgeSave:
         @Sendable (CartridgeSaveSyncConfiguration) async throws
@@ -1398,7 +1417,7 @@ final class LibretroSession {
     }
 
     func saveQuickState() {
-        guard case .running = phase else {
+        guard case .running = phase, allowsQuickStates else {
             return
         }
         engine.saveQuickState()
@@ -1422,7 +1441,11 @@ final class LibretroSession {
             return
         }
         shouldClosePlayer = true
-        if mode.createsResumeState, case .running = phase {
+        if
+            mode.createsResumeState,
+            allowsQuickStates,
+            case .running = phase
+        {
             message = "Saving resume state…"
             engine.saveQuickStateAndStop()
         } else {
@@ -3478,7 +3501,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 !hasQuickState
             {
                 OpenVaultLog.libretro.notice(
-                    "Skipped a FAKE-08 quick state created by an incompatible core build"
+                    "Skipped a quick state that is unsupported by or incompatible with this core"
                 )
             } else if
                 request.restoresQuickStateOnLaunch,
@@ -3711,13 +3734,22 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 case let .setMuted(isMuted):
                     audioOutput.setUserMuted(isMuted)
                 case .saveQuickState:
+                    guard request.allowsQuickStates else {
+                        throw LibretroRuntimeError.stateUnavailable
+                    }
                     try persistQuickState(using: core)
                 case .saveQuickStateAndStop:
                     defer {
                         stop()
                     }
+                    guard request.allowsQuickStates else {
+                        throw LibretroRuntimeError.stateUnavailable
+                    }
                     try persistQuickState(using: core)
                 case .loadQuickState:
+                    guard request.allowsQuickStates else {
+                        throw LibretroRuntimeError.stateUnavailable
+                    }
                     guard FileManager.default.fileExists(atPath: quickStateURL.path) else {
                         throw LibretroRuntimeError.stateUnavailable
                     }
