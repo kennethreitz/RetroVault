@@ -302,8 +302,11 @@ struct BigPictureView: View {
   private var menuRows: some View {
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 4) {
-        ForEach(rows.indices, id: \.self) { index in
-          let row = rows[index]
+        // Keep each render pass self-contained. The catalog can replace
+        // `rows` while SwiftUI is still evaluating a lazy child from the
+        // previous pass; indexing back into the newer array would then trap
+        // when a system has fewer games.
+        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
           Button {
             selectRow(at: index, scrollsIntoView: false)
             activate(row)
