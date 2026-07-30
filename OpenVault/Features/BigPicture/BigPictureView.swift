@@ -800,6 +800,12 @@ struct BigPictureView: View {
 
       HStack(spacing: 12) {
         actionHint(
+          key: controllerState.activateButtonPrompt.label,
+          systemImage: controllerState.activateButtonPrompt.systemImage,
+          label: model.isSynchronizing ? "SYNCING" : "SYNC NOW"
+        )
+        .opacity(model.isSynchronizing ? 0.48 : 1)
+        actionHint(
           key: controllerState.syncStatusButtonPrompt.label,
           systemImage: controllerState.syncStatusButtonPrompt.systemImage,
           label: "CLOSE"
@@ -1244,7 +1250,9 @@ struct BigPictureView: View {
 
     if isShowingSyncStatus {
       switch command {
-      case .activate, .playFromBeginning, .openGameOptions, .back:
+      case .activate:
+        synchronizeNow()
+      case .playFromBeginning, .openGameOptions, .back:
         isShowingSyncStatus = false
       case .up, .down, .pageUp, .pageDown, .showSyncStatus, .exit:
         break
@@ -1353,6 +1361,16 @@ struct BigPictureView: View {
       navigateBack()
     case .exit:
       break
+    }
+  }
+
+  private func synchronizeNow() {
+    guard !model.isSynchronizing else {
+      return
+    }
+
+    Task {
+      await model.refresh()
     }
   }
 
