@@ -989,15 +989,15 @@ struct BigPictureCatalogTests {
     #expect(right == .pageDown)
   }
 
-  @Test("Maps Select to exit Big Picture without repeating a hold")
-  func mapsSelectToExitBigPicture() {
+  @Test("Maps Select to sync status without repeating a hold")
+  func mapsSelectToSyncStatus() {
     var navigation = BigPictureControllerNavigation()
     let select = BigPictureControllerState(
       isConnected: true,
-      exitsBigPicture: true
+      showsSyncStatus: true
     )
 
-    #expect(navigation.command(for: select, at: 21) == .exit)
+    #expect(navigation.command(for: select, at: 21) == .showSyncStatus)
     #expect(navigation.command(for: select, at: 21.1) == nil)
   }
 
@@ -1020,14 +1020,14 @@ struct BigPictureCatalogTests {
     )
 
     #expect(select.opensBigPicture)
-    #expect(select.exitsBigPicture)
+    #expect(select.showsSyncStatus)
     #expect(!select.opensGameOptions)
     #expect(!start.opensBigPicture)
-    #expect(!start.exitsBigPicture)
+    #expect(!start.showsSyncStatus)
     // Start/Menu is the game options button now.
     #expect(start.opensGameOptions)
     #expect(home.opensBigPicture)
-    #expect(!home.exitsBigPicture)
+    #expect(!home.showsSyncStatus)
     #expect(!home.opensGameOptions)
   }
 

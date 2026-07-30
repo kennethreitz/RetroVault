@@ -49,6 +49,7 @@ struct BigPictureView: View {
   @State private var selectedGameOptionIndex = 0
   @State private var actionProgressTitle: String?
   @State private var actionNotice: BigPictureActionNotice?
+  @State private var isShowingSyncStatus = false
   @Namespace private var selectionHighlight
   @FocusState private var hasInterfaceFocus: Bool
 
@@ -124,6 +125,8 @@ struct BigPictureView: View {
         systemOptionsOverlay(optionsSystem)
       } else if let actionNotice {
         actionNoticeOverlay(actionNotice)
+      } else if isShowingSyncStatus {
+        syncStatusOverlay
       }
     }
     .foregroundStyle(.white)
@@ -383,14 +386,16 @@ struct BigPictureView: View {
         actionHint(
           key:
             controllerState.isConnected
-            ? controllerState.exitButtonPrompt.label
-            : "ESC",
+            ? controllerState.syncStatusButtonPrompt.label
+            : "SELECT",
           systemImage:
             controllerState.isConnected
-            ? controllerState.exitButtonPrompt.systemImage
+            ? controllerState.syncStatusButtonPrompt.systemImage
             : nil,
-          label: "EXIT"
+          label: "STATUS"
         )
+
+        actionHint(key: "ESC", label: "EXIT")
 
         if page != .home {
           actionHint(
@@ -731,6 +736,153 @@ struct BigPictureView: View {
         .stroke(.white.opacity(0.2), lineWidth: 1)
     }
     .shadow(color: .black.opacity(0.85), radius: 55)
+  }
+
+  private var syncStatusOverlay: some View {
+    VStack(alignment: .leading, spacing: 22) {
+      HStack(spacing: 15) {
+        Image(systemName: syncStatusSystemImage)
+          .font(.system(size: 34, weight: .light))
+          .foregroundStyle(syncStatusColor)
+
+        VStack(alignment: .leading, spacing: 4) {
+          Text("SYNC STATUS")
+            .font(.system(size: 13, weight: .black, design: .rounded))
+            .tracking(2)
+            .foregroundStyle(.white.opacity(0.52))
+          Text(syncStatusTitle)
+            .font(.system(size: 25, weight: .black, design: .rounded))
+        }
+      }
+
+      if model.isSynchronizing {
+        VStack(alignment: .leading, spacing: 9) {
+          if model.synchronizationTotalGameCount > 0 {
+            ProgressView(
+              value: Double(model.synchronizedGameCount),
+              total: Double(model.synchronizationTotalGameCount)
+            )
+            .progressViewStyle(.linear)
+            .tint(.white)
+
+            Text(
+              "\(model.synchronizedGameCount.formatted()) of "
+                + "\(model.synchronizationTotalGameCount.formatted()) games"
+            )
+            .font(.system(size: 13, weight: .bold, design: .rounded))
+            .foregroundStyle(.white.opacity(0.58))
+            .monospacedDigit()
+          } else {
+            ProgressView()
+              .controlSize(.small)
+              .tint(.white)
+          }
+        }
+      }
+
+      Divider()
+        .overlay(.white.opacity(0.16))
+
+      VStack(spacing: 13) {
+        syncStatusRow(
+          title: "RomM",
+          value: model.isServerReachable ? "Connected" : "Offline"
+        )
+        syncStatusRow(
+          title: "Library",
+          value: "\(model.allGameCount.formatted()) games"
+        )
+        syncStatusRow(
+          title: "Downloaded",
+          value: "\(model.downloadedGameCount.formatted()) games"
+        )
+        syncStatusRow(
+          title: "Last Complete Sync",
+          value: lastSyncDescription
+        )
+      }
+
+      if let error = model.refreshErrorMessage, !error.isEmpty {
+        Text(error)
+          .font(.system(size: 13, weight: .medium, design: .rounded))
+          .foregroundStyle(.red.opacity(0.85))
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      HStack(spacing: 12) {
+        actionHint(
+          key: controllerState.syncStatusButtonPrompt.label,
+          systemImage: controllerState.syncStatusButtonPrompt.systemImage,
+          label: "CLOSE"
+        )
+        actionHint(
+          key: controllerState.backButtonPrompt.label,
+          systemImage: controllerState.backButtonPrompt.systemImage,
+          label: "BACK"
+        )
+      }
+    }
+    .padding(34)
+    .frame(width: 590)
+    .background(.black.opacity(0.97), in: RoundedRectangle(cornerRadius: 28))
+    .overlay {
+      RoundedRectangle(cornerRadius: 28)
+        .stroke(.white.opacity(0.2), lineWidth: 1)
+    }
+    .shadow(color: .black.opacity(0.85), radius: 55)
+  }
+
+  private func syncStatusRow(
+    title: String,
+    value: String
+  ) -> some View {
+    HStack {
+      Text(title.uppercased())
+        .font(.system(size: 13, weight: .black, design: .rounded))
+        .tracking(1.1)
+        .foregroundStyle(.white.opacity(0.48))
+      Spacer()
+      Text(value)
+        .font(.system(size: 15, weight: .bold, design: .rounded))
+        .foregroundStyle(.white.opacity(0.88))
+        .multilineTextAlignment(.trailing)
+    }
+  }
+
+  private var syncStatusTitle: String {
+    if model.isSynchronizing {
+      return "Synchronizing with RomM"
+    }
+    if !model.isServerReachable {
+      return "Using the Offline Library"
+    }
+    if model.isShowingStaleData {
+      return "Using Cached Metadata"
+    }
+    return "Library Is Up to Date"
+  }
+
+  private var syncStatusSystemImage: String {
+    if model.isSynchronizing {
+      return "arrow.triangle.2.circlepath"
+    }
+    return model.isServerReachable
+      ? "checkmark.circle.fill"
+      : "wifi.slash"
+  }
+
+  private var syncStatusColor: Color {
+    if model.isSynchronizing || model.isShowingStaleData {
+      return .yellow
+    }
+    return model.isServerReachable ? .green : .red
+  }
+
+  private var lastSyncDescription: String {
+    guard let date = model.lastSuccessfulSync else {
+      return "Never"
+    }
+    return date.formatted(date: .abbreviated, time: .shortened)
   }
 
   private func actionProgressOverlay(_ title: String) -> some View {
@@ -1092,7 +1244,29 @@ struct BigPictureView: View {
       return
     }
 
+    if command == .showSyncStatus {
+      guard actionProgressTitle == nil, !isPreparingPlayback else {
+        return
+      }
+      actionNotice = nil
+      optionsGame = nil
+      optionsSystem = nil
+      playbackErrorMessage = nil
+      isShowingSyncStatus.toggle()
+      return
+    }
+
     if actionProgressTitle != nil {
+      return
+    }
+
+    if isShowingSyncStatus {
+      switch command {
+      case .activate, .playFromBeginning, .openGameOptions, .back:
+        isShowingSyncStatus = false
+      case .up, .down, .pageUp, .pageDown, .showSyncStatus, .exit:
+        break
+      }
       return
     }
 
@@ -1100,7 +1274,7 @@ struct BigPictureView: View {
       switch command {
       case .activate, .playFromBeginning, .back, .openGameOptions:
         actionNotice = nil
-      case .up, .down, .pageUp, .pageDown, .exit:
+      case .up, .down, .pageUp, .pageDown, .showSyncStatus, .exit:
         break
       }
       return
@@ -1116,7 +1290,7 @@ struct BigPictureView: View {
         activateSelectedGameOption(for: optionsGame)
       case .back, .openGameOptions:
         self.optionsGame = nil
-      case .pageUp, .pageDown, .exit:
+      case .pageUp, .pageDown, .showSyncStatus, .exit:
         break
       }
       return
@@ -1138,7 +1312,7 @@ struct BigPictureView: View {
         )
       case .back, .openGameOptions:
         self.optionsSystem = nil
-      case .up, .down, .pageUp, .pageDown, .exit:
+      case .up, .down, .pageUp, .pageDown, .showSyncStatus, .exit:
         break
       }
       return
@@ -1157,7 +1331,7 @@ struct BigPictureView: View {
       case .back:
         playbackErrorMessage = nil
       case .up, .down, .pageUp, .pageDown, .playFromBeginning,
-        .openGameOptions, .exit:
+        .openGameOptions, .showSyncStatus, .exit:
         break
       }
       return
@@ -1191,6 +1365,8 @@ struct BigPictureView: View {
       playSelectedGameFromBeginning()
     case .openGameOptions:
       presentSelectedOptions()
+    case .showSyncStatus:
+      break
     case .back:
       navigateBack()
     case .exit:
@@ -1539,6 +1715,7 @@ struct BigPictureView: View {
       isFullScreen: bigPictureWindow?.styleMask.contains(.fullScreen) == true,
       canNavigateBack: playbackErrorMessage != nil
         || isPreparingPlayback
+        || isShowingSyncStatus
         || !history.isEmpty
     )
 
@@ -1911,6 +2088,7 @@ enum BigPictureCommand: Equatable, Sendable {
   case activate
   case playFromBeginning
   case openGameOptions
+  case showSyncStatus
   case back
   case exit
 }
@@ -2091,8 +2269,8 @@ struct BigPictureControllerState: Equatable, Sendable {
   var activate = false
   var playsFromBeginning = false
   var opensGameOptions = false
+  var showsSyncStatus = false
   var back = false
-  var exitsBigPicture = false
   var opensBigPicture = false
   var pageUp = false
   var pageDown = false
@@ -2100,7 +2278,7 @@ struct BigPictureControllerState: Equatable, Sendable {
   var backButtonPrompt = BigPictureControllerPrompt(label: "A")
   var optionsButtonPrompt = BigPictureControllerPrompt(label: "START")
   var playFromBeginningButtonPrompt = BigPictureControllerPrompt(label: "X")
-  var exitButtonPrompt = BigPictureControllerPrompt(label: "SELECT")
+  var syncStatusButtonPrompt = BigPictureControllerPrompt(label: "SELECT")
 
   static var current: Self {
     let controllers = GCController.controllers()
@@ -2139,7 +2317,7 @@ struct BigPictureControllerState: Equatable, Sendable {
         systemImage: gamepad.buttonX.sfSymbolsName,
         fallbackLabel: "X"
       )
-      state.exitButtonPrompt = buttonPrompt(
+      state.syncStatusButtonPrompt = buttonPrompt(
         localizedName: gamepad.buttonOptions?.localizedName,
         systemImage: gamepad.buttonOptions?.sfSymbolsName,
         fallbackLabel: "SELECT"
@@ -2182,9 +2360,9 @@ struct BigPictureControllerState: Equatable, Sendable {
           state.opensGameOptions || auxiliaryButtons.opensGameOptions
         state.playsFromBeginning =
           state.playsFromBeginning || gamepad.buttonX.isPressed
-        state.exitsBigPicture =
-          state.exitsBigPicture
-          || auxiliaryButtons.exitsBigPicture
+        state.showsSyncStatus =
+          state.showsSyncStatus
+          || auxiliaryButtons.showsSyncStatus
         state.opensBigPicture =
           state.opensBigPicture
           || auxiliaryButtons.opensBigPicture
@@ -2228,7 +2406,7 @@ struct BigPictureControllerState: Equatable, Sendable {
     )
     optionsButtonPrompt = BigPictureControllerPrompt(label: "START")
     playFromBeginningButtonPrompt = BigPictureControllerPrompt(label: "X")
-    exitButtonPrompt = BigPictureControllerPrompt(label: "SELECT")
+    syncStatusButtonPrompt = BigPictureControllerPrompt(label: "SELECT")
   }
 
   /// Folds a DSU pad into the same navigation state a local controller
@@ -2260,7 +2438,8 @@ struct BigPictureControllerState: Equatable, Sendable {
     back = back || faceButtons.back
     opensGameOptions = opensGameOptions || auxiliaryButtons.opensGameOptions
     playsFromBeginning = playsFromBeginning || pad.buttons.contains(.x)
-    exitsBigPicture = exitsBigPicture || auxiliaryButtons.exitsBigPicture
+    showsSyncStatus =
+      showsSyncStatus || auxiliaryButtons.showsSyncStatus
     opensBigPicture = opensBigPicture || auxiliaryButtons.opensBigPicture
     pageUp = pageUp || pad.buttons.contains(.l1)
     pageDown = pageDown || pad.buttons.contains(.r1)
@@ -2291,12 +2470,12 @@ struct BigPictureControllerState: Equatable, Sendable {
     homePressed: Bool
   ) -> (
     opensBigPicture: Bool,
-    exitsBigPicture: Bool,
+    showsSyncStatus: Bool,
     opensGameOptions: Bool
   ) {
     (
       opensBigPicture: optionsPressed || homePressed,
-      exitsBigPicture: optionsPressed,
+      showsSyncStatus: optionsPressed,
       opensGameOptions: menuPressed
     )
   }
@@ -2362,8 +2541,8 @@ struct BigPictureControllerNavigation: Sendable {
       previousState = state
     }
 
-    if state.exitsBigPicture, !previousState.exitsBigPicture {
-      return .exit
+    if state.showsSyncStatus, !previousState.showsSyncStatus {
+      return .showSyncStatus
     }
     if state.back, !previousState.back {
       return .back

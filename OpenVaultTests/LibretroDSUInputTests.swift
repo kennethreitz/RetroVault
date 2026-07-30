@@ -174,7 +174,7 @@ struct LibretroDSUInputTests {
     #expect(!navigation.pageDown)
   }
 
-  @Test("Treats Share as the Big Picture exit button")
+  @Test("Treats Share as the Big Picture sync status button")
   func mergesAuxiliaryButtons() {
     var state = DSUPadState()
     state.buttons = [.share, .options]
@@ -182,7 +182,7 @@ struct LibretroDSUInputTests {
     var navigation = BigPictureControllerState()
     navigation.merge(state)
 
-    #expect(navigation.exitsBigPicture)
+    #expect(navigation.showsSyncStatus)
     #expect(navigation.opensBigPicture)
     // The pad's Options button is the Start/Menu button, which now opens the
     // game options rather than launching the selection.
