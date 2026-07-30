@@ -942,13 +942,6 @@ struct BigPictureView: View {
           isFavorite: false,
           action: .navigate(.downloaded)
         ),
-        BigPictureRow(
-          id: .home("collections"),
-          title: "Collections",
-          detail: catalog.collections.count.formatted(),
-          isFavorite: false,
-          action: .navigate(.collections)
-        ),
       ]
         + catalog.systems.map { system in
           BigPictureRow(
