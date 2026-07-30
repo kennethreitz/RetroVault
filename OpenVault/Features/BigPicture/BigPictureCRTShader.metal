@@ -3,12 +3,12 @@
 
 using namespace metal;
 
-/// Applies the selected CRT treatment to the native Big Picture interface.
+/// Builds the selected CRT treatment above the native Big Picture interface.
 ///
-/// `colorEffect` supplies the menu's actual source color without requiring a
-/// sampled offscreen texture. That preserves native lazy scrolling while
-/// allowing the shader to use the same linear-light scanline and RGB-slot
-/// treatment as gameplay.
+/// The shader produces a multiplicative glass layer instead of sampling the
+/// composed SwiftUI hierarchy. That keeps lazy lists lazy and leaves animated
+/// progress views on their native render path while using the same RGB-slot
+/// and scanline structure as gameplay.
 [[ stitchable ]] half4 openVaultBigPictureCRT(
     float2 position,
     half4 source,
@@ -68,11 +68,14 @@ using namespace metal;
     float scanline = exp2(-8.0 * distanceFromCenter * distanceFromCenter);
     scanline = mix(1.0, scanline, 0.34);
 
-    float3 color = pow(max(float3(source.rgb), 0.0), float3(2.2));
-    color *= scanline;
-    color *= phosphorMask;
-    color *= 1.18 * glass;
-
-    source.rgb = half3(pow(max(color, 0.0), float3(1.0 / 2.2)));
+    // This is multiplied over the native UI by SwiftUI. Clamp the energy
+    // restoration at white: an overlay cannot brighten source pixels, but it
+    // can preserve the gameplay shader's relative phosphor structure.
+    float3 glassColor = min(
+        phosphorMask * scanline * 1.18 * glass,
+        float3(1.0)
+    );
+    source.rgb = half3(glassColor);
+    source.a = 1.0h;
     return source;
 }
