@@ -1005,24 +1005,6 @@ struct BigPictureView: View {
           .monospacedDigit()
       }
 
-      if operation.allowsBackgrounding || operation.allowsCancellation {
-        HStack(spacing: 12) {
-          if operation.allowsBackgrounding {
-            actionHint(
-              key: controllerState.activateButtonPrompt.label,
-              systemImage: controllerState.activateButtonPrompt.systemImage,
-              label: "BACKGROUND"
-            )
-          }
-          if operation.allowsCancellation {
-            actionHint(
-              key: controllerState.backButtonPrompt.label,
-              systemImage: controllerState.backButtonPrompt.systemImage,
-              label: "CANCEL"
-            )
-          }
-        }
-      }
     }
     .padding(38)
     .frame(minWidth: 460)

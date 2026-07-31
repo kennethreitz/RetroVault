@@ -24,8 +24,6 @@ being a list of every commit.
 - Made large initial RomM synchronizations faster and exposed their progress
   in the controller interface.
 - Improved rewind and fast-forward feedback and behavior.
-- Individual managed downloads can now be sent to the background from their
-  progress modal, matching queued system downloads.
 
 ## 2026-07-30
 
