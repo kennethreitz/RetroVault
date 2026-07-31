@@ -360,18 +360,23 @@ struct BigPictureView: View {
                   .opacity(row.isFavorite ? 1 : 0)
                   .accessibilityHidden(!row.isFavorite)
                   .accessibilityLabel("Favorite")
-              } else if
-                page == .home,
-                case .system(let systemID) = row.id
-              {
+              } else if page == .home {
+                // Every Home row reserves the same indicator column. Without
+                // it, only system rows move to the right and visually read as
+                // children of Downloaded even though they are peers.
                 Image(systemName: "checkmark.circle.fill")
                   .font(.system(size: 16, weight: .bold))
                   .foregroundStyle(
                     index == selectedIndex ? .black : .yellow
                   )
-                  .opacity(queuedSystemIDs.contains(systemID) ? 1 : 0)
+                  .opacity(
+                    homeSystemID(for: row).map(queuedSystemIDs.contains)
+                      == true
+                      ? 1 : 0
+                  )
                   .accessibilityHidden(
-                    !queuedSystemIDs.contains(systemID)
+                    homeSystemID(for: row).map(queuedSystemIDs.contains)
+                      != true
                   )
                   .accessibilityLabel("Queued for download")
               }
@@ -484,10 +489,17 @@ struct BigPictureView: View {
       Spacer()
 
       HStack(spacing: 10) {
-        if page.isGameList || selectedSystem != nil {
+        if page.isGameList {
           actionHint(
             key: controllerState.optionsButtonPrompt.label,
             systemImage: controllerState.optionsButtonPrompt.systemImage,
+            label: "OPTIONS"
+          )
+        } else if selectedSystem != nil {
+          actionHint(
+            key: controllerState.playFromBeginningButtonPrompt.label,
+            systemImage:
+              controllerState.playFromBeginningButtonPrompt.systemImage,
             label: "OPTIONS"
           )
         }
@@ -1148,6 +1160,13 @@ struct BigPictureView: View {
     return catalog.systems.first(where: { $0.id == systemID })
   }
 
+  private func homeSystemID(for row: BigPictureRow) -> Int? {
+    guard case .system(let systemID) = row.id else {
+      return nil
+    }
+    return systemID
+  }
+
   private var queuedSystems: [LibrarySystem] {
     catalog.systems.filter { queuedSystemIDs.contains($0.id) }
   }
@@ -1537,7 +1556,11 @@ struct BigPictureView: View {
       }
       activate(rows[selectedIndex])
     case .playFromBeginning:
-      playSelectedGameFromBeginning()
+      if selectedSystem != nil {
+        presentSelectedOptions()
+      } else {
+        playSelectedGameFromBeginning()
+      }
     case .openGameOptions:
       presentSelectedOptions()
     case .showSyncStatus:
