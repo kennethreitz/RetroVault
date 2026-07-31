@@ -1451,7 +1451,9 @@ struct BigPictureView: View {
 
     if let progress = actionProgress, !progress.isBackgrounded {
       if command == .activate, progress.allowsBackgrounding {
-        actionProgress?.isBackgrounded = true
+        var backgroundedProgress = progress
+        backgroundedProgress.isBackgrounded = true
+        actionProgress = backgroundedProgress
       } else if command == .back, progress.allowsCancellation {
         bulkDownloadTask?.cancel()
       }
