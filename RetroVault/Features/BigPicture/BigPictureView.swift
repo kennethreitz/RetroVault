@@ -85,7 +85,8 @@ struct BigPictureView: View {
   @State private var optionsGame: GameSummary?
   @State private var optionsSystem: LibrarySystem?
   @State private var selectedGameOptionIndex = 0
-  @State private var actionProgressTitle: String?
+  @State private var actionProgress: BigPictureActionProgress?
+  @State private var bulkDownloadTask: Task<Void, Never>?
   @State private var actionNotice: BigPictureActionNotice?
   @State private var isShowingSyncStatus = false
   @Namespace private var selectionHighlight
@@ -155,8 +156,8 @@ struct BigPictureView: View {
         preparationOverlay
       } else if let playbackErrorMessage {
         errorOverlay(playbackErrorMessage)
-      } else if let actionProgressTitle {
-        actionProgressOverlay(actionProgressTitle)
+      } else if let actionProgress, !actionProgress.isBackgrounded {
+        actionProgressOverlay(actionProgress)
       } else if let optionsGame {
         gameOptionsOverlay(optionsGame)
       } else if let optionsSystem {
@@ -445,6 +446,18 @@ struct BigPictureView: View {
         .foregroundStyle(.yellow.opacity(0.78))
         .monospacedDigit()
         .accessibilityLabel(synchronizationFooter.label)
+      } else if let progress = model.downloadProgress {
+        HStack(spacing: 8) {
+          Image(systemName: "arrow.down.circle")
+          Text(
+            "DOWNLOADING \(progress.currentGameNumber.formatted())"
+              + " OF \(progress.totalGameCount.formatted())"
+          )
+        }
+        .font(.system(size: 13, weight: .black, design: .rounded))
+        .tracking(1.2)
+        .foregroundStyle(.yellow.opacity(0.78))
+        .monospacedDigit()
       } else {
         Text(model.allGameCount.formatted() + " GAMES")
           .font(.system(size: 13, weight: .black, design: .rounded))
@@ -942,13 +955,15 @@ struct BigPictureView: View {
     return date.formatted(date: .abbreviated, time: .shortened)
   }
 
-  private func actionProgressOverlay(_ title: String) -> some View {
+  private func actionProgressOverlay(
+    _ operation: BigPictureActionProgress
+  ) -> some View {
     VStack(spacing: 20) {
       ProgressView()
         .controlSize(.large)
         .tint(.white)
 
-      Text(title.uppercased())
+      Text(operation.title.uppercased())
         .font(.system(size: 22, weight: .black, design: .rounded))
 
       if let progress = model.downloadProgress {
@@ -964,6 +979,25 @@ struct BigPictureView: View {
           .font(.system(size: 14, weight: .bold, design: .rounded))
           .foregroundStyle(.white.opacity(0.58))
           .monospacedDigit()
+      }
+
+      if operation.allowsBackgrounding || operation.allowsCancellation {
+        HStack(spacing: 12) {
+          if operation.allowsBackgrounding {
+            actionHint(
+              key: controllerState.activateButtonPrompt.label,
+              systemImage: controllerState.activateButtonPrompt.systemImage,
+              label: "BACKGROUND"
+            )
+          }
+          if operation.allowsCancellation {
+            actionHint(
+              key: controllerState.backButtonPrompt.label,
+              systemImage: controllerState.backButtonPrompt.systemImage,
+              label: "CANCEL"
+            )
+          }
+        }
       }
     }
     .padding(38)
@@ -1295,7 +1329,7 @@ struct BigPictureView: View {
     }
 
     if command == .showSyncStatus {
-      guard actionProgressTitle == nil, !isPreparingPlayback else {
+      guard actionProgress?.isBackgrounded != false, !isPreparingPlayback else {
         return
       }
       actionNotice = nil
@@ -1306,7 +1340,12 @@ struct BigPictureView: View {
       return
     }
 
-    if actionProgressTitle != nil {
+    if let progress = actionProgress, !progress.isBackgrounded {
+      if command == .activate, progress.allowsBackgrounding {
+        actionProgress?.isBackgrounded = true
+      } else if command == .back, progress.allowsCancellation {
+        bulkDownloadTask?.cancel()
+      }
       return
     }
 
@@ -1573,10 +1612,10 @@ struct BigPictureView: View {
     _ isFavorite: Bool,
     for game: GameSummary
   ) {
-    actionProgressTitle = "Updating Favorites"
+    let progressID = beginActionProgress("Updating Favorites")
     Task {
       defer {
-        actionProgressTitle = nil
+        endActionProgress(progressID)
       }
       do {
         try await model.setFavorite(isFavorite, for: [game])
@@ -1596,10 +1635,10 @@ struct BigPictureView: View {
   }
 
   private func download(_ game: GameSummary) {
-    actionProgressTitle = "Downloading Game"
+    let progressID = beginActionProgress("Downloading Game")
     Task {
       defer {
-        actionProgressTitle = nil
+        endActionProgress(progressID)
       }
       let result = await model.downloadGames([game])
       guard !result.completedWithoutErrors else {
@@ -1624,14 +1663,21 @@ struct BigPictureView: View {
     }
 
     optionsSystem = nil
-    actionProgressTitle =
+    let progressID = beginActionProgress(
       "Downloading \(systemGames.count.formatted()) "
-      + (systemGames.count == 1 ? "Game" : "Games")
-    Task {
+        + (systemGames.count == 1 ? "Game" : "Games"),
+      allowsBackgrounding: true,
+      allowsCancellation: true
+    )
+    bulkDownloadTask = Task {
       defer {
-        actionProgressTitle = nil
+        endActionProgress(progressID)
+        bulkDownloadTask = nil
       }
       let result = await model.downloadGames(systemGames)
+      guard !Task.isCancelled else {
+        return
+      }
       if result.completedWithoutErrors {
         actionNotice = BigPictureActionNotice(
           title: "System Downloaded",
@@ -1680,12 +1726,13 @@ struct BigPictureView: View {
     }
 
     optionsSystem = nil
-    actionProgressTitle =
+    let progressID = beginActionProgress(
       "Removing \(downloadedGames.count.formatted()) "
       + (downloadedGames.count == 1 ? "Download" : "Downloads")
+    )
     Task {
       defer {
-        actionProgressTitle = nil
+        endActionProgress(progressID)
       }
       let result = await model.removeDownloads(downloadedGames)
       if result.completedWithoutErrors {
@@ -1707,10 +1754,10 @@ struct BigPictureView: View {
   }
 
   private func removeDownload(for game: GameSummary) {
-    actionProgressTitle = "Removing Download"
+    let progressID = beginActionProgress("Removing Download")
     Task {
       defer {
-        actionProgressTitle = nil
+        endActionProgress(progressID)
       }
       let result = await model.removeDownloads([game])
       guard !result.completedWithoutErrors else {
@@ -1724,10 +1771,10 @@ struct BigPictureView: View {
   }
 
   private func export(_ game: GameSummary) {
-    actionProgressTitle = "Exporting Game"
+    let progressID = beginActionProgress("Exporting Game")
     Task {
       defer {
-        actionProgressTitle = nil
+        endActionProgress(progressID)
       }
       let result = await model.exportGames([game])
       if result.completedWithoutErrors,
@@ -1745,6 +1792,28 @@ struct BigPictureView: View {
         )
       }
     }
+  }
+
+  private func beginActionProgress(
+    _ title: String,
+    allowsBackgrounding: Bool = false,
+    allowsCancellation: Bool = false
+  ) -> UUID {
+    let id = UUID()
+    actionProgress = BigPictureActionProgress(
+      id: id,
+      title: title,
+      allowsBackgrounding: allowsBackgrounding,
+      allowsCancellation: allowsCancellation
+    )
+    return id
+  }
+
+  private func endActionProgress(_ id: UUID) {
+    guard actionProgress?.id == id else {
+      return
+    }
+    actionProgress = nil
   }
 
   private func operationFailureNotice(
@@ -1868,7 +1937,7 @@ struct BigPictureView: View {
     guard
       keyPress.modifiers.intersection([.command, .control, .option]).isEmpty,
       BigPictureTypeSelection.isSearchCharacter(keyPress.characters),
-      actionProgressTitle == nil,
+      actionProgress?.isBackgrounded != false,
       actionNotice == nil,
       optionsGame == nil,
       optionsSystem == nil,
@@ -2320,6 +2389,14 @@ private struct BigPictureActionNotice {
   let title: String
   let message: String
   let systemImage: String
+}
+
+private struct BigPictureActionProgress {
+  let id: UUID
+  let title: String
+  let allowsBackgrounding: Bool
+  let allowsCancellation: Bool
+  var isBackgrounded = false
 }
 
 struct BigPictureControllerState: Equatable, Sendable {
