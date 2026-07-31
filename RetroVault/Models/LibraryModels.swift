@@ -617,16 +617,43 @@ struct LibrarySnapshot: Codable, Equatable, Sendable {
   }
 
   let synchronizedAt: Date
+  /// The newest RomM `updated_at` boundary included in this snapshot.
+  ///
+  /// A small overlap is deliberately retained when querying RomM so records
+  /// sharing a timestamp cannot fall between two incremental requests.
+  let changeCursor: Date?
+  /// The last time RetroVault replaced the cache from a complete RomM read.
+  let lastFullReconciliationAt: Date?
   let systems: [LibrarySystem]
   let collections: [LibraryCollection]
   let games: [GameSummary]
   let collectionMemberships: [CollectionMembership]
+
+  init(
+    synchronizedAt: Date,
+    changeCursor: Date? = nil,
+    lastFullReconciliationAt: Date? = nil,
+    systems: [LibrarySystem],
+    collections: [LibraryCollection],
+    games: [GameSummary],
+    collectionMemberships: [CollectionMembership]
+  ) {
+    self.synchronizedAt = synchronizedAt
+    self.changeCursor = changeCursor
+    self.lastFullReconciliationAt = lastFullReconciliationAt
+    self.systems = systems
+    self.collections = collections
+    self.games = games
+    self.collectionMemberships = collectionMemberships
+  }
 
   /// Projects the durable local/RomM play history onto rows used by sortable
   /// library presentations.
   func applying(_ playHistory: LocalPlayHistory) -> LibrarySnapshot {
     LibrarySnapshot(
       synchronizedAt: synchronizedAt,
+      changeCursor: changeCursor,
+      lastFullReconciliationAt: lastFullReconciliationAt,
       systems: systems,
       collections: collections,
       games: games.map {
@@ -656,6 +683,8 @@ struct LibrarySnapshot: Codable, Equatable, Sendable {
     let retainedIDs = Set(retainedCollections.map(\.id))
     return LibrarySnapshot(
       synchronizedAt: synchronizedAt,
+      changeCursor: changeCursor,
+      lastFullReconciliationAt: lastFullReconciliationAt,
       systems: systems,
       collections: retainedCollections,
       games: games,
@@ -743,6 +772,8 @@ struct LibrarySnapshot: Codable, Equatable, Sendable {
 
     return LibrarySnapshot(
       synchronizedAt: synchronizedAt,
+      changeCursor: changeCursor,
+      lastFullReconciliationAt: lastFullReconciliationAt,
       systems: systems.map {
         LibrarySystem(
           id: $0.id,
@@ -801,6 +832,8 @@ struct LibrarySnapshot: Codable, Equatable, Sendable {
 
     return LibrarySnapshot(
       synchronizedAt: synchronizedAt,
+      changeCursor: changeCursor,
+      lastFullReconciliationAt: lastFullReconciliationAt,
       systems: systems,
       collections: updatedCollections,
       games: games,

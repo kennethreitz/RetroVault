@@ -5,6 +5,11 @@ enum GameSaveDataKind: Sendable {
   case state
 }
 
+/// A server notification indicating that cached library metadata may be stale.
+struct RomMLibraryChangeEvent: Equatable, Sendable {
+  let name: String
+}
+
 protocol RomMClient: Sendable {
   func verifyServer(at serverURL: ServerURL) async throws
   func exchange(pairingCode: PairingCode, at serverURL: ServerURL) async throws -> ClientToken
@@ -20,6 +25,20 @@ protocol RomMClient: Sendable {
     offset: Int,
     limit: Int
   ) async throws -> GamePage
+  func games(
+    at serverURL: ServerURL,
+    token: ClientToken,
+    matching filter: LibraryFilter,
+    searchTerm: String?,
+    ordering: GamePageOrdering,
+    updatedAfter: Date?,
+    offset: Int,
+    limit: Int
+  ) async throws -> GamePage
+  func libraryChangeEvents(
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) -> AsyncStream<RomMLibraryChangeEvent>
   func gameIDsWithSaveData(
     _ kind: GameSaveDataKind,
     at serverURL: ServerURL,
@@ -89,6 +108,34 @@ protocol RomMClient: Sendable {
 }
 
 extension RomMClient {
+  func games(
+    at serverURL: ServerURL,
+    token: ClientToken,
+    matching filter: LibraryFilter,
+    searchTerm: String?,
+    ordering: GamePageOrdering,
+    updatedAfter: Date?,
+    offset: Int,
+    limit: Int
+  ) async throws -> GamePage {
+    try await games(
+      at: serverURL,
+      token: token,
+      matching: filter,
+      searchTerm: searchTerm,
+      ordering: ordering,
+      offset: offset,
+      limit: limit
+    )
+  }
+
+  func libraryChangeEvents(
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) -> AsyncStream<RomMLibraryChangeEvent> {
+    AsyncStream { $0.finish() }
+  }
+
   func updateCollectionMembership(
     collectionID: Int,
     gameIDs: [Int],

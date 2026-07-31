@@ -1564,6 +1564,63 @@ struct LibraryCacheTests {
     #expect(await cache.snapshot(for: serverURL) == snapshot)
   }
 
+  @Test("Merges updated_after changes into a complete cached baseline")
+  func mergesIncrementalLibraryChanges() async throws {
+    let serverURL = try ServerURL("https://romm.example.com")
+    let session = ServerSession(serverURL: serverURL, username: "kenneth")
+    let cache = InMemoryLibraryCache()
+    let client = SynchronizationRomMClient()
+    let clock = Date(timeIntervalSince1970: 1_754_000_000)
+    let service = RomMLibraryService(
+      api: client,
+      credentialStore: TestCredentialStore(
+        token: try ClientToken(
+          rawValue: "rmm_" + String(repeating: "b", count: 64)
+        )
+      ),
+      cache: cache,
+      now: { clock }
+    )
+
+    let baseline = try await service.synchronizeLibrary(
+      in: session,
+      strategy: .automatic
+    ) { _ in }
+    #expect(baseline.changeCursor != nil)
+    #expect(baseline.lastFullReconciliationAt == clock)
+
+    await client.setIncrementalGames([
+      GameSummary(
+        id: 2,
+        name: "Metroid II",
+        systemID: 1,
+        systemName: "Game Boy",
+        coverURL: nil,
+        updatedAt: "2026-07-30T13:00:00.000Z"
+      ),
+      GameSummary(
+        id: 4,
+        name: "Zelda",
+        systemID: 1,
+        systemName: "Game Boy",
+        coverURL: nil,
+        updatedAt: "2026-07-30T13:01:00.000Z"
+      ),
+    ])
+
+    let updated = try await service.synchronizeLibrary(
+      in: session,
+      strategy: .automatic
+    ) { _ in }
+
+    #expect(updated.games.count == 4)
+    #expect(updated.games.first { $0.id == 1 }?.name == "Tetris")
+    #expect(updated.games.first { $0.id == 2 }?.name == "Metroid II")
+    #expect(updated.games.first { $0.id == 4 }?.name == "Zelda")
+    #expect(await client.recordedIncrementalRequestCursors().count == 1)
+    #expect(await cache.snapshot(for: serverURL) == updated)
+  }
+
   @Test("Orders play history by recency and drops removed games")
   func ordersPlayHistoryByRecency() {
     let base = Date(timeIntervalSince1970: 1_000_000)
@@ -2178,6 +2235,8 @@ private struct UnavailableRomMClient: RomMClient {
 
 private actor SynchronizationRomMClient: RomMClient {
   private let allGames: [GameSummary]
+  private var incrementalGames: [GameSummary] = []
+  private var incrementalRequestCursors: [Date] = []
   private let gameRequestDelayMilliseconds: Int64
   private var reordersConcurrentPages = false
   private var overlapsConcurrentPages = false
@@ -2198,7 +2257,8 @@ private actor SynchronizationRomMClient: RomMClient {
           name: "Game \(String(format: "%05d", $0))",
           systemID: 1,
           systemName: "Game Boy",
-          coverURL: nil
+          coverURL: nil,
+          updatedAt: "2026-07-30T12:00:00.000Z"
         )
       }
     } else {
@@ -2208,14 +2268,16 @@ private actor SynchronizationRomMClient: RomMClient {
           name: "Tetris",
           systemID: 1,
           systemName: "Game Boy",
-          coverURL: nil
+          coverURL: nil,
+          updatedAt: "2026-07-30T12:00:00.000Z"
         ),
         GameSummary(
           id: 2,
           name: "Metroid",
           systemID: 1,
           systemName: "Game Boy",
-          coverURL: nil
+          coverURL: nil,
+          updatedAt: "2026-07-30T12:00:00.000Z"
         ),
         GameSummary(
           id: 3,
@@ -2223,7 +2285,8 @@ private actor SynchronizationRomMClient: RomMClient {
           systemID: 1,
           systemName: "Game Boy",
           coverURL: nil,
-          isBIOS: true
+          isBIOS: true,
+          updatedAt: "2026-07-30T12:00:00.000Z"
         ),
       ]
     }
@@ -2326,6 +2389,44 @@ private actor SynchronizationRomMClient: RomMClient {
       limit: limit,
       offset: offset
     )
+  }
+
+  func games(
+    at serverURL: ServerURL,
+    token: ClientToken,
+    matching filter: LibraryFilter,
+    searchTerm: String?,
+    ordering: GamePageOrdering,
+    updatedAfter: Date?,
+    offset: Int,
+    limit: Int
+  ) async throws -> GamePage {
+    guard let updatedAfter else {
+      return try await games(
+        at: serverURL,
+        token: token,
+        matching: filter,
+        searchTerm: searchTerm,
+        ordering: ordering,
+        offset: offset,
+        limit: limit
+      )
+    }
+    incrementalRequestCursors.append(updatedAfter)
+    return GamePage(
+      games: Array(incrementalGames.dropFirst(offset).prefix(limit)),
+      total: incrementalGames.count,
+      limit: limit,
+      offset: offset
+    )
+  }
+
+  func setIncrementalGames(_ games: [GameSummary]) {
+    incrementalGames = games
+  }
+
+  func recordedIncrementalRequestCursors() -> [Date] {
+    incrementalRequestCursors
   }
 
   func enableUnstableOrderingAcrossConcurrentPages() {

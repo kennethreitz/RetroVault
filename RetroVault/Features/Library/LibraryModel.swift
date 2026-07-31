@@ -249,6 +249,12 @@ final class LibraryModel {
   private var artworkInspectionID = UUID()
   private var favoriteSynchronizationTask: Task<Void, Never>?
   private var favoriteSynchronizationNeedsAnotherPass = false
+  @ObservationIgnored
+  private var synchronizationPollTask: Task<Void, Never>?
+  @ObservationIgnored
+  private var libraryChangeEventTask: Task<Void, Never>?
+  @ObservationIgnored
+  private var libraryChangeDebounceTask: Task<Void, Never>?
   private var downloadOperationID = UUID()
   private var downloadScheduler: ManagedDownloadScheduler?
   private var activeDownloadGames: [Int: GameSummary] = [:]
@@ -409,6 +415,7 @@ final class LibraryModel {
         )
         await refresh()
       }
+      startBackgroundSynchronizationIfNeeded()
       return
     }
 
@@ -434,14 +441,20 @@ final class LibraryModel {
 
     await reloadDownloadedGames()
     await refresh()
+    startBackgroundSynchronizationIfNeeded()
   }
 
-  func refresh() async {
+  func refresh(
+    strategy: LibrarySynchronizationStrategy = .automatic,
+    reloadsDownloadedGames: Bool = true
+  ) async {
     guard !isSynchronizing else {
       return
     }
 
-    await reloadDownloadedGames()
+    if reloadsDownloadedGames {
+      await reloadDownloadedGames()
+    }
 
     let currentSynchronizationID = UUID()
     synchronizationID = currentSynchronizationID
@@ -458,7 +471,8 @@ final class LibraryModel {
 
     do {
       let refreshedSnapshot = try await service.synchronizeLibrary(
-        in: session
+        in: session,
+        strategy: strategy
       ) { [weak self] progress in
         await self?.apply(
           progress,
@@ -561,6 +575,65 @@ final class LibraryModel {
   func cancelBackgroundWork() {
     favoriteSynchronizationTask?.cancel()
     favoriteSynchronizationTask = nil
+    synchronizationPollTask?.cancel()
+    synchronizationPollTask = nil
+    libraryChangeEventTask?.cancel()
+    libraryChangeEventTask = nil
+    libraryChangeDebounceTask?.cancel()
+    libraryChangeDebounceTask = nil
+  }
+
+  private func startBackgroundSynchronizationIfNeeded() {
+    if synchronizationPollTask == nil {
+      synchronizationPollTask = Task { [weak self] in
+        while !Task.isCancelled {
+          try? await Task.sleep(for: .seconds(60))
+          guard !Task.isCancelled, let self else {
+            return
+          }
+          await self.refresh(reloadsDownloadedGames: false)
+        }
+      }
+    }
+
+    if libraryChangeEventTask == nil {
+      libraryChangeEventTask = Task { [weak self] in
+        guard let self else {
+          return
+        }
+        do {
+          let events = try await self.service.libraryChangeEvents(
+            in: self.session
+          )
+          for await event in events {
+            guard !Task.isCancelled else {
+              return
+            }
+            RetroVaultLog.library.debug(
+              "RomM change event \(event.name, privacy: .public) requested an incremental sync"
+            )
+            self.scheduleEventDrivenSynchronization()
+          }
+        } catch is CancellationError {
+          return
+        } catch {
+          RetroVaultLog.library.debug(
+            "RomM change event stream unavailable: \(error.localizedDescription)"
+          )
+        }
+      }
+    }
+  }
+
+  private func scheduleEventDrivenSynchronization() {
+    libraryChangeDebounceTask?.cancel()
+    libraryChangeDebounceTask = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(2))
+      guard !Task.isCancelled, let self else {
+        return
+      }
+      await self.refresh(reloadsDownloadedGames: false)
+    }
   }
 
   func reloadGames() async {
@@ -1625,6 +1698,8 @@ final class LibraryModel {
     }
     let scopedSnapshot = LibrarySnapshot(
       synchronizedAt: librarySnapshot.synchronizedAt,
+      changeCursor: librarySnapshot.changeCursor,
+      lastFullReconciliationAt: librarySnapshot.lastFullReconciliationAt,
       systems: librarySnapshot.systems,
       collections: librarySnapshot.collections,
       games: scopedGames,

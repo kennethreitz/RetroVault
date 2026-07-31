@@ -48,6 +48,59 @@ struct PairingValueTests {
 
 @Suite("RomM API client", .serialized)
 struct RomMAPIClientTests {
+  @Test("Filters incremental ROM requests by the persisted update cursor")
+  func filtersIncrementalROMRequests() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [StubURLProtocol.self]
+    let session = URLSession(configuration: configuration)
+    let token = try ClientToken(
+      rawValue: "rmm_" + String(repeating: "d", count: 64)
+    )
+    let cursor = Date(timeIntervalSince1970: 1_753_927_200)
+
+    StubURLProtocol.handler = { request in
+      let requestURL = try #require(request.url)
+      let components = try #require(
+        URLComponents(url: requestURL, resolvingAgainstBaseURL: false)
+      )
+      let updatedAfter = try #require(
+        components.queryItems?.first(where: { $0.name == "updated_after" })?.value
+      )
+      #expect(updatedAfter.hasPrefix("2025-"))
+      let response = HTTPURLResponse(
+        url: requestURL,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+      )!
+      return (
+        response,
+        Data("{\"items\":[],\"total\":0,\"limit\":10000,\"offset\":0}".utf8)
+      )
+    }
+    defer { StubURLProtocol.handler = nil }
+
+    let page = try await URLSessionRomMClient(session: session).games(
+      at: ServerURL("https://romm.example.com"),
+      token: token,
+      matching: .allGames,
+      searchTerm: nil,
+      ordering: .identifier,
+      updatedAfter: cursor,
+      offset: 0,
+      limit: 10_000
+    )
+    #expect(page.games.isEmpty)
+  }
+
+  @Test("Recognizes Socket.IO library change broadcasts")
+  func recognizesLibraryChangeBroadcasts() {
+    #expect(RomMSocketIO.eventName(from: "42[\"scan:done\",{}]") == "scan:done")
+    #expect(RomMSocketIO.isLibraryChangeEvent("scan:done"))
+    #expect(!RomMSocketIO.isLibraryChangeEvent("scan:update_stats"))
+    #expect(RomMSocketIO.eventName(from: "2") == nil)
+  }
+
   @Test("Explains an expired pairing code")
   func explainsExpiredPairingCode() async throws {
     let configuration = URLSessionConfiguration.ephemeral

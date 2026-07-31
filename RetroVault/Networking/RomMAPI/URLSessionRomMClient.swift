@@ -299,6 +299,116 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
     offset: Int,
     limit: Int
   ) async throws -> GamePage {
+    try await games(
+      at: serverURL,
+      token: token,
+      matching: filter,
+      searchTerm: searchTerm,
+      ordering: ordering,
+      updatedAfter: nil,
+      offset: offset,
+      limit: limit
+    )
+  }
+
+  func libraryChangeEvents(
+    at serverURL: ServerURL,
+    token: ClientToken
+  ) -> AsyncStream<RomMLibraryChangeEvent> {
+    guard
+      var components = URLComponents(
+        url: serverURL.endpoint("ws/socket.io").appending(path: ""),
+        resolvingAgainstBaseURL: false
+      )
+    else {
+      return AsyncStream { $0.finish() }
+    }
+    components.scheme = components.scheme == "https" ? "wss" : "ws"
+    components.queryItems = [
+      URLQueryItem(name: "EIO", value: "4"),
+      URLQueryItem(name: "transport", value: "websocket"),
+    ]
+    guard let url = components.url else {
+      return AsyncStream { $0.finish() }
+    }
+
+    var authorizedRequest = URLRequest(url: url)
+    authorize(&authorizedRequest, with: token)
+    let request = authorizedRequest
+    let session = self.session
+
+    return AsyncStream { continuation in
+      let monitor = Task {
+        var retryDelaySeconds = 1
+        while !Task.isCancelled {
+          let socket = session.webSocketTask(with: request)
+          socket.resume()
+          do {
+            while !Task.isCancelled {
+              let message = try await socket.receive()
+              let text: String
+              switch message {
+              case .string(let value):
+                text = value
+              case .data(let data):
+                guard let value = String(data: data, encoding: .utf8) else {
+                  continue
+                }
+                text = value
+              @unknown default:
+                continue
+              }
+
+              if text == "2" {
+                try await socket.send(.string("3"))
+                continue
+              }
+              if text.hasPrefix("0") {
+                try await socket.send(.string("40"))
+                retryDelaySeconds = 1
+                continue
+              }
+              guard
+                let eventName = RomMSocketIO.eventName(from: text),
+                RomMSocketIO.isLibraryChangeEvent(eventName)
+              else {
+                continue
+              }
+              continuation.yield(RomMLibraryChangeEvent(name: eventName))
+            }
+          } catch is CancellationError {
+            socket.cancel(with: .goingAway, reason: nil)
+            break
+          } catch {
+            socket.cancel(with: .goingAway, reason: nil)
+            guard !Task.isCancelled else {
+              break
+            }
+            RetroVaultLog.network.debug(
+              "RomM change socket disconnected; retrying"
+            )
+            try? await Task.sleep(for: .seconds(retryDelaySeconds))
+            retryDelaySeconds = min(retryDelaySeconds * 2, 30)
+          }
+        }
+        continuation.finish()
+      }
+      continuation.onTermination = { _ in
+        monitor.cancel()
+      }
+    }
+  }
+
+  func games(
+    at serverURL: ServerURL,
+    token: ClientToken,
+    matching filter: LibraryFilter,
+    searchTerm: String?,
+    ordering: GamePageOrdering,
+    updatedAfter: Date?,
+    offset: Int,
+    limit: Int
+  ) async throws -> GamePage {
     var components = URLComponents(
       url: serverURL.endpoint("api/roms"),
       resolvingAgainstBaseURL: false
@@ -319,6 +429,16 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
 
     if let searchTerm, !searchTerm.isEmpty {
       queryItems.append(URLQueryItem(name: "search_term", value: searchTerm))
+    }
+    if let updatedAfter {
+      let formatter = ISO8601DateFormatter()
+      formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+      queryItems.append(
+        URLQueryItem(
+          name: "updated_after",
+          value: formatter.string(from: updatedAfter)
+        )
+      )
     }
 
     switch filter {
@@ -1670,4 +1790,30 @@ private struct DiscardedDTO: Decodable {}
 
 private func parseISO8601Date(_ value: String) -> Date? {
   try? Date(value, strategy: .iso8601)
+}
+
+/// The small portion of Engine.IO/Socket.IO framing RetroVault needs for
+/// RomM's broadcast change notifications.
+enum RomMSocketIO {
+  static func eventName(from packet: String) -> String? {
+    guard packet.hasPrefix("42") else {
+      return nil
+    }
+    let payload = Data(packet.dropFirst(2).utf8)
+    guard
+      let values = try? JSONSerialization.jsonObject(with: payload) as? [Any],
+      let name = values.first as? String
+    else {
+      return nil
+    }
+    return name
+  }
+
+  static func isLibraryChangeEvent(_ name: String) -> Bool {
+    name == "scan:done"
+      || name.hasPrefix("library:")
+      || name.hasPrefix("rom:")
+      || name.hasPrefix("platform:")
+      || name.hasPrefix("collection:")
+  }
 }

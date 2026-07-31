@@ -2,6 +2,14 @@ import CryptoKit
 import Foundation
 import OSLog
 
+enum LibrarySynchronizationStrategy: Sendable {
+  /// Uses an incremental request when a baseline exists, and automatically
+  /// reconciles the complete library when the baseline is old.
+  case automatic
+  /// Re-reads the complete server library, including deletion reconciliation.
+  case fullReconciliation
+}
+
 protocol LibraryServing: Sendable {
   func cachedSnapshot(in session: ServerSession) async throws -> LibrarySnapshot?
   func cachedGameDetails(
@@ -13,6 +21,14 @@ protocol LibraryServing: Sendable {
     in session: ServerSession,
     onProgress: @escaping @Sendable (LibrarySyncProgress) async -> Void
   ) async throws -> LibrarySnapshot
+  func synchronizeLibrary(
+    in session: ServerSession,
+    strategy: LibrarySynchronizationStrategy,
+    onProgress: @escaping @Sendable (LibrarySyncProgress) async -> Void
+  ) async throws -> LibrarySnapshot
+  func libraryChangeEvents(
+    in session: ServerSession
+  ) async throws -> AsyncStream<RomMLibraryChangeEvent>
   func systems(in session: ServerSession) async throws -> [LibrarySystem]
   func collections(in session: ServerSession) async throws -> [LibraryCollection]
   func playHistory(in session: ServerSession) async -> LocalPlayHistory
@@ -108,6 +124,20 @@ protocol LibraryServing: Sendable {
 }
 
 extension LibraryServing {
+  func synchronizeLibrary(
+    in session: ServerSession,
+    strategy: LibrarySynchronizationStrategy,
+    onProgress: @escaping @Sendable (LibrarySyncProgress) async -> Void
+  ) async throws -> LibrarySnapshot {
+    try await synchronizeLibrary(in: session, onProgress: onProgress)
+  }
+
+  func libraryChangeEvents(
+    in session: ServerSession
+  ) async throws -> AsyncStream<RomMLibraryChangeEvent> {
+    AsyncStream { $0.finish() }
+  }
+
   func updateFavoriteMembershipLocally(
     collectionID: Int,
     gameIDs: [Int],
@@ -273,6 +303,8 @@ actor RomMLibraryService: LibraryServing {
   private static let synchronizationPageSize = 10_000
   private static let synchronizationRequestLimit = 4
   private static let synchronizationOrdering = GamePageOrdering.identifier
+  private static let fullReconciliationInterval: TimeInterval = 24 * 60 * 60
+  private static let incrementalCursorOverlap: TimeInterval = 1
   private let api: any RomMClient
   private let credentialStore: any CredentialStoring
   private let cache: any LibraryCaching
@@ -413,6 +445,79 @@ actor RomMLibraryService: LibraryServing {
     in session: ServerSession,
     onProgress: @escaping @Sendable (LibrarySyncProgress) async -> Void
   ) async throws -> LibrarySnapshot {
+    try await synchronizeLibrary(
+      in: session,
+      strategy: .automatic,
+      onProgress: onProgress
+    )
+  }
+
+  func synchronizeLibrary(
+    in session: ServerSession,
+    strategy: LibrarySynchronizationStrategy,
+    onProgress: @escaping @Sendable (LibrarySyncProgress) async -> Void
+  ) async throws -> LibrarySnapshot {
+    let cachedSnapshot = try await cache.snapshot(for: session.serverURL)
+    let shouldReconcileFully: Bool
+    switch strategy {
+    case .fullReconciliation:
+      shouldReconcileFully = true
+    case .automatic:
+      shouldReconcileFully = cachedSnapshot.map { snapshot in
+        guard
+          snapshot.changeCursor != nil,
+          let lastFullReconciliationAt = snapshot.lastFullReconciliationAt
+        else {
+          return true
+        }
+        return now().timeIntervalSince(lastFullReconciliationAt)
+          >= Self.fullReconciliationInterval
+      } ?? true
+    }
+
+    if shouldReconcileFully {
+      return try await fullySynchronizeLibrary(
+        in: session,
+        onProgress: onProgress
+      )
+    }
+    guard let cachedSnapshot else {
+      return try await fullySynchronizeLibrary(
+        in: session,
+        onProgress: onProgress
+      )
+    }
+    do {
+      return try await incrementallySynchronizeLibrary(
+        from: cachedSnapshot,
+        in: session,
+        onProgress: onProgress
+      )
+    } catch RomMAPIError.server(statusCode: 422) {
+      RetroVaultLog.library.notice(
+        "RomM does not accept incremental library queries; reconciling the complete library"
+      )
+      return try await fullySynchronizeLibrary(
+        in: session,
+        onProgress: onProgress
+      )
+    }
+  }
+
+  func libraryChangeEvents(
+    in session: ServerSession
+  ) async throws -> AsyncStream<RomMLibraryChangeEvent> {
+    let token = try await authenticationToken()
+    return api.libraryChangeEvents(
+      at: session.serverURL,
+      token: token
+    )
+  }
+
+  private func fullySynchronizeLibrary(
+    in session: ServerSession,
+    onProgress: @escaping @Sendable (LibrarySyncProgress) async -> Void
+  ) async throws -> LibrarySnapshot {
     RetroVaultLog.library.notice("Starting RomM library synchronization")
     let token = try await authenticationToken()
     do {
@@ -515,8 +620,11 @@ actor RomMLibraryService: LibraryServing {
         virtualType: $0.virtualType
       )
     }
+    let synchronizedAt = now()
     let remoteSnapshot = LibrarySnapshot(
-      synchronizedAt: now(),
+      synchronizedAt: synchronizedAt,
+      changeCursor: incrementalCursor(for: allGames),
+      lastFullReconciliationAt: synchronizedAt,
       systems: systems,
       collections: collections,
       games: allGames,
@@ -545,6 +653,183 @@ actor RomMLibraryService: LibraryServing {
       "Synchronized \(snapshot.games.count, privacy: .public) games across \(snapshot.systems.count, privacy: .public) systems"
     )
     return snapshot
+  }
+
+  private func incrementallySynchronizeLibrary(
+    from cachedSnapshot: LibrarySnapshot,
+    in session: ServerSession,
+    onProgress: @escaping @Sendable (LibrarySyncProgress) async -> Void
+  ) async throws -> LibrarySnapshot {
+    guard let changeCursor = cachedSnapshot.changeCursor else {
+      return try await fullySynchronizeLibrary(
+        in: session,
+        onProgress: onProgress
+      )
+    }
+
+    RetroVaultLog.library.notice(
+      "Checking RomM for library changes since the cached cursor"
+    )
+    let token = try await authenticationToken()
+    do {
+      _ = try await synchronizePendingFavorites(in: session, token: token)
+    } catch {
+      RetroVaultLog.library.error(
+        "Could not flush pending Favorites before incremental synchronization: \(error.localizedDescription)"
+      )
+    }
+
+    async let systemsRequest = api.systems(
+      at: session.serverURL,
+      token: token
+    )
+    async let collectionsRequest = api.collections(
+      at: session.serverURL,
+      token: token
+    )
+    async let changedGamesRequest = incrementallySynchronizedGames(
+      in: session,
+      token: token,
+      updatedAfter: changeCursor
+    )
+    let (remoteSystems, fetchedCollections, changedGames) = try await (
+      systemsRequest,
+      collectionsRequest,
+      changedGamesRequest
+    )
+    let remoteCollections = fetchedCollections.filter {
+      if case .virtual = $0.id {
+        return false
+      }
+      return true
+    }
+
+    let previousGamesByID = Dictionary(
+      uniqueKeysWithValues: cachedSnapshot.games.map { ($0.id, $0) }
+    )
+    var mergedGamesByID = previousGamesByID
+    for changedGame in changedGames {
+      if let previousGame = previousGamesByID[changedGame.id] {
+        mergedGamesByID[changedGame.id] = changedGame.withSaveDataAvailability(
+          hasSave: previousGame.hasSave ?? false,
+          hasState: previousGame.hasState ?? false
+        )
+      } else {
+        mergedGamesByID[changedGame.id] = changedGame
+      }
+    }
+    let allGames = mergedGamesByID.values.sorted { $0.id < $1.id }
+    let memberships = try await collectionMemberships(
+      for: remoteCollections,
+      session: session,
+      token: token
+    )
+    let systemCounts = Dictionary(grouping: allGames, by: \.systemID)
+      .mapValues(\.count)
+    let systems = remoteSystems.map {
+      LibrarySystem(
+        id: $0.id,
+        name: $0.name,
+        gameCount: systemCounts[$0.id, default: 0]
+      )
+    }
+    let membershipCounts = Dictionary(
+      uniqueKeysWithValues: memberships.map {
+        ($0.collectionID, $0.gameIDs.count)
+      }
+    )
+    let collections = remoteCollections.map {
+      LibraryCollection(
+        id: $0.id,
+        name: $0.name,
+        gameCount: membershipCounts[$0.id, default: 0],
+        isFavorite: $0.isFavorite,
+        virtualType: $0.virtualType
+      )
+    }
+    let synchronizedAt = now()
+    let remoteSnapshot = LibrarySnapshot(
+      synchronizedAt: synchronizedAt,
+      changeCursor: incrementalCursor(for: changedGames) ?? changeCursor,
+      lastFullReconciliationAt: cachedSnapshot.lastFullReconciliationAt,
+      systems: systems,
+      collections: collections,
+      games: allGames,
+      collectionMemberships: memberships
+    )
+    let remoteFavoriteGameIDs = RomMFavorites.gameIDs(
+      collections: remoteSnapshot.collections,
+      memberships: remoteSnapshot.collectionMemberships
+    )
+    let localFavoriteState = try await cache.localFavorites(
+      for: session.serverURL
+    ) ?? LocalFavoriteState(gameIDs: remoteFavoriteGameIDs)
+    let reconciledFavoriteState = localFavoriteState.reconciling(
+      serverGameIDs: remoteFavoriteGameIDs
+    )
+    try await cache.replaceLocalFavorites(
+      reconciledFavoriteState,
+      for: session.serverURL
+    )
+    let snapshot = remoteSnapshot.applyingFavoriteGameIDs(
+      reconciledFavoriteState.gameIDs
+    )
+    try await cache.replaceSnapshot(snapshot, for: session.serverURL)
+    await onProgress(
+      LibrarySyncProgress(
+        systems: snapshot.systems,
+        collections: snapshot.collections,
+        games: changedGames,
+        completedGameCount: changedGames.count,
+        totalGameCount: changedGames.count
+      )
+    )
+    RetroVaultLog.library.notice(
+      "Applied \(changedGames.count, privacy: .public) incremental RomM library changes"
+    )
+    return snapshot
+  }
+
+  private func incrementallySynchronizedGames(
+    in session: ServerSession,
+    token: ClientToken,
+    updatedAfter: Date
+  ) async throws -> [GameSummary] {
+    var games: [GameSummary] = []
+    var offset = 0
+    while true {
+      let page = try await api.games(
+        at: session.serverURL,
+        token: token,
+        matching: .allGames,
+        searchTerm: nil,
+        ordering: Self.synchronizationOrdering,
+        updatedAfter: updatedAfter,
+        offset: offset,
+        limit: Self.synchronizationPageSize
+      )
+      games.append(contentsOf: page.games)
+      guard page.hasMore else {
+        break
+      }
+      guard !page.games.isEmpty else {
+        throw LibraryServiceError.incompleteSynchronization
+      }
+      offset = page.offset + page.games.count
+    }
+    return games
+  }
+
+  private func incrementalCursor(for games: [GameSummary]) -> Date? {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return games.compactMap { game -> Date? in
+      guard let updatedAt = game.updatedAt else {
+        return nil
+      }
+      return formatter.date(from: updatedAt)
+        ?? ISO8601DateFormatter().date(from: updatedAt)
+    }.max()?.addingTimeInterval(-Self.incrementalCursorOverlap)
   }
 
   private func synchronizedGames(

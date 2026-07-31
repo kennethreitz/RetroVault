@@ -66,7 +66,9 @@ struct SettingsView: View {
                 if let libraryModel = model.libraryModel {
                     Button {
                         Task {
-                            await libraryModel.refresh()
+                            await libraryModel.refresh(
+                                strategy: .fullReconciliation
+                            )
                         }
                     } label: {
                         Label("Resync Library", systemImage: "arrow.clockwise")
