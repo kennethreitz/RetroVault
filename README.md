@@ -143,7 +143,8 @@ App
 ```
 
 Architectural decisions and milestone acceptance criteria live in
-[`MILESTONES/`](MILESTONES/README.md).
+[`MILESTONES/`](MILESTONES/README.md). Notable project changes are recorded by
+date in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Build
 
