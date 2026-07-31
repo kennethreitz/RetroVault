@@ -1795,7 +1795,7 @@ struct LibraryCacheTests {
     let serverURL = try ServerURL("https://romm.example.com")
     let session = ServerSession(serverURL: serverURL, username: "kenneth")
     let client = SynchronizationRomMClient(
-      gameCount: 2_505,
+      gameCount: 25_005,
       gameRequestDelayMilliseconds: 20
     )
     await client.enableUnstableOrderingAcrossConcurrentPages()
@@ -1813,8 +1813,8 @@ struct LibraryCacheTests {
 
     // The parallel pass cannot compose a complete library here, so the service
     // must fall back rather than surface an incomplete synchronization.
-    #expect(snapshot.games.count == 2_505)
-    #expect(snapshot.games.map(\.id) == Array(1...2_505))
+    #expect(snapshot.games.count == 25_005)
+    #expect(snapshot.games.map(\.id) == Array(1...25_005))
   }
 
   @Test("Fetches large synchronized libraries in parallel")
@@ -1822,7 +1822,7 @@ struct LibraryCacheTests {
     let serverURL = try ServerURL("https://romm.example.com")
     let session = ServerSession(serverURL: serverURL, username: "kenneth")
     let client = SynchronizationRomMClient(
-      gameCount: 2_505,
+      gameCount: 25_005,
       gameRequestDelayMilliseconds: 20
     )
     let progress = SyncProgressRecorder()
@@ -1842,13 +1842,13 @@ struct LibraryCacheTests {
     let requestStats = await client.catalogRequestStats()
     let completedCounts = await progress.completedCounts()
 
-    #expect(snapshot.games.count == 2_505)
-    #expect(snapshot.games.map(\.id) == Array(1...2_505))
-    #expect(requestStats.offsets.sorted() == [0, 1_000, 2_000])
-    #expect(requestStats.limits == [1_000, 1_000, 1_000])
+    #expect(snapshot.games.count == 25_005)
+    #expect(snapshot.games.map(\.id) == Array(1...25_005))
+    #expect(requestStats.offsets.sorted() == [0, 10_000, 20_000])
+    #expect(requestStats.limits == [10_000, 10_000, 10_000])
     #expect(requestStats.maximumConcurrentRequestCount > 1)
     #expect(completedCounts == completedCounts.sorted())
-    #expect(completedCounts.last == 2_505)
+    #expect(completedCounts.last == 25_005)
   }
 
   @Test("Does not replace a good snapshot after a failed synchronization")

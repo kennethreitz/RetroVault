@@ -301,6 +301,7 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
     var queryItems = [
       URLQueryItem(name: "with_char_index", value: "false"),
       URLQueryItem(name: "with_filter_values", value: "false"),
+      URLQueryItem(name: "with_rom_id_index", value: "false"),
       URLQueryItem(name: "with_files", value: "false"),
       URLQueryItem(
         name: "order_by",
@@ -375,6 +376,7 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
       components?.queryItems = [
         URLQueryItem(name: "with_char_index", value: "false"),
         URLQueryItem(name: "with_filter_values", value: "false"),
+        URLQueryItem(name: "with_rom_id_index", value: "false"),
         URLQueryItem(name: "with_files", value: "false"),
         URLQueryItem(
           name: kind == .save ? "has_saves" : "has_states",

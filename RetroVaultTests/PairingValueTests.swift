@@ -271,6 +271,11 @@ struct RomMAPIClientTests {
           ) == true
         )
         #expect(
+          components.queryItems?.contains(
+            URLQueryItem(name: "with_rom_id_index", value: "false")
+          ) == true
+        )
+        #expect(
           components.queryItems?.contains(where: { $0.name == "tags" })
             == false
         )
@@ -598,6 +603,11 @@ struct RomMAPIClientTests {
       #expect(isSaveRequest != isStateRequest)
       #expect(
         queryItems.contains(URLQueryItem(name: "limit", value: "500"))
+      )
+      #expect(
+        queryItems.contains(
+          URLQueryItem(name: "with_rom_id_index", value: "false")
+        )
       )
 
       let id = isSaveRequest ? 42 : 43

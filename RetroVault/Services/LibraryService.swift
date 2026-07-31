@@ -268,7 +268,9 @@ extension LibraryServing {
 
 actor RomMLibraryService: LibraryServing {
   private static let artworkInspectionPageSize = 500
-  private static let synchronizationPageSize = 1_000
+  // RomM 5.x accepts up to 10,000 ROMs per request. Using the server maximum
+  // keeps a typical large library sync to only a few round trips.
+  private static let synchronizationPageSize = 10_000
   private static let synchronizationRequestLimit = 4
   private static let synchronizationOrdering = GamePageOrdering.identifier
   private let api: any RomMClient
