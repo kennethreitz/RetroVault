@@ -1,7 +1,7 @@
 # Bundled Libretro Cores
 
 `CoreManifest.json` is the reviewed source of truth for every libretro binary
-that may ship with OpenVault.
+that may ship with RetroVault.
 
 The manifest includes a content-free 2048 pipeline test, 25 reviewed
 user-facing cores, and 2 experimental cores. The current catalog supports Game Boy, Game Boy Color,
@@ -24,7 +24,7 @@ core.
 The test core proves source pinning, ARM64 compilation, license collection,
 hashing, signing, and the frontend lifecycle. User-facing cores additionally
 support raw or ZIP-wrapped games whose archive contains one supported ROM
-file. Descriptor-based disc sets are also supported: OpenVault prefers the
+file. Descriptor-based disc sets are also supported: RetroVault prefers the
 declared CUE or M3U file and extracts its safe regular-file companions from the
 same archive directory. PlayStation prefers M3U/CUE disc descriptors and also
 accepts BIN, CHD, ISO, and PBP
@@ -34,7 +34,7 @@ content.
 
 - `pipelineTest`: built and packaged to validate the toolchain, but never
   selected for a user's RomM game.
-- `bundled`: a reviewed, user-facing core that is included in OpenVault.
+- `bundled`: a reviewed, user-facing core that is included in RetroVault.
 - `experimental`: built and shipped like a bundled core, but only offered once
   the user enables experimental cores in Settings. Used for cores that work but
   have not met the reviewed bar.
@@ -45,7 +45,7 @@ A `bundled` entry must have approved redistribution status, a full source
 revision, a license notice, deterministic build arguments, and a declared set
 of frontend capabilities. When a pinned release needs a narrowly scoped
 upstream fix, `source.patches` may list full commits from the same repository.
-For a small OpenVault integration patch that does not belong upstream,
+For a small RetroVault integration patch that does not belong upstream,
 `source.localPatches` records a manifest-relative patch and its SHA-256.
 The build tool verifies and applies both forms without creating a new source
 revision, and records them in the build receipt.
@@ -90,12 +90,12 @@ Scripts/build-libretro-cores.sh --core libretro-ppsspp
 Build release artifacts with a Developer ID identity:
 
 ```sh
-OPENVAULT_CORE_SIGNING_IDENTITY="Developer ID Application: Example (TEAMID)" \
+RETROVAULT_CORE_SIGNING_IDENTITY="Developer ID Application: Example (TEAMID)" \
   Scripts/build-libretro-cores.sh
 ```
 
 Generated artifacts are written to `Build/LibretroCores` and are intentionally
-not committed. The OpenVault Xcode target embeds their core binaries under the
+not committed. The RetroVault Xcode target embeds their core binaries under the
 application's `Contents/PlugIns/Libretro` directory and their manifest,
 receipt, and license notices under `Contents/Resources/Libretro`. Development
 builds may omit the artifacts; Release builds fail until the pipeline has
@@ -111,8 +111,8 @@ Debug builds can expose a local Gambatte test without adding file-picker or
 library-import behavior:
 
 ```sh
-OPENVAULT_LIBRETRO_TEST_ROM="/path/to/test.gb" \
-  /path/to/OpenVault.app/Contents/MacOS/OpenVault
+RETROVAULT_LIBRETRO_TEST_ROM="/path/to/test.gb" \
+  /path/to/RetroVault.app/Contents/MacOS/RetroVault
 ```
 
 This adds a debug-only Settings button. Release builds launch game content only
@@ -120,7 +120,7 @@ through compatible RomM details.
 
 ## Adding a core
 
-1. Confirm the core can be redistributed under OpenVault's release model.
+1. Confirm the core can be redistributed under RetroVault's release model.
 2. Pin a full Git commit rather than a branch or tag.
 3. Declare the content systems, extensions, firmware, and frontend
    capabilities accurately.
@@ -130,17 +130,17 @@ through compatible RomM details.
    `bundled`.
 
 Genesis Plus GX, PicoDrive, and FinalBurn Neo use source-available,
-noncommercial licenses. They are approved only for OpenVault's free
+noncommercial licenses. They are approved only for RetroVault's free
 open-source release model and must be removed or replaced before any paid or
 commercial distribution.
 
 ## RomM firmware
 
-OpenVault never packages games, firmware, BIOS files, or cryptographic keys in
+RetroVault never packages games, firmware, BIOS files, or cryptographic keys in
 the application. Firmware comes from the paired RomM server's system-level
 firmware records, not from games named `[BIOS]`.
 
-Before launch, OpenVault:
+Before launch, RetroVault:
 
 1. Lists firmware for the game's RomM platform using the `firmware.read`
    permission.
@@ -159,18 +159,18 @@ firmware behavior is covered end to end.
 
 Beetle PCE uses RomM's `syscard3.pce` system firmware for PC Engine CD content.
 HuCard and SuperGrafx games do not require it. CD content supports CHD and
-complete CUE and M3U sets prepared by OpenVault.
+complete CUE and M3U sets prepared by RetroVault.
 
-Gearcoleco requires RomM's `colecovision.rom` system firmware. OpenVault fetches
+Gearcoleco requires RomM's `colecovision.rom` system firmware. RetroVault fetches
 and verifies it through the same platform-scoped firmware cache before starting
 ColecoVision content.
 
 Dolphin provides GameCube playback through an OpenGL 4.1 Libretro hardware
-context, with OpenVault presenting the completed frame through its native Metal
+context, with RetroVault presenting the completed frame through its native Metal
 view. Its upstream `Data/Sys` tree is pinned, built, and bundled as runtime
 system data; it is not console firmware or game content. Apple OpenGL does not
 provide ARB buffer storage, so Dolphin uses its compatible streaming fallback.
-OpenVault's reviewed integration patch records that expected condition in the
+RetroVault's reviewed integration patch records that expected condition in the
 Libretro log instead of drawing a long-lived warning over the game.
 
 PPSSPP provides PSP playback through the same hardware-rendering frontend and

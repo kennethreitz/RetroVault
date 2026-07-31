@@ -3,15 +3,15 @@
 ## Goal
 
 Allow a user without an external server to select an existing ROM library and
-have OpenVault provision and manage a local RomM installation using Apple's
+have RetroVault provision and manage a local RomM installation using Apple's
 container technologies.
 
-The rest of OpenVault must consume the managed instance through the same RomM
+The rest of RetroVault must consume the managed instance through the same RomM
 API boundary used by milestone 1A.
 
 ## Runtime shape
 
-OpenVault manages:
+RetroVault manages:
 
 - A pinned native ARM64 RomM container image
 - A pinned native ARM64 MariaDB container image
@@ -21,7 +21,7 @@ OpenVault manages:
 - Generated secrets stored in Keychain
 - A read-only mount of the user-selected ROM library
 
-The container implementation is isolated behind an OpenVault-owned
+The container implementation is isolated behind an RetroVault-owned
 `ContainerRuntime` protocol.
 
 ## In scope
@@ -35,7 +35,7 @@ The container implementation is isolated behind an OpenVault-owned
 - Database startup and health checking
 - RomM startup and health checking
 - Initial RomM setup handoff
-- Clean shutdown when OpenVault quits
+- Clean shutdown when RetroVault quits
 - Relaunch reconciliation after an interrupted or unclean shutdown
 - Actionable logs and recovery states
 - A local-server reset operation that preserves the user's ROM files
@@ -44,12 +44,12 @@ The container implementation is isolated behind an OpenVault-owned
 
 - A user can select a ROM directory without copying or reorganizing it.
 - The selected directory is mounted read-only.
-- OpenVault can pull and start the pinned stack on a clean macOS 26 Apple
+- RetroVault can pull and start the pinned stack on a clean macOS 26 Apple
   silicon installation without Docker.
-- OpenVault does not report readiness until MariaDB and RomM are healthy.
+- RetroVault does not report readiness until MariaDB and RomM are healthy.
 - Once ready, the existing milestone 1A library flow works without a
   local-server-specific UI path.
-- Quitting OpenVault stops the managed stack cleanly.
+- Quitting RetroVault stops the managed stack cleanly.
 - Relaunching restores the managed instance using its persistent database and
   resources.
 - Interrupted startup and stale runtime state can be detected and recovered.
@@ -76,7 +76,7 @@ prove:
 
 - Importing or copying the ROM library
 - Writable ROM-library mounts
-- Running the local server permanently after OpenVault quits
+- Running the local server permanently after RetroVault quits
 - Exposing the managed server to other devices
 - Docker or Docker Compose
 - Automatic migration from an unrelated RomM installation

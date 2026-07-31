@@ -3,13 +3,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "OpenVault",
+    name: "RetroVault",
     platforms: [
         .macOS(.v26),
     ],
     products: [
-        .executable(name: "OpenVault", targets: ["OpenVault"]),
-        .executable(name: "OpenVaultCoreTool", targets: ["OpenVaultCoreTool"]),
+        .executable(name: "RetroVault", targets: ["RetroVault"]),
+        .executable(name: "RetroVaultCoreTool", targets: ["RetroVaultCoreTool"]),
     ],
     dependencies: [
         .package(url: "https://github.com/kean/Nuke.git", exact: "13.0.6"),
@@ -20,16 +20,16 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "OpenVault",
+            name: "RetroVault",
             dependencies: [
-                "OpenVaultLibretroLogShim",
+                "RetroVaultLibretroLogShim",
                 .product(name: "Nuke", package: "Nuke"),
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ],
-            path: "OpenVault",
+            path: "RetroVault",
             exclude: [
                 "App/Info.plist",
-                "App/OpenVault.entitlements",
+                "App/RetroVault.entitlements",
                 "Shared/LibretroLogShim",
             ],
             resources: [
@@ -37,21 +37,21 @@ let package = Package(
             ]
         ),
         .target(
-            name: "OpenVaultLibretroLogShim",
-            path: "OpenVault/Shared/LibretroLogShim",
+            name: "RetroVaultLibretroLogShim",
+            path: "RetroVault/Shared/LibretroLogShim",
             publicHeadersPath: "include"
         ),
         .testTarget(
-            name: "OpenVaultTests",
+            name: "RetroVaultTests",
             dependencies: [
-                "OpenVault",
+                "RetroVault",
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ],
-            path: "OpenVaultTests"
+            path: "RetroVaultTests"
         ),
         .executableTarget(
-            name: "OpenVaultCoreTool",
-            path: "Tools/OpenVaultCoreTool",
+            name: "RetroVaultCoreTool",
+            path: "Tools/RetroVaultCoreTool",
             exclude: ["Fixtures"]
         ),
     ],

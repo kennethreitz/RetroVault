@@ -1,12 +1,12 @@
 <p align="center">
-  <img src=".github/assets/openvault-hero.png" alt="OpenVault — a luminous game vault surrounded by a native game library" width="100%">
+  <img src=".github/assets/retrovault-hero.png" alt="RetroVault — a luminous game vault surrounded by a native game library" width="100%">
 </p>
 
 <p align="center">
-  <img src="OpenVault/Resources/Assets.xcassets/AppIcon.appiconset/icon_512x512@2x.png" alt="OpenVault app icon" width="128" height="128">
+  <img src="RetroVault/Resources/Assets.xcassets/AppIcon.appiconset/icon_512x512@2x.png" alt="RetroVault app icon" width="128" height="128">
 </p>
 
-<h1 align="center">OpenVault</h1>
+<h1 align="center">RetroVault</h1>
 
 <p align="center">
   <strong>A native macOS library and player for RomM.</strong>
@@ -20,24 +20,24 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-2563eb?style=flat-square" alt="GPL-3.0"></a>
 </p>
 
-OpenVault is a native macOS client for [RomM](https://romm.app), the
+RetroVault is a native macOS client for [RomM](https://romm.app), the
 self-hosted game-library manager maintained by
 [the RomM Project](https://github.com/rommapp/romm). It connects to one RomM
 server, synchronizes its catalog into an offline cache, and presents the
 library through a fast, controller-first interface built with SwiftUI.
 
-For supported systems, OpenVault is also a Libretro frontend. It downloads a
+For supported systems, RetroVault is also a Libretro frontend. It downloads a
 game into managed local storage, fetches required firmware and newer saves from
 RomM, and runs the game through a bundled Apple-silicon core. Metal video,
 Core Audio, native controllers, quick states, rewind, fullscreen play, and
 save synchronization are part of the app rather than separate emulator setup.
 
-RomM remains the source of truth. OpenVault does not import or reorganize the
+RomM remains the source of truth. RetroVault does not import or reorganize the
 server library. **Download** keeps a managed copy for offline play;
 **Export** writes a separate copy outside the app.
 
 > [!IMPORTANT]
-> OpenVault is under active development and is not ready for a general release.
+> RetroVault is under active development and is not ready for a general release.
 > It currently requires macOS 26 on Apple silicon and targets the RomM 5.x API.
 > Emulator compatibility and save synchronization still vary by system and
 > title.
@@ -71,15 +71,15 @@ hashes, artwork, manuals, firmware relationships, and player saves all help
 document software whose original media, hardware, storefronts, and online
 services will not remain available forever.
 
-OpenVault focuses on older systems with maintainable Apple-silicon emulation
+RetroVault focuses on older systems with maintainable Apple-silicon emulation
 paths. A platform is considered supported only when content loading, video,
 audio, input, firmware, offline play, and save handling are dependable enough
-to be useful. RomM can still catalog newer or unsupported systems; OpenVault
+to be useful. RomM can still catalog newer or unsupported systems; RetroVault
 continues to preserve their metadata without claiming that they are playable.
 
 ## Reviewed systems
 
-Compatibility still varies by title while OpenVault is in development.
+Compatibility still varies by title while RetroVault is in development.
 
 | Family | Systems | Core |
 | --- | --- | --- |
@@ -113,11 +113,11 @@ experimental cores and remain hidden unless experimental support is enabled.
 
 Core revisions, licenses, hashes, build instructions, and frontend requirements
 are recorded in [`Libretro/CoreManifest.json`](Libretro/CoreManifest.json).
-OpenVault does not bundle games, firmware, BIOS files, or cryptographic keys.
+RetroVault does not bundle games, firmware, BIOS files, or cryptographic keys.
 
 ## Library rules
 
-- **RomM owns the catalog.** OpenVault caches and presents it; it does not
+- **RomM owns the catalog.** RetroVault caches and presents it; it does not
   create a competing library database.
 - **Offline is normal.** Cached metadata and managed downloads continue to
   work during server restarts and network outages.
@@ -128,7 +128,7 @@ OpenVault does not bundle games, firmware, BIOS files, or cryptographic keys.
 
 ## Architecture
 
-OpenVault is a modular SwiftUI application with explicit boundaries between
+RetroVault is a modular SwiftUI application with explicit boundaries between
 features, services, networking, persistence, models, and the Libretro runtime.
 RomM DTOs stay inside the API layer; features depend on protocols and
 `Sendable` domain values. SwiftData and files provide the offline cache, while
@@ -154,10 +154,10 @@ Requirements:
 - macOS 26 or later
 - Xcode 26 or later
 
-Open the project and run the `OpenVault` scheme:
+Open the project and run the `RetroVault` scheme:
 
 ```shell
-open OpenVault.xcodeproj
+open RetroVault.xcodeproj
 ```
 
 Or build and test from the command line:
@@ -172,7 +172,7 @@ The standalone app produced by `Scripts/build-app.sh` is signed ad hoc for
 local development. Core build and licensing details are in
 [`Libretro/README.md`](Libretro/README.md).
 
-OpenVault's only Swift package dependencies are
+RetroVault's only Swift package dependencies are
 [Nuke](https://github.com/kean/Nuke) for artwork and
 [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) for archive
 extraction.

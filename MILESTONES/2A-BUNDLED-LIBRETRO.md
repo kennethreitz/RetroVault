@@ -3,15 +3,15 @@
 ## Goal
 
 Launch compatible games from the user's RomM library through a native
-OpenVault-owned libretro frontend using reviewed cores bundled with the signed
+RetroVault-owned libretro frontend using reviewed cores bundled with the signed
 application.
 
-RomM remains the source of truth for games, saves, and states. OpenVault owns
+RomM remains the source of truth for games, saves, and states. RetroVault owns
 only a replaceable local runtime cache and the temporary state required for an
 active play session.
 
 Milestone 1B is not a prerequisite. The runner must work with the paired remote
-server from milestone 1A and with a future OpenVault-managed local server
+server from milestone 1A and with a future RetroVault-managed local server
 through the same service boundary.
 
 ## Current implementation
@@ -50,7 +50,7 @@ through the same service boundary.
 - Core firmware is resolved from RomM's system-level firmware API by platform,
   verified against RomM and manifest hashes, and cached per server and
   platform for offline playback. Firmware is never inferred from `[BIOS]`
-  library games or bundled with OpenVault.
+  library games or bundled with RetroVault.
 - Save RAM is isolated per server and game, restored before core startup, and
   synchronized back to RomM when it changes. Quick states and rewind history
   remain local and core-specific. Play automatically resumes a local quick
@@ -60,18 +60,18 @@ through the same service boundary.
 ## User journey
 
 1. The user selects Play from a game details screen.
-2. OpenVault presents a full-page launch screen with artwork, Saves and States,
+2. RetroVault presents a full-page launch screen with artwork, Saves and States,
    the selected core, fullscreen preference, and a clear Start Fresh option.
-3. OpenVault verifies that a bundled core supports the game's system and file
+3. RetroVault verifies that a bundled core supports the game's system and file
    type.
-4. OpenVault prepares required or available firmware from the platform's RomM
+4. RetroVault prepares required or available firmware from the platform's RomM
    firmware records, reusing its verified local cache when offline.
-5. OpenVault downloads the game into a managed, bounded cache when necessary.
-6. OpenVault optionally downloads the selected save or state from RomM.
+5. RetroVault downloads the game into a managed, bounded cache when necessary.
+6. RetroVault optionally downloads the selected save or state from RomM.
 7. The game opens in a separate native game window.
 8. Battery-backed memory is persisted locally during play.
 9. Closing the game returns to the existing library without terminating
-   OpenVault.
+   RetroVault.
 
 ## Architecture boundary
 
@@ -101,10 +101,10 @@ modules.
 
 ## Bundled cores
 
-- Every core officially supported by OpenVault ships inside the application.
+- Every core officially supported by RetroVault ships inside the application.
 - Core binaries are `arm64`, pinned to reviewed source revisions, and signed
   with the same team identity as the enclosing app.
-- OpenVault does not initially download cores or load arbitrary user-provided
+- RetroVault does not initially download cores or load arbitrary user-provided
   binaries.
 - The versioned manifest is the source of truth for provenance, build
   instructions, supported content, required frontend capabilities, firmware,
@@ -171,7 +171,7 @@ paid distribution.
 
 ## Cache and save rules
 
-- Games prepared only for playback live in a bounded OpenVault cache. The
+- Games prepared only for playback live in a bounded RetroVault cache. The
   user-initiated Download action instead keeps a durable managed copy in
   Application Support, while Export writes a shareable copy to Downloads.
 - The cache is disposable and can always be rebuilt from RomM.
@@ -186,13 +186,13 @@ paid distribution.
 - Save files and save states are not interchangeable. A battery save is placed
   in the core's save directory before launch; a state is restored explicitly
   after the core and content have loaded.
-- Before every launch, OpenVault requests fresh game details from RomM and
+- Before every launch, RetroVault requests fresh game details from RomM and
   imports the newest available cartridge save before starting the core,
   falling back through older revisions when a stale database row points to a
   missing file. Unsynchronized local data always wins over a remote import. If
   RomM is offline, launch continues with the local save without waiting for a
   server timeout beyond the failed refresh.
-- When a session ends, OpenVault uploads changed cartridge memory as a new
+- When a session ends, RetroVault uploads changed cartridge memory as a new
   RomM autosave revision and leaves unchanged saves alone. It never overwrites
   an existing remote revision, and RomM retains a bounded ten-save history.
 
@@ -229,4 +229,4 @@ paid distribution.
 Milestone 2A is complete when the bundled-core pipeline is reproducible and a
 signed development build can launch at least one real game from RomM through
 the native libretro frontend, persist its local save, restore a compatible
-state, and return cleanly to the OpenVault library.
+state, and return cleanly to the RetroVault library.

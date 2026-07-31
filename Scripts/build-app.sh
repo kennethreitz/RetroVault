@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Builds a standalone OpenVault.app that runs without Xcode.
+# Builds a standalone RetroVault.app that runs without Xcode.
 #
 # The signing arrangement here is the whole point of the script. Without a
 # Developer ID the app can only be signed ad-hoc, and an ad-hoc signature
@@ -24,7 +24,7 @@ set -euo pipefail
 script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
 derived_data="$repository_root/Build/ReleaseDD"
-output_app="$repository_root/Build/OpenVault.app"
+output_app="$repository_root/Build/RetroVault.app"
 
 cd "$repository_root"
 
@@ -34,11 +34,11 @@ if [ ! -d "$repository_root/Build/LibretroCores/Cores" ]; then
     exit 1
 fi
 
-echo "Building OpenVault (Release, ad-hoc signed)…"
+echo "Building RetroVault (Release, ad-hoc signed)…"
 rm -rf "$derived_data"
 xcodebuild \
-    -project OpenVault.xcodeproj \
-    -scheme OpenVault \
+    -project RetroVault.xcodeproj \
+    -scheme RetroVault \
     -configuration Release \
     -derivedDataPath "$derived_data" \
     CODE_SIGN_STYLE=Manual \
@@ -49,7 +49,7 @@ xcodebuild \
     build
 
 rm -rf "$output_app"
-ditto "$derived_data/Build/Products/Release/OpenVault.app" "$output_app"
+ditto "$derived_data/Build/Products/Release/RetroVault.app" "$output_app"
 
 codesign --verify --deep --strict "$output_app"
 

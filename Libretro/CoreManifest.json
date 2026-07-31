@@ -1060,7 +1060,7 @@
             "-S",
             ".",
             "-B",
-            "build-openvault",
+            "build-retrovault",
             "-DCMAKE_BUILD_TYPE=Release",
             "-DCMAKE_OSX_ARCHITECTURES=arm64",
             "-DCMAKE_OSX_DEPLOYMENT_TARGET=26.0",
@@ -1071,13 +1071,13 @@
         "arguments": [
           "cmake",
           "--build",
-          "build-openvault",
+          "build-retrovault",
           "--target",
           "arduous_libretro",
           "--parallel",
           "9"
         ],
-        "output": "build-openvault/arduous_libretro.dylib"
+        "output": "build-retrovault/arduous_libretro.dylib"
       }
     },
     {
@@ -1248,7 +1248,7 @@
             "-S",
             ".",
             "-B",
-            "build-openvault",
+            "build-retrovault",
             "-DLIBRETRO=ON",
             "-DCMAKE_BUILD_TYPE=Release",
             "-DCMAKE_OSX_ARCHITECTURES=arm64",
@@ -1264,13 +1264,13 @@
         "arguments": [
           "cmake",
           "--build",
-          "build-openvault",
+          "build-retrovault",
           "--target",
           "dolphin_libretro",
           "--parallel",
           "9"
         ],
-        "output": "build-openvault/dolphin_libretro.dylib"
+        "output": "build-retrovault/dolphin_libretro.dylib"
       }
     },
     {
@@ -1344,7 +1344,7 @@
             "-S",
             ".",
             "-B",
-            "build-openvault",
+            "build-retrovault",
             "-DLIBRETRO=ON",
             "-DCMAKE_BUILD_TYPE=Release",
             "-DCMAKE_OSX_ARCHITECTURES=arm64",
@@ -1361,13 +1361,13 @@
         "arguments": [
           "cmake",
           "--build",
-          "build-openvault",
+          "build-retrovault",
           "--target",
           "ppsspp_libretro",
           "--parallel",
           "9"
         ],
-        "output": "build-openvault/lib/ppsspp_libretro.dylib"
+        "output": "build-retrovault/lib/ppsspp_libretro.dylib"
       }
     },
     {
@@ -1525,7 +1525,7 @@
             "-S",
             ".",
             "-B",
-            "build-openvault",
+            "build-retrovault",
             "-DLIBRETRO=ON",
             "-DCMAKE_BUILD_TYPE=Release",
             "-DCMAKE_OSX_ARCHITECTURES=arm64",
@@ -1536,13 +1536,13 @@
         "arguments": [
           "cmake",
           "--build",
-          "build-openvault",
+          "build-retrovault",
           "--target",
           "flycast_libretro",
           "--parallel",
           "9"
         ],
-        "output": "build-openvault/flycast_libretro.dylib"
+        "output": "build-retrovault/flycast_libretro.dylib"
       }
     }
   ]

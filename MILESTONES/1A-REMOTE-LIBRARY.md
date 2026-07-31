@@ -2,19 +2,19 @@
 
 ## Goal
 
-Connect OpenVault to one paired remote RomM 5.0 server and present the user's
+Connect RetroVault to one paired remote RomM 5.0 server and present the user's
 library as a fast, native macOS experience that remains useful offline.
 
 ## Connection flow
 
 1. The user enters the RomM server URL.
-2. OpenVault verifies reachability and compatible server behavior.
+2. RetroVault verifies reachability and compatible server behavior.
 3. The user enters an eight-character alphanumeric pairing code or an existing
    client API token.
-4. OpenVault exchanges the pairing code when necessary.
-5. During development, the client token is stored in OpenVault's sandboxed
+4. RetroVault exchanges the pairing code when necessary.
+5. During development, the client token is stored in RetroVault's sandboxed
    Application Support directory with owner-only permissions.
-6. OpenVault validates the authenticated connection and required scopes.
+6. RetroVault validates the authenticated connection and required scopes.
 7. Initial library synchronization begins.
 
 No secret is written to source code, logs, fixtures, or ordinary preferences.
@@ -42,7 +42,7 @@ Keychain storage remains required before a release build ships.
 - Native library grid
 - Game selection and an initial details presentation
 - Editable per-user game progress, rating, difficulty, status, and activity flags
-- Authenticated, user-initiated download into OpenVault's managed local library
+- Authenticated, user-initiated download into RetroVault's managed local library
 - Explicit export of selected games to macOS Downloads
 - Loading, empty, offline, stale, permission, and failure states
 - Request, decoding, mapping, repository, cache, and feature-state tests
@@ -63,7 +63,7 @@ Keychain storage remains required before a release build ships.
   available.
 - Completion, rating, difficulty, play status, backlog, now-playing, and hidden
   state can be edited in the details view and are persisted to RomM.
-- One or more selected games can be downloaded into OpenVault's managed local
+- One or more selected games can be downloaded into RetroVault's managed local
   library without loading complete ROMs into memory.
 - One or more selected games can be exported to macOS Downloads without
   overwriting existing files. Exporting does not change Downloaded membership.
@@ -73,7 +73,7 @@ Keychain storage remains required before a release build ships.
 - One or more selected games can be removed from RomM through a destructive
   context-menu action with explicit confirmation. Server-file deletion is a
   separate opt-in choice.
-- OpenVault relaunches into the cached library without waiting for the network.
+- RetroVault relaunches into the cached library without waiting for the network.
 - A successful refresh updates changed games and removes games no longer
   returned by RomM.
 - Snapshot replacement is transactional: an interrupted or partially failed
@@ -85,7 +85,7 @@ Keychain storage remains required before a release build ships.
 - BIOS and firmware entries conventionally named with a leading `[BIOS]` marker
   are hidden by default through a persisted library filter, but can be revealed
   from the filter checklist without requiring RomM to be online.
-- Artwork loading is cancellable. After a successful metadata sync, OpenVault
+- Artwork loading is cancellable. After a successful metadata sync, RetroVault
   pre-caches every unique canonical library cover at low priority with bounded
   concurrency into a bounded 10 GB disk cache. Screenshots and other detail
   media remain on demand.

@@ -7,6 +7,6 @@ repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
 
 swift run \
     --package-path "$repository_root" \
-    OpenVaultCoreTool \
+    RetroVaultCoreTool \
     validate \
     "$repository_root/Libretro/CoreManifest.json"

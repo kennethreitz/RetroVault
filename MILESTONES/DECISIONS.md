@@ -2,15 +2,15 @@
 
 Decision date: July 25, 2026
 
-These decisions define the initial architecture of OpenVault. Reversals should
+These decisions define the initial architecture of RetroVault. Reversals should
 be recorded deliberately because several choices affect persistence, signing,
 entitlements, and public APIs.
 
 ## Product
 
-- OpenVault is a native macOS application written in Swift and SwiftUI.
+- RetroVault is a native macOS application written in Swift and SwiftUI.
 - RomM is the source of truth for the game library.
-- OpenVault does not import, reorganize, or maintain a competing library.
+- RetroVault does not import, reorganize, or maintain a competing library.
 - The first milestone is library browsing, not game launching.
 - The application should feel consistent with native apps such as Photos and
   Music.
@@ -20,7 +20,7 @@ entitlements, and public APIs.
 ## Platform and distribution
 
 - The deployment target is macOS 26.
-- OpenVault supports Apple silicon only and is built for `arm64`.
+- RetroVault supports Apple silicon only and is built for `arm64`.
 - The minimum macOS version is gated by Apple's supported container
   technologies, even before local RomM support ships.
 - Initial distribution will be a directly downloaded, signed, and notarized
@@ -32,11 +32,11 @@ entitlements, and public APIs.
 
 ## Application structure
 
-OpenVault begins as a modular monolith with one application target and explicit
+RetroVault begins as a modular monolith with one application target and explicit
 internal boundaries:
 
 ```text
-OpenVault/
+RetroVault/
     App/
     UI/
     Features/
@@ -80,7 +80,7 @@ UI → Models
 
 ## Server model
 
-- OpenVault has exactly one configured server at a time.
+- RetroVault has exactly one configured server at a time.
 - Multi-server aggregation and multiple simultaneous server profiles are
   non-goals.
 - The active server may be remote or managed locally.
@@ -116,19 +116,19 @@ enum ServerConfiguration: Sendable {
 - Release builds will store tokens, passwords, and generated secrets in
   Keychain.
 - Temporary development exception: the RomM client token is currently stored
-  in OpenVault's sandboxed Application Support directory as an owner-readable
+  in RetroVault's sandboxed Application Support directory as an owner-readable
   file (`0700` directory and `0600` file). This avoids unstable Keychain access
   control while development builds are ad-hoc signed. It is security debt and
   must migrate back to Keychain before release.
 - Secrets must never be stored in source code, fixtures, logs, or ordinary
   preferences.
-- OpenVault requests only the scopes required by the features it implements.
+- RetroVault requests only the scopes required by the features it implements.
 - The library requires `me.read`, `platforms.read`, `roms.read`,
   `roms.write`, `collections.read`, `roms.user.write`, `assets.read`, and
   `assets.write`. `roms.user.write` covers personal state such as completion
   and rating; `roms.write` is required for explicitly confirmed game deletion;
   the asset scopes download and upload cartridge saves.
-- OpenVault should explain missing-scope failures rather than presenting a
+- RetroVault should explain missing-scope failures rather than presenting a
   generic networking error.
 - OIDC is an extension point, not an initial deliverable.
 
@@ -154,7 +154,7 @@ enum ServerConfiguration: Sendable {
   virtual collections are discarded during cache migration; regular and smart
   collections remain supported.
 - Downloaded is a built-in, server-scoped local collection. It includes ROMs
-  that exist in OpenVault's durable managed ROM library or disposable playback
+  that exist in RetroVault's durable managed ROM library or disposable playback
   cache. External exports do not affect Downloaded membership.
 - Every destination filters one shared, incrementally paginated cover grid.
 - The standard macOS toolbar search field filters the active destination through
@@ -170,7 +170,7 @@ enum ServerConfiguration: Sendable {
   how RomM tags the game. These are separate from RomM's system-level firmware
   records used by emulator cores.
 - The artwork gallery can hide games that do not expose artwork. The preference
-  does not affect List view. While the gallery filter is active, OpenVault also inspects
+  does not affect List view. While the gallery filter is active, RetroVault also inspects
   and caches each populated system's games, hiding a system from the primary
   list only after confirming it has no artwork. Empty systems remain available
   in their disclosure as future upload targets. The user's filter choice is
@@ -181,7 +181,7 @@ enum ServerConfiguration: Sendable {
   action always presents a confirmation sheet naming the selected games.
   Database-only removal is the default; permanent deletion of the corresponding
   ROM files is a separate unchecked option with a stronger warning.
-- After RomM confirms a complete bulk deletion, OpenVault removes the games
+- After RomM confirms a complete bulk deletion, RetroVault removes the games
   from its local snapshot and cached details. Partial results trigger a server
   reconciliation and present RomM's errors.
 - Collection editing, smart-filter creation, and other unimplemented RomM
@@ -207,7 +207,7 @@ enum ServerConfiguration: Sendable {
   Vertical D-pad or left-stick input moves with hold-to-repeat, while left and
   right page through long lists. The shoulder buttons also page. B opens or
   plays, A moves back within the hierarchy but does nothing at the root, and
-  Escape explicitly leaves Big Picture. OpenVault reads every connected
+  Escape explicitly leaves Big Picture. RetroVault reads every connected
   extended or compact controller rather than binding navigation to the first
   device returned by the system.
 - Big Picture directional selection clamps at the beginning and end of a list
@@ -258,11 +258,11 @@ enum ServerConfiguration: Sendable {
   sizes, hashes, archive members, and soundtrack track metadata when present.
 - Save and state availability is visible as separate, clickable counts in the
   details header. Each count opens a read-only Save Data tab with Saves and
-  States sections. OpenVault presents the server-provided filename, emulator,
+  States sections. RetroVault presents the server-provided filename, emulator,
   slot, size, path, timestamps, availability, and state screenshot when
   present.
 - The details header offers separate Download and Export actions. Download adds
-  the ROM to OpenVault's server-scoped managed local library in Application
+  the ROM to RetroVault's server-scoped managed local library in Application
   Support. Export writes a shareable copy to macOS Downloads, preserves the
   server-provided name, and adds a numeric suffix instead of overwriting an
   existing file. Export can reuse a managed or playback-cached copy offline and
@@ -272,7 +272,7 @@ enum ServerConfiguration: Sendable {
   optimistic, written to RomM through its per-user ROM properties endpoint, and
   rolled back with an actionable error if the server rejects or cannot receive
   the update. Confirmed values replace the cached details for offline browsing;
-  OpenVault does not queue offline mutations.
+  RetroVault does not queue offline mutations.
 - RomM descriptive metadata editing, save mutation or synchronization, and
   manual presentation remain separate feature slices.
 
@@ -281,7 +281,7 @@ enum ServerConfiguration: Sendable {
 - Remote internet-facing RomM servers should use HTTPS.
 - Plain HTTP is supported for managed-local and explicitly configured local
   network servers.
-- OpenVault uses the narrow local-network App Transport Security allowance
+- RetroVault uses the narrow local-network App Transport Security allowance
   rather than disabling transport security globally.
 - Self-signed certificate bypasses and "trust any certificate" behavior are
   not supported initially.
@@ -309,7 +309,7 @@ enum ServerConfiguration: Sendable {
   full-detail response render a summary-only detail page from the library
   snapshot and clearly identify it as a cached summary.
 - Artwork uses a 10 GB bounded disk cache separate from SwiftData. After each
-  successful metadata synchronization, OpenVault pre-caches every unique
+  successful metadata synchronization, RetroVault pre-caches every unique
   canonical library cover at low priority with bounded concurrency. Screenshots
   and other detail media remain loaded on demand.
 - The offline promise covers all synchronized metadata. Artwork remains
@@ -322,7 +322,7 @@ enum ServerConfiguration: Sendable {
 - Settings offers two client-side maintenance actions. Resync fetches and
   transactionally replaces a complete RomM metadata snapshot while preserving
   the prior cache on failure. Purge Local Cache & Resync first removes
-  OpenVault's disposable metadata, viewed-game details, and artwork caches,
+  RetroVault's disposable metadata, viewed-game details, and artwork caches,
   then rebuilds them from RomM after explicit confirmation. Neither action
   deletes managed or exported ROMs, saves, or playback data, and neither
   initiates a RomM server scan.
@@ -333,7 +333,7 @@ enum ServerConfiguration: Sendable {
 - It uses Apple's container technologies and does not require Docker.
 - Apple's Containerization Swift package is an acceptable necessary
   dependency for this feature.
-- Containerization is hidden behind an OpenVault-owned runtime protocol so
+- Containerization is hidden behind an RetroVault-owned runtime protocol so
   Apple API changes do not propagate through the application.
 - The local runtime manages a pinned RomM image and a pinned MariaDB image.
 - Container images use native `linux/arm64` variants and are pinned by digest
@@ -346,7 +346,7 @@ enum ServerConfiguration: Sendable {
   bookmark.
 - Generated database credentials and RomM authentication secrets are stored in
   Keychain.
-- The managed local stack starts on demand and stops when OpenVault quits.
+- The managed local stack starts on demand and stops when RetroVault quits.
 - Persistent background-server mode is not an initial target.
 - A signed-application technical spike must prove image pulling, mounts,
   networking, startup, shutdown, and recovery before the full local setup UI is
@@ -354,28 +354,28 @@ enum ServerConfiguration: Sendable {
 
 ## Libretro core distribution
 
-- Every libretro core officially supported by OpenVault is bundled with the
-  application. OpenVault does not initially download cores at runtime or load
+- Every libretro core officially supported by RetroVault is bundled with the
+  application. RetroVault does not initially download cores at runtime or load
   arbitrary user-provided core binaries.
 - Bundled cores are built for `arm64`, pinned to reviewed source revisions, and
-  code signed with the same team identity as OpenVault. Core updates ship as
-  ordinary OpenVault application updates.
+  code signed with the same team identity as RetroVault. Core updates ship as
+  ordinary RetroVault application updates.
 - A versioned core manifest records each core's identifier, version, source
   revision, supported systems and file extensions, required frontend
   capabilities, firmware requirements, and license notices.
-- "Bundle every core" means every core that OpenVault can test, support, and
+- "Bundle every core" means every core that RetroVault can test, support, and
   legally redistribute under its release model. A core is excluded until its
   macOS compatibility, redistribution terms, and required frontend features
   have been reviewed.
 - Bundling a core does not bundle firmware, BIOS files, games, or other
-  copyrighted content. OpenVault obtains game content from the user's RomM
+  copyrighted content. RetroVault obtains game content from the user's RomM
   library and obtains firmware from RomM's system-level firmware API using the
   paired token's `firmware.read` scope.
 - Firmware is selected by RomM platform and exact manifest filename, verified
   against RomM's SHA-1 and manifest-declared hashes, and cached in Application
   Support under server and platform identities. A verified cached copy can be
   reused offline. Firmware is not inferred from `[BIOS]` game rows.
-- Library validation remains enabled. OpenVault will not weaken the hardened
+- Library validation remains enabled. RetroVault will not weaken the hardened
   runtime merely to support third-party or unsigned core binaries.
 - The frontend bridge is implemented in Swift against Libretro API version 1.
   Explicit ARM64 C layouts are kept at the ABI boundary rather than leaking
@@ -397,7 +397,7 @@ enum ServerConfiguration: Sendable {
   2048 core remains a content-free pipeline and runtime test.
 - Runtime ROMs use a disposable 20 GB cache keyed by server, game, and content
   version. A cache hit can launch offline; a cache miss still requires RomM.
-- ZIP-wrapped games use ZIPFoundation 0.9.20. OpenVault selects a regular
+- ZIP-wrapped games use ZIPFoundation 0.9.20. RetroVault selects a regular
   archive member whose extension is declared by the chosen core. A selected
   CUE or M3U descriptor brings along safe regular-file companions from the same
   archive directory; other archive paths, symbolic links, metadata entries,
@@ -430,14 +430,14 @@ enum ServerConfiguration: Sendable {
   are or are not available locally. Downloaded is visible by default and uses
   iTunes-style cloud download status iconography.
 - List and Artwork context menus expose the same transfer actions. Download
-  adds one or more ROMs to OpenVault's durable local library and immediately
+  adds one or more ROMs to RetroVault's durable local library and immediately
   updates Downloaded membership. For locally available games that action
   becomes Remove Download, which deletes both durable and playback-cache ROM
   copies while leaving the RomM game, metadata, saves, and exported files
   untouched. Export writes collision-safe copies to the user's Downloads
   folder without changing local-library membership.
 - Save and state checkmarks are synchronized as server-filtered ID sets during
-  the normal library refresh. OpenVault does not issue a detail request for
+  the normal library refresh. RetroVault does not issue a detail request for
   every game.
 - Library synchronization, cached/offline state, failure state, total game
   count, and last refresh time appear in a compact footer at the lower-left of
@@ -459,19 +459,19 @@ Milestone 1A uses Apple frameworks:
 
 Nuke 13 provides the artwork
 pipeline's async loading, request coalescing, image processing, and bounded
-memory and disk caches. OpenVault depends on Nuke's core product,
+memory and disk caches. RetroVault depends on Nuke's core product,
 not its ready-made SwiftUI views, so the app retains control of its native UI.
 
 ZIPFoundation 0.9.20 provides focused ZIP parsing and single-entry extraction
-for Libretro content. OpenVault owns core compatibility, archive member
+for Libretro content. RetroVault owns core compatibility, archive member
 selection, cache placement, limits, and user-facing errors.
 
-Swift OpenAPI Generator is deliberately deferred. OpenVault will begin with a
+Swift OpenAPI Generator is deliberately deferred. RetroVault will begin with a
 small hand-written RomM client and reconsider generation after several stable
 endpoints demonstrate that the generated surface would reduce rather than add
 complexity.
 
-OpenVault should not initially depend on another networking framework,
+RetroVault should not initially depend on another networking framework,
 state-management framework, dependency-injection container, or credential
 storage wrapper.
 
@@ -479,12 +479,12 @@ The Apple Containerization package is deferred until milestone 1B.
 
 ## Diagnostics
 
-- OpenVault writes structured diagnostics to the macOS unified log under the
-  `org.kennethreitz.OpenVault` subsystem, with separate application,
+- RetroVault writes structured diagnostics to the macOS unified log under the
+  `org.kennethreitz.RetroVault` subsystem, with separate application,
   connection, networking, library, and Libretro categories.
 - Settings opens a native viewer that reads only this process's recent unified
   log entries, refreshes live, and supports level filtering, text search, and
-  copying. OpenVault does not maintain a second persistent log store or
+  copying. RetroVault does not maintain a second persistent log store or
   generate executable diagnostic scripts.
 - Diagnostic messages never include pairing codes, client tokens, request
   headers, or response bodies. Dynamic error details remain private in unified
@@ -501,4 +501,4 @@ assigned to a later milestone:
 - OIDC
 - Multiple servers
 - Plugin architecture
-- Persistent local-server operation while OpenVault is closed
+- Persistent local-server operation while RetroVault is closed

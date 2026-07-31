@@ -6,7 +6,7 @@ script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
 manifest_path="$repository_root/Libretro/CoreManifest.json"
 output_directory="$repository_root/Build/LibretroCores"
-signing_identity="${OPENVAULT_CORE_SIGNING_IDENTITY:--}"
+signing_identity="${RETROVAULT_CORE_SIGNING_IDENTITY:--}"
 selected_cores=()
 
 usage() {
@@ -56,15 +56,15 @@ esac
 
 swift build \
     --package-path "$repository_root" \
-    --product OpenVaultCoreTool
+    --product RetroVaultCoreTool
 
 tool_directory=$(swift build \
     --package-path "$repository_root" \
     --show-bin-path)
-tool_path="$tool_directory/OpenVaultCoreTool"
+tool_path="$tool_directory/RetroVaultCoreTool"
 
-work_directory=$(mktemp -d "${TMPDIR:-/tmp}/openvault-libretro-work.XXXXXX")
-staging_directory=$(mktemp -d "${TMPDIR:-/tmp}/openvault-libretro-output.XXXXXX")
+work_directory=$(mktemp -d "${TMPDIR:-/tmp}/retrovault-libretro-work.XXXXXX")
+staging_directory=$(mktemp -d "${TMPDIR:-/tmp}/retrovault-libretro-output.XXXXXX")
 backup_directory=""
 
 cleanup() {
@@ -100,7 +100,7 @@ if [[ -e "$output_directory" ]]; then
 fi
 
 if mv -- "$staging_directory" "$output_directory"; then
-    staging_directory=$(mktemp -d "${TMPDIR:-/tmp}/openvault-libretro-empty.XXXXXX")
+    staging_directory=$(mktemp -d "${TMPDIR:-/tmp}/retrovault-libretro-empty.XXXXXX")
     if [[ -n "$backup_directory" ]]; then
         rm -rf -- "$backup_directory"
     fi

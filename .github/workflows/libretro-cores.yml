@@ -7,7 +7,7 @@ on:
       - "Libretro/**"
       - "Package.swift"
       - "Scripts/*libretro*"
-      - "Tools/OpenVaultCoreTool/**"
+      - "Tools/RetroVaultCoreTool/**"
   push:
     branches:
       - main
@@ -16,7 +16,7 @@ on:
       - "Libretro/**"
       - "Package.swift"
       - "Scripts/*libretro*"
-      - "Tools/OpenVaultCoreTool/**"
+      - "Tools/RetroVaultCoreTool/**"
   workflow_dispatch:
 
 permissions:
@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - name: Check out OpenVault
+      - name: Check out RetroVault
         uses: actions/checkout@v4
 
       - name: Test the manifest tool
@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Check out OpenVault
+      - name: Check out RetroVault
         uses: actions/checkout@v4
 
       - name: Build and ad-hoc sign bundled cores
@@ -57,6 +57,6 @@ jobs:
       - name: Upload core artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: OpenVault-Libretro-Cores-arm64
+          name: RetroVault-Libretro-Cores-arm64
           path: Build/LibretroCores
           if-no-files-found: error

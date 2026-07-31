@@ -1,6 +1,6 @@
-# OpenVault Milestones
+# RetroVault Milestones
 
-This directory contains the scope and acceptance criteria for each OpenVault
+This directory contains the scope and acceptance criteria for each RetroVault
 milestone.
 
 ## Documents
