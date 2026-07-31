@@ -8,6 +8,44 @@ enum BigPictureScene {
   static let opensInFullScreenByDefault = true
 }
 
+struct BigPictureSynchronizationFooterPresentation:
+  Equatable, Sendable
+{
+  let completedGameCount: Int
+  let totalGameCount: Int
+
+  static func make(
+    isSynchronizing: Bool,
+    completedGameCount: Int,
+    totalGameCount: Int,
+    lastSuccessfulSync: Date?,
+    refreshErrorMessage: String?
+  ) -> Self? {
+    let hasRefreshError =
+      !(refreshErrorMessage?.isEmpty ?? true)
+    let isWaitingForInitialSync =
+      lastSuccessfulSync == nil && !hasRefreshError
+
+    guard isSynchronizing || isWaitingForInitialSync else {
+      return nil
+    }
+
+    return Self(
+      completedGameCount: completedGameCount,
+      totalGameCount: totalGameCount
+    )
+  }
+
+  var label: String {
+    guard totalGameCount > 0 else {
+      return "SYNCHRONIZING WITH ROMM…"
+    }
+    return
+      "SYNCHRONIZING \(min(completedGameCount, totalGameCount).formatted())"
+      + " OF \(totalGameCount.formatted())"
+  }
+}
+
 struct BigPictureView: View {
   private static let bundledManifest =
     try? LibretroInstallation.bundled().manifest
@@ -397,10 +435,22 @@ struct BigPictureView: View {
 
       Spacer()
 
-      Text(model.allGameCount.formatted() + " GAMES")
+      if let synchronizationFooter {
+        HStack(spacing: 8) {
+          Image(systemName: "arrow.triangle.2.circlepath")
+          Text(synchronizationFooter.label)
+        }
         .font(.system(size: 13, weight: .black, design: .rounded))
         .tracking(1.2)
-        .foregroundStyle(.white.opacity(0.45))
+        .foregroundStyle(.yellow.opacity(0.78))
+        .monospacedDigit()
+        .accessibilityLabel(synchronizationFooter.label)
+      } else {
+        Text(model.allGameCount.formatted() + " GAMES")
+          .font(.system(size: 13, weight: .black, design: .rounded))
+          .tracking(1.2)
+          .foregroundStyle(.white.opacity(0.45))
+      }
 
       Spacer()
 
@@ -438,6 +488,18 @@ struct BigPictureView: View {
       }
     }
     .frame(height: 64)
+  }
+
+  private var synchronizationFooter:
+    BigPictureSynchronizationFooterPresentation?
+  {
+    BigPictureSynchronizationFooterPresentation.make(
+      isSynchronizing: model.isSynchronizing,
+      completedGameCount: model.synchronizedGameCount,
+      totalGameCount: model.synchronizationTotalGameCount,
+      lastSuccessfulSync: model.lastSuccessfulSync,
+      refreshErrorMessage: model.refreshErrorMessage
+    )
   }
 
   private func actionHint(

@@ -297,6 +297,50 @@ struct LibraryKeyboardNavigationTests {
 
 @Suite("Big Picture catalog")
 struct BigPictureCatalogTests {
+  @Test("Shows initial and paged library synchronization in the footer")
+  func presentsLibrarySynchronizationInFooter() {
+    let initial = BigPictureSynchronizationFooterPresentation.make(
+      isSynchronizing: false,
+      completedGameCount: 0,
+      totalGameCount: 0,
+      lastSuccessfulSync: nil,
+      refreshErrorMessage: nil
+    )
+    #expect(initial?.label == "SYNCHRONIZING WITH ROMM…")
+
+    let paged = BigPictureSynchronizationFooterPresentation.make(
+      isSynchronizing: true,
+      completedGameCount: 7_000,
+      totalGameCount: 18_331,
+      lastSuccessfulSync: nil,
+      refreshErrorMessage: nil
+    )
+    #expect(paged?.label == "SYNCHRONIZING 7,000 OF 18,331")
+
+    let complete = BigPictureSynchronizationFooterPresentation.make(
+      isSynchronizing: false,
+      completedGameCount: 18_331,
+      totalGameCount: 18_331,
+      lastSuccessfulSync: Date(),
+      refreshErrorMessage: nil
+    )
+    #expect(complete == nil)
+  }
+
+  @Test("Does not claim synchronization after an initial refresh fails")
+  func hidesSynchronizationFooterAfterFailure() {
+    let presentation =
+      BigPictureSynchronizationFooterPresentation.make(
+        isSynchronizing: false,
+        completedGameCount: 0,
+        totalGameCount: 0,
+        lastSuccessfulSync: nil,
+        refreshErrorMessage: "RomM is unavailable."
+      )
+
+    #expect(presentation == nil)
+  }
+
   @Test("Requires a matching core stamp for FAKE-08 quick states")
   func validatesFake08QuickStateCompatibility() {
     #expect(
