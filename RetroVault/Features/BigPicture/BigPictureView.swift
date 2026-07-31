@@ -1784,7 +1784,10 @@ struct BigPictureView: View {
   }
 
   private func download(_ game: GameSummary) {
-    let progressID = beginActionProgress("Downloading Game")
+    let progressID = beginActionProgress(
+      "Downloading Game",
+      allowsBackgrounding: true
+    )
     Task {
       defer {
         endActionProgress(progressID)
