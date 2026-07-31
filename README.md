@@ -1,8 +1,4 @@
 <p align="center">
-  <img src=".github/assets/retrovault-hero.png" alt="RetroVault — a luminous game vault surrounded by a native game library" width="100%">
-</p>
-
-<p align="center">
   <img src="RetroVault/Resources/Assets.xcassets/AppIcon.appiconset/icon_512x512@2x.png" alt="RetroVault app icon" width="128" height="128">
 </p>
 
