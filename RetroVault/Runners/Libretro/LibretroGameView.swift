@@ -102,6 +102,8 @@ struct LibretroGameView: View {
                 LibretroKeyboardCapture(input: session.input)
                     .frame(width: 1, height: 1)
                     .opacity(0.001)
+
+                transportOverlay
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
@@ -337,6 +339,50 @@ struct LibretroGameView: View {
     }
 
     @ViewBuilder
+    private var transportOverlay: some View {
+        if session.isRewinding || session.isFastForwarding {
+            HStack(spacing: 8) {
+                Image(
+                    systemName: session.isRewinding
+                        ? "backward.fill"
+                        : "forward.fill"
+                )
+                if session.isFastForwarding {
+                    Text("4×")
+                        .fontDesign(.rounded)
+                    if session.isFastForwardLatched {
+                        Image(systemName: "lock.fill")
+                            .font(.caption)
+                    }
+                }
+            }
+            .font(.title2.bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+            .openVaultGlass(
+                tint: .black.opacity(0.68),
+                in: Capsule()
+            )
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .topTrailing
+            )
+            .padding(20)
+            .allowsHitTesting(false)
+            .accessibilityLabel(
+                session.isRewinding
+                    ? "Rewinding"
+                    : session.isFastForwardLatched
+                    ? "Fast forward locked at four times speed"
+                    : "Fast forwarding at four times speed"
+            )
+            .transition(.scale.combined(with: .opacity))
+        }
+    }
+
+    @ViewBuilder
     private var saveSyncStatus: some View {
         switch session.saveSyncPhase {
         case .idle:
@@ -377,11 +423,11 @@ struct LibretroGameView: View {
     private var transportControlsHint: String? {
         switch (enablesL3Rewind, enablesR3FastForward) {
         case (true, true):
-            "Hold L3 to rewind · R3 to fast-forward"
+            "Hold L3 to rewind · Hold R3 to fast-forward; 4s locks"
         case (true, false):
             "Hold L3 to rewind"
         case (false, true):
-            "Hold R3 to fast-forward"
+            "Hold R3 to fast-forward; 4s locks"
         case (false, false):
             nil
         }

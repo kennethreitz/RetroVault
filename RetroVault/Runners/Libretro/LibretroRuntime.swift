@@ -316,13 +316,14 @@ enum LibretroRewindPolicy {
 }
 
 struct LibretroRewindCadence: Sendable {
-    static let targetHistoryDuration = 8.0
+    static let defaultByteLimit = 256 * 1_024 * 1_024
+    static let targetHistoryDuration = 16.0
     /// The shortest history worth keeping rewind on for.
     ///
     /// A core whose states are too large for `targetHistoryDuration` used to
     /// lose rewind outright. Trading history length for keeping the feature is
     /// the better deal: the PlayStation's roughly 3.5 MB states cannot hold
-    /// eight seconds inside the budget, but they hold about three, which still
+    /// sixteen seconds inside the budget, but they hold about six, which still
     /// covers the mistake the button gets pressed for. Below this the window
     /// is too short to aim at and rewind stays off.
     static let minimumHistoryDuration = 2.5
@@ -384,7 +385,7 @@ struct LibretroRewindCadence: Sendable {
     /// The rate at which the affordable history fits the budget.
     ///
     /// For a core small enough to reach `targetHistoryDuration` this is the
-    /// rate that fills the budget over those eight seconds, exactly as before.
+    /// rate that fills the budget over those sixteen seconds, exactly as before.
     /// For a core held to a shorter history it works out to the minimum rate,
     /// which is what keeps the per-frame serialization cost bounded.
     private func memoryBoundRate(
@@ -582,6 +583,53 @@ struct LibretroTransportControls: Equatable, Sendable {
                 && rightThumbstickButtonPressed
                 && !(enablesRewind && leftThumbstickButtonPressed)
         )
+    }
+}
+
+struct LibretroFastForwardLatch: Equatable, Sendable {
+    static let latchDelay: TimeInterval = 4
+
+    private(set) var isLatched = false
+    private var wasPressed = false
+    private var pressedAt: TimeInterval?
+    private var suppressesCurrentPress = false
+
+    mutating func update(
+        isPressed: Bool,
+        at time: TimeInterval
+    ) -> Bool {
+        if isPressed != wasPressed {
+            wasPressed = isPressed
+            if isPressed {
+                if isLatched {
+                    isLatched = false
+                    pressedAt = nil
+                    suppressesCurrentPress = true
+                } else {
+                    pressedAt = time
+                    suppressesCurrentPress = false
+                }
+            } else {
+                pressedAt = nil
+                suppressesCurrentPress = false
+            }
+        }
+
+        if
+            isPressed,
+            !suppressesCurrentPress,
+            !isLatched,
+            let pressedAt,
+            time - pressedAt >= Self.latchDelay
+        {
+            isLatched = true
+        }
+
+        return isLatched || (isPressed && !suppressesCurrentPress)
+    }
+
+    mutating func reset() {
+        self = Self()
     }
 }
 
@@ -1047,6 +1095,12 @@ final class LibretroInputState: @unchecked Sendable {
         return transportControls
     }
 
+    func fastForwardIsEnabled() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return enablesFastForward
+    }
+
     func setTransportControlsEnabled(
         rewind: Bool,
         fastForward: Bool
@@ -1311,6 +1365,9 @@ final class LibretroSession {
     private(set) var phase: Phase = .idle
     private(set) var isPaused = false
     private(set) var isMuted = false
+    private(set) var isRewinding = false
+    private(set) var isFastForwarding = false
+    private(set) var isFastForwardLatched = false
     private(set) var message: String?
     private(set) var hasQuickState = false
     private(set) var canRewind = false
@@ -1362,6 +1419,7 @@ final class LibretroSession {
         phase = .starting
         isPaused = false
         isMuted = false
+        resetTransportState()
         canRewind = false
         shouldClosePlayer = false
         message = nil
@@ -1491,6 +1549,7 @@ final class LibretroSession {
             phase = .stopped
             isPaused = false
             isMuted = false
+            resetTransportState()
             canRewind = false
             displaySleep.end()
             if request.saveSync != nil, saveSyncPhase == .idle {
@@ -1501,6 +1560,7 @@ final class LibretroSession {
             phase = .failed(error)
             isPaused = false
             isMuted = false
+            resetTransportState()
             canRewind = false
             displaySleep.end()
             RetroVaultLog.libretro.error("Libretro session failed: \(error)")
@@ -1517,6 +1577,14 @@ final class LibretroSession {
             message = canContinue
                 ? "Rewound about one second."
                 : "Rewound to the beginning of available history."
+        case let .transportStateChanged(
+            isRewinding,
+            isFastForwarding,
+            isFastForwardLatched
+        ):
+            self.isRewinding = isRewinding
+            self.isFastForwarding = isFastForwarding
+            self.isFastForwardLatched = isFastForwardLatched
         case let .notice(text):
             message = text
         case .saveMemoryPersisted:
@@ -1527,6 +1595,12 @@ final class LibretroSession {
             )
             exitPlayer()
         }
+    }
+
+    private func resetTransportState() {
+        isRewinding = false
+        isFastForwarding = false
+        isFastForwardLatched = false
     }
 
     private func synchronizeCartridgeSave() {
@@ -3066,6 +3140,11 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         case saveMemoryPersisted
         case rewindAvailabilityChanged(Bool)
         case rewound(canContinue: Bool)
+        case transportStateChanged(
+            isRewinding: Bool,
+            isFastForwarding: Bool,
+            isFastForwardLatched: Bool
+        )
     }
 
     private enum Command {
@@ -3077,7 +3156,8 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         case rewind(steps: Int)
     }
 
-    private static let rewindByteLimit = 128 * 1_024 * 1_024
+    private static let rewindByteLimit =
+        LibretroRewindCadence.defaultByteLimit
     private static let rewindEntryLimit =
         LibretroRewindCadence.maximumEntryCount
     private static let heldRewindMultiplier = 2
@@ -3553,8 +3633,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             )
             var nextFrame = ProcessInfo.processInfo.systemUptime
             var wasFastForwarding = false
+            var wasFastForwardLatched = false
             var wasRewinding = false
             var isHoldingAtRewindBoundary = false
+            var fastForwardLatch = LibretroFastForwardLatch()
 
             while !stopRequested {
                 // A core may change its frame rate mid-game through
@@ -3595,6 +3677,15 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 // nothing.
                 let isRewinding =
                     transportControls.isRewinding && rewindIsSupported
+                if !inputState.fastForwardIsEnabled() {
+                    fastForwardLatch.reset()
+                }
+                let isFastForwarding =
+                    fastForwardLatch.update(
+                        isPressed: transportControls.isFastForwarding,
+                        at: now
+                    )
+                    && !isRewinding
                 if isHoldingAtRewindBoundary, !isRewinding {
                     isHoldingAtRewindBoundary = false
                 }
@@ -3605,15 +3696,25 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 }
 
                 if
-                    transportControls.isFastForwarding
-                        != wasFastForwarding
+                    isFastForwarding != wasFastForwarding
                         || isRewinding != wasRewinding
+                        || fastForwardLatch.isLatched
+                            != wasFastForwardLatched
                 {
-                    wasFastForwarding =
-                        transportControls.isFastForwarding
+                    wasFastForwarding = isFastForwarding
                     wasRewinding = isRewinding
+                    wasFastForwardLatched =
+                        fastForwardLatch.isLatched
                     audioOutput.setTransportAudioSuppressed(
                         wasFastForwarding || wasRewinding
+                    )
+                    emit(
+                        .transportStateChanged(
+                            isRewinding: wasRewinding,
+                            isFastForwarding: wasFastForwarding,
+                            isFastForwardLatched:
+                                wasFastForwardLatched
+                        )
                     )
                     nextFrame = now
                 }

@@ -150,6 +150,55 @@ struct LibretroCoreManifestTests {
         )
     }
 
+    @Test("Fast-forward releases after a short R3 hold")
+    func fastForwardReleasesAfterShortHold() {
+        var latch = LibretroFastForwardLatch()
+
+        let started = latch.update(isPressed: true, at: 10)
+        let stillHeld = latch.update(isPressed: true, at: 13.9)
+        let released = latch.update(isPressed: false, at: 13.9)
+
+        #expect(started)
+        #expect(stillHeld)
+        #expect(!released)
+        #expect(!latch.isLatched)
+    }
+
+    @Test("Fast-forward latches after four seconds and toggles off")
+    func fastForwardLatchesAndTogglesOff() {
+        var latch = LibretroFastForwardLatch()
+
+        let started = latch.update(isPressed: true, at: 10)
+        let latched = latch.update(isPressed: true, at: 14)
+        #expect(started)
+        #expect(latched)
+        #expect(latch.isLatched)
+        let releasedWhileLatched =
+            latch.update(isPressed: false, at: 14.1)
+        #expect(releasedWhileLatched)
+
+        let toggledOff = latch.update(isPressed: true, at: 15)
+        #expect(!toggledOff)
+        #expect(!latch.isLatched)
+        let suppressedHold = latch.update(isPressed: true, at: 20)
+        let released = latch.update(isPressed: false, at: 20.1)
+        #expect(!suppressedHold)
+        #expect(!released)
+    }
+
+    @Test("Reset clears latched fast-forward")
+    func resetClearsLatchedFastForward() {
+        var latch = LibretroFastForwardLatch()
+
+        _ = latch.update(isPressed: true, at: 0)
+        _ = latch.update(isPressed: true, at: 4)
+        latch.reset()
+
+        #expect(!latch.isLatched)
+        let released = latch.update(isPressed: false, at: 5)
+        #expect(!released)
+    }
+
     @Test("Selects only reviewed cores for compatible RomM games")
     func selectsReviewedCore() throws {
         let manifestURL = URL(fileURLWithPath: #filePath)
@@ -1209,7 +1258,7 @@ struct LibretroCoreManifestTests {
     func capturesSmallRewindStatesAtFrameCadence() {
         let cadence = LibretroRewindCadence(
             framesPerSecond: 60,
-            byteLimit: 128 * 1_024 * 1_024
+            byteLimit: LibretroRewindCadence.defaultByteLimit
         )
 
         #expect(
@@ -1222,7 +1271,7 @@ struct LibretroCoreManifestTests {
     func adaptsRewindCadenceForLargerStates() {
         let cadence = LibretroRewindCadence(
             framesPerSecond: 60,
-            byteLimit: 128 * 1_024 * 1_024
+            byteLimit: LibretroRewindCadence.defaultByteLimit
         )
         let interval =
             cadence.snapshotInterval(forStateByteCount: 1 * 1_024 * 1_024)
@@ -1233,7 +1282,7 @@ struct LibretroCoreManifestTests {
             abs(
                 (1 / interval) * LibretroRewindCadence.targetHistoryDuration
                     * Double(1 * 1_024 * 1_024)
-                    - Double(128 * 1_024 * 1_024)
+                    - Double(LibretroRewindCadence.defaultByteLimit)
             ) < 1
         )
     }
@@ -1242,7 +1291,7 @@ struct LibretroCoreManifestTests {
     func sustainsRewindForModestStates() {
         let cadence = LibretroRewindCadence(
             framesPerSecond: 60,
-            byteLimit: 128 * 1_024 * 1_024
+            byteLimit: LibretroRewindCadence.defaultByteLimit
         )
 
         #expect(cadence.canSustainRewind(forStateByteCount: 128 * 1_024))
@@ -1264,14 +1313,14 @@ struct LibretroCoreManifestTests {
         )
     }
 
-    // A core too large for the full eight seconds keeps rewind on a shorter
+    // A core too large for the full sixteen seconds keeps rewind on a shorter
     // history rather than losing it, which is what puts the PlayStation back
     // in range.
     @Test("Shortens rewind history rather than dropping it")
     func shortensHistoryForLargerStates() {
         let cadence = LibretroRewindCadence(
             framesPerSecond: 60,
-            byteLimit: 128 * 1_024 * 1_024
+            byteLimit: LibretroRewindCadence.defaultByteLimit
         )
         let playStationState = 3_500 * 1_024
 
