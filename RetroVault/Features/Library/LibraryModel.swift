@@ -252,6 +252,11 @@ final class LibraryModel {
   private var downloadOperationID = UUID()
   private var downloadScheduler: ManagedDownloadScheduler?
   private var activeDownloadGames: [Int: GameSummary] = [:]
+  @ObservationIgnored
+  private var pendingDownloadTransferProgress:
+    [Int: RomMDownloadProgress] = [:]
+  @ObservationIgnored
+  private var downloadProgressPublishTask: Task<Void, Never>?
   private var downloadResultsByGameID:
     [Int: PrioritizedGameDownloadResult] = [:]
   private var prioritizedDownloadWaiters:
@@ -865,6 +870,9 @@ final class LibraryModel {
     let scheduler = ManagedDownloadScheduler(games: uniqueGames)
     downloadScheduler = scheduler
     activeDownloadGames = [:]
+    pendingDownloadTransferProgress = [:]
+    downloadProgressPublishTask?.cancel()
+    downloadProgressPublishTask = nil
     downloadResultsByGameID = [:]
     downloadProgress = LibraryDownloadProgress(
       processedGameCount: 0,
@@ -885,6 +893,9 @@ final class LibraryModel {
         downloadProgress = nil
         downloadScheduler = nil
         activeDownloadGames = [:]
+        pendingDownloadTransferProgress = [:]
+        downloadProgressPublishTask?.cancel()
+        downloadProgressPublishTask = nil
         downloadResultsByGameID = [:]
         finishAllPrioritizedDownloadWaiters(with: .cancelled)
       }
@@ -1153,22 +1164,58 @@ final class LibraryModel {
     operationID: UUID
   ) {
     guard downloadOperationID == operationID,
-      var progress = downloadProgress,
-      let game = activeDownloadGames[gameID],
+      downloadProgress != nil,
+      activeDownloadGames[gameID] != nil,
       transferProgress.bytesReceived
         >= (
-          progress.activeTransferProgress[gameID]?.bytesReceived
+          pendingDownloadTransferProgress[gameID]?.bytesReceived
+            ?? downloadProgress?.activeTransferProgress[gameID]?.bytesReceived
             ?? 0
         )
     else {
       return
     }
 
-    progress.activeTransferProgress[gameID] = transferProgress
+    pendingDownloadTransferProgress[gameID] = transferProgress
+    guard downloadProgressPublishTask == nil else {
+      return
+    }
+    downloadProgressPublishTask = Task { [weak self] in
+      try? await Task.sleep(for: .milliseconds(250))
+      guard !Task.isCancelled else {
+        return
+      }
+      self?.publishPendingDownloadProgress(operationID: operationID)
+    }
+  }
+
+  private func publishPendingDownloadProgress(
+    operationID: UUID
+  ) {
+    downloadProgressPublishTask = nil
+    guard downloadOperationID == operationID,
+      var progress = downloadProgress,
+      !pendingDownloadTransferProgress.isEmpty
+    else {
+      pendingDownloadTransferProgress = [:]
+      return
+    }
+
+    let pending = pendingDownloadTransferProgress
+    pendingDownloadTransferProgress = [:]
+    for (gameID, transferProgress) in pending
+    where activeDownloadGames[gameID] != nil {
+      progress.activeTransferProgress[gameID] = transferProgress
+    }
     progress.activeGameCount = activeDownloadGames.count
-    progress.currentGameID = gameID
-    progress.currentGameName = game.name
-    progress.currentTransferProgress = transferProgress
+    if
+      let currentGameID = progress.currentGameID,
+      let currentGame = activeDownloadGames[currentGameID]
+    {
+      progress.currentGameName = currentGame.name
+      progress.currentTransferProgress =
+        progress.activeTransferProgress[currentGameID]
+    }
     downloadProgress = progress
   }
 
@@ -1176,6 +1223,9 @@ final class LibraryModel {
     _ outcome: ManagedDownloadOutcome,
     operationID: UUID
   ) {
+    downloadProgressPublishTask?.cancel()
+    downloadProgressPublishTask = nil
+    publishPendingDownloadProgress(operationID: operationID)
     guard downloadOperationID == operationID,
       var progress = downloadProgress
     else {
@@ -1184,6 +1234,7 @@ final class LibraryModel {
 
     let gameID = outcome.gameID
     activeDownloadGames[gameID] = nil
+    pendingDownloadTransferProgress[gameID] = nil
     progress.activeTransferProgress[gameID] = nil
     progress.activeGameCount = activeDownloadGames.count
     progress.processedGameCount += 1

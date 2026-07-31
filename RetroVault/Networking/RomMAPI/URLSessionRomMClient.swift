@@ -6,7 +6,12 @@ private final class RomMDownloadProgressDelegate:
   URLSessionDownloadDelegate,
   @unchecked Sendable
 {
-  private static let minimumProgressInterval: TimeInterval = 0.25
+  // A bulk operation can run several URLSession tasks at once. Publishing
+  // every delegate callback from each task repeatedly invalidates the Big
+  // Picture hierarchy and can steal frame time from DSU-backed gameplay.
+  // One update per transfer per second keeps byte counts useful without
+  // turning progress reporting into a high-frequency UI workload.
+  private static let minimumProgressInterval: TimeInterval = 1
 
   private let onProgress: @Sendable (RomMDownloadProgress) -> Void
   private let configuration: URLSessionConfiguration

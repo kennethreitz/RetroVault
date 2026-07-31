@@ -85,6 +85,8 @@ struct BigPictureView: View {
   @State private var optionsGame: GameSummary?
   @State private var optionsSystem: LibrarySystem?
   @State private var selectedGameOptionIndex = 0
+  @State private var selectedSystemOptionIndex = 0
+  @State private var queuedSystemIDs: Set<Int> = []
   @State private var actionProgress: BigPictureActionProgress?
   @State private var bulkDownloadTask: Task<Void, Never>?
   @State private var actionNotice: BigPictureActionNotice?
@@ -358,6 +360,20 @@ struct BigPictureView: View {
                   .opacity(row.isFavorite ? 1 : 0)
                   .accessibilityHidden(!row.isFavorite)
                   .accessibilityLabel("Favorite")
+              } else if
+                page == .home,
+                case .system(let systemID) = row.id
+              {
+                Image(systemName: "checkmark.circle.fill")
+                  .font(.system(size: 16, weight: .bold))
+                  .foregroundStyle(
+                    index == selectedIndex ? .black : .yellow
+                  )
+                  .opacity(queuedSystemIDs.contains(systemID) ? 1 : 0)
+                  .accessibilityHidden(
+                    !queuedSystemIDs.contains(systemID)
+                  )
+                  .accessibilityLabel("Queued for download")
               }
 
               Text(row.title)
@@ -699,17 +715,7 @@ struct BigPictureView: View {
   private func systemOptionsOverlay(
     _ system: LibrarySystem
   ) -> some View {
-    let systemGames = model.games(inSystem: system.id)
-    let downloadedGameCount = systemGames.count {
-      model.managedDownloadedGameIDs.contains($0.id)
-    }
-    let presentation = BigPictureSystemDownloadPresentation.make(
-      totalGameCount: systemGames.count,
-      downloadedGameCount: downloadedGameCount
-    )
-    let isBusy =
-      model.isDownloadingGames
-      || model.isRemovingDownloads
+    let options = systemOptions(for: system)
 
     return VStack(alignment: .leading, spacing: 18) {
       VStack(alignment: .leading, spacing: 5) {
@@ -722,30 +728,36 @@ struct BigPictureView: View {
           .lineLimit(2)
       }
 
-      Button {
-        performSystemDownloadAction(
-          presentation.action,
-          for: system
-        )
-      } label: {
-        HStack(spacing: 13) {
-          Image(systemName: presentation.systemImage)
-            .frame(width: 24)
-          Text(presentation.title)
-          Spacer()
+      VStack(spacing: 5) {
+        ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
+          Button {
+            selectedSystemOptionIndex = index
+            perform(option.action, for: system)
+          } label: {
+            HStack(spacing: 13) {
+              Image(systemName: option.systemImage)
+                .frame(width: 24)
+              Text(option.title)
+              Spacer()
+            }
+            .font(.system(size: 19, weight: .bold, design: .rounded))
+            .foregroundStyle(
+              index == selectedSystemOptionIndex ? .black : .white
+            )
+            .padding(.horizontal, 17)
+            .frame(height: 48)
+            .background {
+              if index == selectedSystemOptionIndex {
+                Capsule().fill(.white)
+              }
+            }
+            .contentShape(Capsule())
+          }
+          .buttonStyle(.plain)
+          .disabled(!option.isEnabled)
+          .opacity(option.isEnabled ? 1 : 0.34)
         }
-        .font(.system(size: 19, weight: .bold, design: .rounded))
-        .foregroundStyle(.black)
-        .padding(.horizontal, 17)
-        .frame(height: 48)
-        .background {
-          Capsule().fill(.white)
-        }
-        .contentShape(Capsule())
       }
-      .buttonStyle(.plain)
-      .disabled(presentation.action == .unavailable || isBusy)
-      .opacity(presentation.action == .unavailable || isBusy ? 0.34 : 1)
 
       HStack(spacing: 12) {
         actionHint(
@@ -1048,6 +1060,17 @@ struct BigPictureView: View {
           action: .navigate(.downloaded)
         ),
       ]
+        + (queuedSystemIDs.isEmpty
+          ? []
+          : [
+            BigPictureRow(
+              id: .home("download-queue"),
+              title: "Download Queue",
+              detail: systemDownloadQueueDetail,
+              isFavorite: false,
+              action: .downloadSystemQueue
+            )
+          ])
         + catalog.systems.map { system in
           BigPictureRow(
             id: .system(system.id),
@@ -1123,6 +1146,70 @@ struct BigPictureView: View {
       return nil
     }
     return catalog.systems.first(where: { $0.id == systemID })
+  }
+
+  private var queuedSystems: [LibrarySystem] {
+    catalog.systems.filter { queuedSystemIDs.contains($0.id) }
+  }
+
+  private var queuedSystemGames: [GameSummary] {
+    queuedSystems.flatMap { model.games(inSystem: $0.id) }
+  }
+
+  private var queuedRemainingGames: [GameSummary] {
+    queuedSystemGames.filter {
+      !model.managedDownloadedGameIDs.contains($0.id)
+    }
+  }
+
+  private var systemDownloadQueueDetail: String {
+    let systemCount = queuedSystems.count
+    let gameCount = queuedRemainingGames.count
+    return
+      "\(systemCount.formatted()) "
+      + (systemCount == 1 ? "SYSTEM" : "SYSTEMS")
+      + " · \(gameCount.formatted()) "
+      + (gameCount == 1 ? "GAME" : "GAMES")
+  }
+
+  private func systemOptions(
+    for system: LibrarySystem
+  ) -> [BigPictureSystemOption] {
+    let systemGames = model.games(inSystem: system.id)
+    let downloadedGameCount = systemGames.count {
+      model.managedDownloadedGameIDs.contains($0.id)
+    }
+    let presentation = BigPictureSystemDownloadPresentation.make(
+      totalGameCount: systemGames.count,
+      downloadedGameCount: downloadedGameCount
+    )
+    let isBusy = model.isDownloadingGames || model.isRemovingDownloads
+
+    var options: [BigPictureSystemOption] = []
+    if presentation.action == .download {
+      let isQueued = queuedSystemIDs.contains(system.id)
+      options.append(
+        BigPictureSystemOption(
+          action: .setQueued(!isQueued),
+          title:
+            isQueued
+            ? "Remove from Download Queue"
+            : "Add to Download Queue",
+          systemImage:
+            isQueued ? "checkmark.circle.fill" : "plus.circle",
+          isEnabled: !isBusy
+        )
+      )
+    }
+    options.append(
+      BigPictureSystemOption(
+        action: .performDownload(presentation.action),
+        title: presentation.title,
+        systemImage: presentation.systemImage,
+        isEnabled: presentation.action != .unavailable && !isBusy
+      )
+    )
+    return options
   }
 
   private func hasResumeState(for game: GameSummary) -> Bool {
@@ -1308,6 +1395,9 @@ struct BigPictureView: View {
       rows.indices.contains(selectedIndex)
       ? rows[selectedIndex].id
       : nil
+    queuedSystemIDs.formIntersection(
+      Set(preparedCatalog.systems.map(\.id))
+    )
     catalog = preparedCatalog
     rows = makeRows(for: page, catalog: preparedCatalog)
     if
@@ -1389,21 +1479,15 @@ struct BigPictureView: View {
 
     if let optionsSystem {
       switch command {
+      case .up:
+        moveSystemOptionSelection(by: -1, for: optionsSystem)
+      case .down:
+        moveSystemOptionSelection(by: 1, for: optionsSystem)
       case .activate, .playFromBeginning:
-        let systemGames = model.games(inSystem: optionsSystem.id)
-        let presentation = BigPictureSystemDownloadPresentation.make(
-          totalGameCount: systemGames.count,
-          downloadedGameCount: systemGames.count {
-            model.managedDownloadedGameIDs.contains($0.id)
-          }
-        )
-        performSystemDownloadAction(
-          presentation.action,
-          for: optionsSystem
-        )
+        activateSelectedSystemOption(for: optionsSystem)
       case .back, .openGameOptions:
         self.optionsSystem = nil
-      case .up, .down, .pageUp, .pageDown, .showSyncStatus, .exit:
+      case .pageUp, .pageDown, .showSyncStatus, .exit:
         break
       }
       return
@@ -1520,6 +1604,8 @@ struct BigPictureView: View {
       scrollTargetID = rows.first?.id
     case .play(let game):
       play(game)
+    case .downloadSystemQueue:
+      downloadQueuedSystems()
     }
   }
 
@@ -1546,6 +1632,9 @@ struct BigPictureView: View {
         options.firstIndex(where: \.isEnabled) ?? 0
     } else if let selectedSystem {
       optionsSystem = selectedSystem
+      let options = systemOptions(for: selectedSystem)
+      selectedSystemOptionIndex =
+        options.firstIndex(where: \.isEnabled) ?? 0
     }
   }
 
@@ -1582,6 +1671,43 @@ struct BigPictureView: View {
       return
     }
     perform(option.action, for: game)
+  }
+
+  private func moveSystemOptionSelection(
+    by offset: Int,
+    for system: LibrarySystem
+  ) {
+    let options = systemOptions(for: system)
+    guard !options.isEmpty, offset != 0 else {
+      return
+    }
+
+    var index = selectedSystemOptionIndex
+    while true {
+      let candidate = index + (offset > 0 ? 1 : -1)
+      guard options.indices.contains(candidate) else {
+        return
+      }
+      index = candidate
+      if options[index].isEnabled {
+        selectedSystemOptionIndex = index
+        return
+      }
+    }
+  }
+
+  private func activateSelectedSystemOption(
+    for system: LibrarySystem
+  ) {
+    let options = systemOptions(for: system)
+    guard options.indices.contains(selectedSystemOptionIndex) else {
+      return
+    }
+    let option = options[selectedSystemOptionIndex]
+    guard option.isEnabled else {
+      return
+    }
+    perform(option.action, for: system)
   }
 
   private func perform(
@@ -1714,6 +1840,108 @@ struct BigPictureView: View {
       removeAllDownloads(in: system)
     case .unavailable:
       break
+    }
+  }
+
+  private func perform(
+    _ action: BigPictureSystemOption.Action,
+    for system: LibrarySystem
+  ) {
+    switch action {
+    case .setQueued(let isQueued):
+      if isQueued {
+        queuedSystemIDs.insert(system.id)
+      } else {
+        queuedSystemIDs.remove(system.id)
+      }
+      optionsSystem = nil
+      rebuildHomeRowsPreservingSelection()
+    case .performDownload(let downloadAction):
+      queuedSystemIDs.remove(system.id)
+      rebuildHomeRowsPreservingSelection()
+      performSystemDownloadAction(downloadAction, for: system)
+    }
+  }
+
+  private func downloadQueuedSystems() {
+    let systems = queuedSystems
+    let games = queuedRemainingGames
+    guard
+      !systems.isEmpty,
+      !games.isEmpty,
+      !model.isDownloadingGames,
+      !model.isRemovingDownloads
+    else {
+      return
+    }
+
+    queuedSystemIDs.removeAll()
+    rebuildHomeRowsPreservingSelection()
+    let systemCount = systems.count
+    let gameCount = games.count
+    let progressID = beginActionProgress(
+      "Downloading \(gameCount.formatted()) "
+        + (gameCount == 1 ? "Game" : "Games")
+        + " from \(systemCount.formatted()) "
+        + (systemCount == 1 ? "System" : "Systems"),
+      allowsBackgrounding: true,
+      allowsCancellation: true
+    )
+    bulkDownloadTask = Task {
+      defer {
+        endActionProgress(progressID)
+        bulkDownloadTask = nil
+      }
+      let result = await model.downloadGames(games)
+      guard !Task.isCancelled else {
+        return
+      }
+      if result.completedWithoutErrors {
+        actionNotice = BigPictureActionNotice(
+          title: "Systems Downloaded",
+          message:
+            "Added \(result.successfulItemCount.formatted()) "
+            + (result.successfulItemCount == 1 ? "game" : "games")
+            + " from \(systemCount.formatted()) "
+            + (systemCount == 1 ? "system" : "systems")
+            + " to RetroVault’s local library.",
+          systemImage: "checkmark.circle"
+        )
+      } else {
+        actionNotice = BigPictureActionNotice(
+          title: "Some Games Couldn’t Be Downloaded",
+          message:
+            "Downloaded \(result.successfulItemCount.formatted()) and failed "
+            + "to download \(result.failedItemCount.formatted()).\n\n"
+            + (
+              result.errors.first
+                ?? "RetroVault couldn’t complete this action."
+            ),
+          systemImage: "exclamationmark.triangle"
+        )
+      }
+    }
+  }
+
+  private func rebuildHomeRowsPreservingSelection() {
+    guard page == .home else {
+      return
+    }
+    let selectedRowID = rows.indices.contains(selectedIndex)
+      ? rows[selectedIndex].id
+      : nil
+    rows = makeRows(for: page, catalog: catalog)
+    if
+      let selectedRowID,
+      let preservedIndex = rows.firstIndex(where: { $0.id == selectedRowID })
+    {
+      selectedIndex = preservedIndex
+      scrollTargetID = selectedRowID
+    } else {
+      selectedIndex = min(selectedIndex, max(rows.count - 1, 0))
+      scrollTargetID = rows.indices.contains(selectedIndex)
+        ? rows[selectedIndex].id
+        : nil
     }
   }
 
@@ -2234,7 +2462,7 @@ enum BigPictureGameLaunchPresentation {
   }
 }
 
-enum BigPictureSystemDownloadAction: Equatable, Sendable {
+enum BigPictureSystemDownloadAction: Equatable, Hashable, Sendable {
   case download
   case remove
   case unavailable
@@ -2357,6 +2585,7 @@ private struct BigPictureRow: Identifiable {
   enum Action {
     case navigate(BigPicturePage)
     case play(GameSummary)
+    case downloadSystemQueue
   }
 
   let id: ID
@@ -2373,6 +2602,22 @@ private struct BigPictureGameOption: Identifiable {
     case setFavorite(Bool)
     case setDownloaded(Bool)
     case export
+  }
+
+  var id: Action {
+    action
+  }
+
+  let action: Action
+  let title: String
+  let systemImage: String
+  var isEnabled = true
+}
+
+private struct BigPictureSystemOption: Identifiable {
+  enum Action: Hashable {
+    case setQueued(Bool)
+    case performDownload(BigPictureSystemDownloadAction)
   }
 
   var id: Action {
