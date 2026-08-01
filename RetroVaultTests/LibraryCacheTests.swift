@@ -459,6 +459,28 @@ struct BigPictureCatalogTests {
     )
   }
 
+  @Test("Offers save management for remote or local cartridge saves")
+  func presentsSaveManagement() {
+    #expect(
+      !BigPictureGameSavePresentation.isAvailable(
+        gameHasRemoteSave: false,
+        hasLocalSave: false
+      )
+    )
+    #expect(
+      BigPictureGameSavePresentation.isAvailable(
+        gameHasRemoteSave: true,
+        hasLocalSave: false
+      )
+    )
+    #expect(
+      BigPictureGameSavePresentation.isAvailable(
+        gameHasRemoteSave: false,
+        hasLocalSave: true
+      )
+    )
+  }
+
   @Test("Cycles system game sorting and orders every supported mode")
   func sortsSystemGames() {
     let games = [

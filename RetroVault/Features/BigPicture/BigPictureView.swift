@@ -1570,6 +1570,10 @@ struct BigPictureView: View {
     let isFavorite = model.favoriteGameIDs.contains(game.id)
     let isDownloaded = model.downloadedGameIDs.contains(game.id)
     let hasSaveState = hasResumeState(for: game)
+    let hasManagedSave = BigPictureGameSavePresentation.isAvailable(
+      gameHasRemoteSave: game.hasSave == true,
+      hasLocalSave: model.saveCenterItems.contains { $0.id == game.id }
+    )
 
     var options = [
       BigPictureGameOption(
@@ -1588,6 +1592,15 @@ struct BigPictureView: View {
           action: .playFromBeginning,
           title: "Play from Beginning",
           systemImage: "forward.end.fill"
+        )
+      )
+    }
+    if hasManagedSave {
+      options.append(
+        BigPictureGameOption(
+          action: .manageSaves,
+          title: "Manage Saves",
+          systemImage: "externaldrive.fill"
         )
       )
     }
@@ -2119,26 +2132,7 @@ struct BigPictureView: View {
   private func activate(_ row: BigPictureRow) {
     switch row.action {
     case .navigate(let destination):
-      history.append(
-        BigPictureHistoryEntry(page: page, selectedIndex: selectedIndex)
-      )
-      page = destination
-      rows = makeRows(for: destination, catalog: catalog)
-      selectedIndex = 0
-      scrollTargetID = rows.first?.id
-      if destination == .saveCenter {
-        Task {
-          await model.reloadSaveCenter()
-          guard page == .saveCenter else {
-            return
-          }
-          rows = makeRows(for: page, catalog: catalog)
-          selectedIndex = min(selectedIndex, max(rows.count - 1, 0))
-          scrollTargetID = rows.indices.contains(selectedIndex)
-            ? rows[selectedIndex].id
-            : nil
-        }
-      }
+      navigate(to: destination)
     case .play(let game):
       play(game)
     case .synchronizeSave(let gameID):
@@ -2148,6 +2142,44 @@ struct BigPictureView: View {
     case .setting(let setting):
       perform(setting)
     }
+  }
+
+  private func navigate(
+    to destination: BigPicturePage,
+    selecting selectedRowID: BigPictureRow.ID? = nil
+  ) {
+    history.append(
+      BigPictureHistoryEntry(page: page, selectedIndex: selectedIndex)
+    )
+    page = destination
+    rows = makeRows(for: destination, catalog: catalog)
+    selectInitialRow(selectedRowID)
+
+    guard destination == .saveCenter else {
+      return
+    }
+    Task {
+      await model.reloadSaveCenter()
+      guard page == .saveCenter else {
+        return
+      }
+      rows = makeRows(for: page, catalog: catalog)
+      selectInitialRow(selectedRowID)
+    }
+  }
+
+  private func selectInitialRow(_ selectedRowID: BigPictureRow.ID?) {
+    if
+      let selectedRowID,
+      let index = rows.firstIndex(where: { $0.id == selectedRowID })
+    {
+      selectedIndex = index
+    } else {
+      selectedIndex = 0
+    }
+    scrollTargetID = rows.indices.contains(selectedIndex)
+      ? rows[selectedIndex].id
+      : nil
   }
 
   private func synchronizeSave(gameID: Int) {
@@ -2320,6 +2352,8 @@ struct BigPictureView: View {
       play(game)
     case .playFromBeginning:
       play(game, fromBeginning: true)
+    case .manageSaves:
+      navigate(to: .saveCenter, selecting: .save(game.id))
     case .setFavorite(let isFavorite):
       updateFavorite(isFavorite, for: game)
     case .setDownloaded(let isDownloaded):
@@ -3629,6 +3663,7 @@ private struct BigPictureGameOption: Identifiable {
   enum Action: Hashable {
     case play
     case playFromBeginning
+    case manageSaves
     case setFavorite(Bool)
     case setDownloaded(Bool)
     case export
@@ -3642,6 +3677,15 @@ private struct BigPictureGameOption: Identifiable {
   let title: String
   let systemImage: String
   var isEnabled = true
+}
+
+enum BigPictureGameSavePresentation {
+  static func isAvailable(
+    gameHasRemoteSave: Bool,
+    hasLocalSave: Bool
+  ) -> Bool {
+    gameHasRemoteSave || hasLocalSave
+  }
 }
 
 private struct BigPictureSystemOption: Identifiable {
