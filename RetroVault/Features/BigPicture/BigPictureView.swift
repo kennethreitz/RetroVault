@@ -8,6 +8,8 @@ enum BigPictureScene {
   static let opensInFullScreenByDefault = true
   static let systemGameSortPreferenceKey =
     "big-picture.system-game-sort.v1"
+  static let ignoredSystemIDsPreferenceKey =
+    "big-picture.ignored-system-ids.v1"
 }
 
 struct BigPictureSynchronizationFooterPresentation:
@@ -54,14 +56,46 @@ struct BigPictureView: View {
 
   @Bindable var model: LibraryModel
   let onExitRequested: () -> Void
+  let onDisconnectRequested: () -> Void
 
   @Environment(\.accessibilityReduceMotion) private var reducesMotion
+  @Environment(\.openWindow) private var openWindow
   @AppStorage(BigPictureScene.opensInFullScreenPreferenceKey)
   private var opensInFullScreen =
     BigPictureScene.opensInFullScreenByDefault
   @AppStorage(BigPictureScene.systemGameSortPreferenceKey)
   private var systemGameSortRawValue =
     BigPictureSystemGameSort.defaultSort.rawValue
+  @AppStorage(BigPictureScene.ignoredSystemIDsPreferenceKey)
+  private var ignoredSystemIDsRawValue = ""
+  @AppStorage(LibretroTransportPreferences.enablesFastForwardKey)
+  private var enablesR3FastForward =
+    LibretroTransportPreferences.enabledByDefault
+  @AppStorage(LibretroTransportPreferences.enablesRewindKey)
+  private var enablesL3Rewind =
+    LibretroTransportPreferences.enabledByDefault
+  @AppStorage(LibretroInternalResolutionPreferences.scaleKey)
+  private var internalResolution =
+    LibretroInternalResolutionPreferences.defaultResolution
+  @AppStorage(LibretroPlayerPreferences.opensInFullScreenKey)
+  private var opensGamesInFullScreen =
+    LibretroPlayerPreferences.opensInFullScreenByDefault
+  @AppStorage(LibretroWiiControllerPreferences.profileKey)
+  private var wiiControllerProfile =
+    LibretroWiiControllerPreferences.defaultProfile
+  @AppStorage(LibretroDigitalInputPreferences.mapsLeftAnalogToDPadKey)
+  private var mapsLeftAnalogToDPad =
+    LibretroDigitalInputPreferences.mapsLeftAnalogToDPadByDefault
+  @AppStorage(DSUPreferences.isEnabledKey)
+  private var usesDSUController = DSUPreferences.enabledByDefault
+  @AppStorage(DSUPreferences.hostKey)
+  private var dsuHost = DSUProtocol.defaultHost
+  @AppStorage(DSUPreferences.portKey)
+  private var dsuPort = Int(DSUProtocol.defaultPort)
+  @AppStorage(DSUPreferences.slotKey)
+  private var dsuSlot = 0
+  @AppStorage(DSUPreferences.layoutKey)
+  private var dsuLayout = DSUPreferences.defaultLayout.rawValue
 
   @State private var catalog = BigPictureCatalog.empty
   @State private var rows: [BigPictureRow] = []
@@ -98,6 +132,7 @@ struct BigPictureView: View {
   @State private var actionProgress: BigPictureActionProgress?
   @State private var bulkDownloadTask: Task<Void, Never>?
   @State private var actionNotice: BigPictureActionNotice?
+  @State private var settingsConfirmation: BigPictureSetting?
   @State private var isShowingSyncStatus = false
   @Namespace private var selectionHighlight
   @FocusState private var hasInterfaceFocus: Bool
@@ -187,6 +222,8 @@ struct BigPictureView: View {
         gameOptionsOverlay(optionsGame)
       } else if let optionsSystem {
         systemOptionsOverlay(optionsSystem)
+      } else if let settingsConfirmation {
+        settingsConfirmationOverlay(settingsConfirmation)
       } else if let actionNotice {
         actionNoticeOverlay(actionNotice)
       } else if isShowingSyncStatus {
@@ -546,7 +583,7 @@ struct BigPictureView: View {
           label:
             selectedSaveCenterItem != nil
             ? "SYNC"
-            : selectedGame.map {
+            : selectedSetting.map(settingActionLabel) ?? selectedGame.map {
               BigPictureGameLaunchPresentation.primaryActionTitle(
                 hasSaveState: hasResumeState(for: $0)
               ).uppercased()
@@ -852,6 +889,48 @@ struct BigPictureView: View {
     .shadow(color: .black.opacity(0.85), radius: 55)
   }
 
+  private func settingsConfirmationOverlay(
+    _ setting: BigPictureSetting
+  ) -> some View {
+    let presentation = BigPictureSettingsConfirmationPresentation.make(
+      for: setting
+    )
+    return VStack(spacing: 18) {
+      Image(systemName: presentation.systemImage)
+        .font(.system(size: 38, weight: .light))
+
+      Text(presentation.title.uppercased())
+        .font(.system(size: 24, weight: .black, design: .rounded))
+
+      Text(presentation.message)
+        .font(.system(size: 16, weight: .medium, design: .rounded))
+        .foregroundStyle(.white.opacity(0.66))
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 500)
+
+      HStack(spacing: 12) {
+        actionHint(
+          key: controllerState.activateButtonPrompt.label,
+          systemImage: controllerState.activateButtonPrompt.systemImage,
+          label: "CONFIRM"
+        )
+        actionHint(
+          key: controllerState.backButtonPrompt.label,
+          systemImage: controllerState.backButtonPrompt.systemImage,
+          label: "BACK"
+        )
+      }
+    }
+    .padding(38)
+    .frame(minWidth: 540)
+    .background(.black.opacity(0.97), in: RoundedRectangle(cornerRadius: 28))
+    .overlay {
+      RoundedRectangle(cornerRadius: 28)
+        .stroke(.white.opacity(0.2), lineWidth: 1)
+    }
+    .shadow(color: .black.opacity(0.85), radius: 55)
+  }
+
   private var syncStatusOverlay: some View {
     VStack(alignment: .leading, spacing: 22) {
       HStack(spacing: 15) {
@@ -1042,6 +1121,15 @@ struct BigPictureView: View {
     catalog: BigPictureCatalog
   ) -> [BigPictureRow] {
     let downloadedGameIDs = model.downloadedGameIDs
+    let ignoredSystemIDs = BigPictureIgnoredSystems.decode(
+      ignoredSystemIDsRawValue
+    )
+    let visibleSystems = catalog.systems.filter {
+      !ignoredSystemIDs.contains($0.id)
+    }
+    let ignoredSystems = catalog.systems.filter {
+      ignoredSystemIDs.contains($0.id)
+    }
 
     return switch page {
     case .home:
@@ -1100,7 +1188,7 @@ struct BigPictureView: View {
               action: .downloadSystemQueue
             )
           ])
-        + catalog.systems.map { system in
+        + visibleSystems.map { system in
           BigPictureRow(
             id: .system(system.id),
             title: system.name,
@@ -1109,6 +1197,40 @@ struct BigPictureView: View {
             action: .navigate(.games(.system(system.id)))
           )
         }
+        + (ignoredSystems.isEmpty
+          ? []
+          : [
+            BigPictureRow(
+              id: .home("ignored-systems"),
+              title: "Ignored Systems",
+              detail: ignoredSystems.count.formatted(),
+              isFavorite: false,
+              action: .navigate(.ignoredSystems)
+            )
+          ])
+        + [
+          BigPictureRow(
+            id: .home("settings"),
+            title: "Settings",
+            detail: nil,
+            isFavorite: false,
+            action: .navigate(.settings)
+          )
+        ]
+
+    case .ignoredSystems:
+      ignoredSystems.map { system in
+        BigPictureRow(
+          id: .system(system.id),
+          title: system.name,
+          detail: system.gameCount.formatted(),
+          isFavorite: false,
+          action: .navigate(.games(.system(system.id)))
+        )
+      }
+
+    case .settings:
+      settingsRows
 
     case .saveCenter:
       model.saveCenterItems.map { item in
@@ -1190,7 +1312,10 @@ struct BigPictureView: View {
   }
 
   private var selectedSystem: LibrarySystem? {
-    guard page == .home, rows.indices.contains(selectedIndex) else {
+    guard
+      page == .home || page == .ignoredSystems,
+      rows.indices.contains(selectedIndex)
+    else {
       return nil
     }
     guard case .system(let systemID) = rows[selectedIndex].id else {
@@ -1204,6 +1329,162 @@ struct BigPictureView: View {
       return nil
     }
     return systemID
+  }
+
+  private var ignoredSystemIDs: Set<Int> {
+    BigPictureIgnoredSystems.decode(ignoredSystemIDsRawValue)
+  }
+
+  private var selectedSetting: BigPictureSetting? {
+    guard page == .settings, rows.indices.contains(selectedIndex) else {
+      return nil
+    }
+    guard case .setting(let setting) = rows[selectedIndex].id else {
+      return nil
+    }
+    return setting
+  }
+
+  private func settingActionLabel(_ setting: BigPictureSetting) -> String {
+    switch setting {
+    case .romMServer, .romMUser, .runtime, .dsuEndpoint, .dsuStatus:
+      "VIEW"
+    case .resynchronizeLibrary:
+      "SYNC"
+    case .purgeAndResynchronize:
+      "PURGE"
+    case .openLogs:
+      "OPEN"
+    case .disconnect:
+      "DISCONNECT"
+    case .videoFilter, .internalResolution, .wiiController,
+      .mapsLeftAnalogToDPad, .fastForward, .rewind, .gamesFullScreen,
+      .experimentalCores, .dsuEnabled, .dsuSlot, .dsuLayout,
+      .bigPictureFullScreen:
+      "CHANGE"
+    }
+  }
+
+  private var settingsRows: [BigPictureRow] {
+    [
+      settingRow(
+        .romMServer,
+        title: "RomM Server",
+        detail: model.session.serverURL.value.absoluteString
+      ),
+      settingRow(
+        .romMUser,
+        title: "RomM User",
+        detail: model.session.username
+      ),
+      settingRow(
+        .resynchronizeLibrary,
+        title: "Resync Library",
+        detail: model.isSynchronizing ? "IN PROGRESS" : nil
+      ),
+      settingRow(
+        .purgeAndResynchronize,
+        title: "Purge Local Cache & Resync"
+      ),
+      settingRow(
+        .runtime,
+        title: "Emulation Runtime",
+        detail: "Bundled Libretro"
+      ),
+      settingRow(
+        .videoFilter,
+        title: "Video Filter",
+        detail: videoFilter.displayName
+      ),
+      settingRow(
+        .internalResolution,
+        title: "Internal Resolution",
+        detail: internalResolution.displayName
+      ),
+      settingRow(
+        .wiiController,
+        title: "Wii Controller",
+        detail: wiiControllerProfile.displayName
+      ),
+      settingRow(
+        .mapsLeftAnalogToDPad,
+        title: "Left Stick to D-Pad",
+        detail: onOff(mapsLeftAnalogToDPad)
+      ),
+      settingRow(
+        .fastForward,
+        title: "Fast Forward with R3",
+        detail: onOff(enablesR3FastForward)
+      ),
+      settingRow(
+        .rewind,
+        title: "Rewind with L3",
+        detail: onOff(enablesL3Rewind)
+      ),
+      settingRow(
+        .gamesFullScreen,
+        title: "Open Games in Full Screen",
+        detail: onOff(opensGamesInFullScreen)
+      ),
+      settingRow(
+        .experimentalCores,
+        title: "Experimental Cores",
+        detail: onOff(enablesExperimentalCores)
+      ),
+      settingRow(
+        .dsuEnabled,
+        title: "DSU Controller",
+        detail: onOff(usesDSUController)
+      ),
+      settingRow(
+        .dsuEndpoint,
+        title: "DSU Server",
+        detail: "\(dsuHost):\(dsuPort)"
+      ),
+      settingRow(
+        .dsuSlot,
+        title: "DSU Controller Slot",
+        detail: String(dsuSlot + 1)
+      ),
+      settingRow(
+        .dsuLayout,
+        title: "DSU Button Layout",
+        detail:
+          dsuLayout == ControllerFaceButtonLayout.nintendo.rawValue
+          ? "Nintendo"
+          : "Standard"
+      ),
+      settingRow(
+        .dsuStatus,
+        title: "DSU Status",
+        detail: DSUConnection.shared.status.summary
+      ),
+      settingRow(
+        .bigPictureFullScreen,
+        title: "Open RetroVault in Full Screen",
+        detail: onOff(opensInFullScreen)
+      ),
+      settingRow(.openLogs, title: "Open Log Viewer"),
+      settingRow(.disconnect, title: "Disconnect from RomM"),
+    ]
+  }
+
+  private func settingRow(
+    _ setting: BigPictureSetting,
+    title: String,
+    detail: String? = nil
+  ) -> BigPictureRow {
+    BigPictureRow(
+      id: .setting(setting),
+      title: title,
+      detail: detail,
+      isFavorite: false,
+      action: .setting(setting)
+    )
+  }
+
+  private func onOff(_ value: Bool) -> String {
+    value ? "ON" : "OFF"
   }
 
   private var queuedSystems: [LibrarySystem] {
@@ -1265,6 +1546,14 @@ struct BigPictureView: View {
         title: presentation.title,
         systemImage: presentation.systemImage,
         isEnabled: presentation.action != .unavailable && !isBusy
+      )
+    )
+    let isIgnored = ignoredSystemIDs.contains(system.id)
+    options.append(
+      BigPictureSystemOption(
+        action: .setIgnored(!isIgnored),
+        title: isIgnored ? "Restore System" : "Ignore System",
+        systemImage: isIgnored ? "eye" : "eye.slash"
       )
     )
     return options
@@ -1476,6 +1765,10 @@ struct BigPictureView: View {
     switch page {
     case .home:
       "RetroVault"
+    case .ignoredSystems:
+      "Ignored Systems"
+    case .settings:
+      "Settings"
     case .collections:
       "Collections"
     case .saveCenter:
@@ -1491,6 +1784,10 @@ struct BigPictureView: View {
     switch page {
     case .home:
       "BIG PICTURE"
+    case .ignoredSystems:
+      "\(ignoredSystemIDs.count.formatted()) SYSTEMS"
+    case .settings:
+      "RETROVAULT PREFERENCES"
     case .collections:
       "\(catalog.collections.count.formatted()) ROMM COLLECTIONS"
     case .saveCenter:
@@ -1512,7 +1809,8 @@ struct BigPictureView: View {
     switch page {
     case .home:
       31
-    case .collections, .saveCenter, .downloaded, .games:
+    case .collections, .saveCenter, .downloaded, .ignoredSystems,
+      .settings, .games:
       25
     }
   }
@@ -1644,6 +1942,19 @@ struct BigPictureView: View {
         synchronizeNow()
       case .playFromBeginning, .openGameOptions, .back:
         isShowingSyncStatus = false
+      case .up, .down, .pageUp, .pageDown, .cycleSort, .showSyncStatus,
+        .exit:
+        break
+      }
+      return
+    }
+
+    if let settingsConfirmation {
+      switch command {
+      case .activate, .playFromBeginning:
+        confirm(settingsConfirmation)
+      case .back, .openGameOptions:
+        self.settingsConfirmation = nil
       case .up, .down, .pageUp, .pageDown, .cycleSort, .showSyncStatus,
         .exit:
         break
@@ -1834,6 +2145,8 @@ struct BigPictureView: View {
       synchronizeSave(gameID: gameID)
     case .downloadSystemQueue:
       downloadQueuedSystems()
+    case .setting(let setting):
+      perform(setting)
     }
   }
 
@@ -2149,6 +2462,200 @@ struct BigPictureView: View {
       queuedSystemIDs.remove(system.id)
       rebuildHomeRowsPreservingSelection()
       performSystemDownloadAction(downloadAction, for: system)
+    case .setIgnored(let isIgnored):
+      setSystem(system, isIgnored: isIgnored)
+    }
+  }
+
+  private func perform(_ setting: BigPictureSetting) {
+    switch setting {
+    case .romMServer:
+      actionNotice = BigPictureActionNotice(
+        title: "RomM Server",
+        message: model.session.serverURL.value.absoluteString,
+        systemImage: "server.rack"
+      )
+    case .romMUser:
+      actionNotice = BigPictureActionNotice(
+        title: "RomM User",
+        message: model.session.username,
+        systemImage: "person.crop.circle"
+      )
+    case .runtime:
+      actionNotice = BigPictureActionNotice(
+        title: "Emulation Runtime",
+        message: "RetroVault uses its bundled Libretro runtime and reviewed cores.",
+        systemImage: "cpu"
+      )
+    case .resynchronizeLibrary:
+      guard !model.isSynchronizing else {
+        return
+      }
+      Task {
+        await model.refresh(strategy: .fullReconciliation)
+        refreshSettingsRowsPreservingSelection()
+      }
+    case .purgeAndResynchronize, .disconnect:
+      settingsConfirmation = setting
+    case .videoFilter:
+      videoFilter = next(videoFilter, in: LibretroVideoFilter.allCases)
+      refreshSettingsRowsPreservingSelection()
+    case .internalResolution:
+      internalResolution = next(
+        internalResolution,
+        in: LibretroInternalResolution.allCases
+      )
+      refreshSettingsRowsPreservingSelection()
+    case .wiiController:
+      wiiControllerProfile = next(
+        wiiControllerProfile,
+        in: LibretroWiiControllerProfile.allCases
+      )
+      refreshSettingsRowsPreservingSelection()
+    case .mapsLeftAnalogToDPad:
+      mapsLeftAnalogToDPad.toggle()
+      refreshSettingsRowsPreservingSelection()
+    case .fastForward:
+      enablesR3FastForward.toggle()
+      refreshSettingsRowsPreservingSelection()
+    case .rewind:
+      enablesL3Rewind.toggle()
+      refreshSettingsRowsPreservingSelection()
+    case .gamesFullScreen:
+      opensGamesInFullScreen.toggle()
+      refreshSettingsRowsPreservingSelection()
+    case .experimentalCores:
+      enablesExperimentalCores.toggle()
+      refreshSettingsRowsPreservingSelection()
+    case .dsuEnabled:
+      usesDSUController.toggle()
+      applyDSUConfiguration()
+      refreshSettingsRowsPreservingSelection()
+    case .dsuEndpoint:
+      actionNotice = BigPictureActionNotice(
+        title: "DSU Server",
+        message: "\(dsuHost):\(dsuPort)",
+        systemImage: "network"
+      )
+    case .dsuStatus:
+      actionNotice = BigPictureActionNotice(
+        title: "DSU Status",
+        message: DSUConnection.shared.status.summary,
+        systemImage: "gamecontroller"
+      )
+    case .dsuSlot:
+      dsuSlot = (dsuSlot + 1) % Int(DSUProtocol.slotCount)
+      applyDSUConfiguration()
+      refreshSettingsRowsPreservingSelection()
+    case .dsuLayout:
+      let layout = ControllerFaceButtonLayout(rawValue: dsuLayout)
+        ?? DSUPreferences.defaultLayout
+      let nextLayout: ControllerFaceButtonLayout =
+        layout == .standard ? .nintendo : .standard
+      dsuLayout = nextLayout.rawValue
+      DSUConnection.shared.apply(layout: nextLayout)
+      refreshSettingsRowsPreservingSelection()
+    case .bigPictureFullScreen:
+      opensInFullScreen.toggle()
+      refreshSettingsRowsPreservingSelection()
+    case .openLogs:
+      openWindow(id: "diagnostics")
+    }
+  }
+
+  private func confirm(_ setting: BigPictureSetting) {
+    settingsConfirmation = nil
+    switch setting {
+    case .purgeAndResynchronize:
+      guard !model.isSynchronizing else {
+        return
+      }
+      let progressID = beginActionProgress(
+        "Purging Local Cache & Resynchronizing",
+        allowsBackgrounding: true
+      )
+      Task {
+        await model.purgeLocalCacheAndResync()
+        endActionProgress(progressID)
+        refreshSettingsRowsPreservingSelection()
+      }
+    case .disconnect:
+      onDisconnectRequested()
+    default:
+      break
+    }
+  }
+
+  private func applyDSUConfiguration() {
+    guard usesDSUController else {
+      DSUConnection.shared.apply(nil)
+      return
+    }
+    DSUConnection.shared.apply(
+      DSUConfiguration(
+        host: dsuHost,
+        port: UInt16(clamping: dsuPort),
+        slot: UInt8(clamping: dsuSlot)
+      ).normalized
+    )
+  }
+
+  private func refreshSettingsRowsPreservingSelection() {
+    guard page == .settings else {
+      return
+    }
+    let selectedRowID = rows.indices.contains(selectedIndex)
+      ? rows[selectedIndex].id
+      : nil
+    rows = makeRows(for: page, catalog: catalog)
+    if
+      let selectedRowID,
+      let index = rows.firstIndex(where: { $0.id == selectedRowID })
+    {
+      selectedIndex = index
+      scrollTargetID = selectedRowID
+    }
+  }
+
+  private func next<Value: Equatable>(
+    _ value: Value,
+    in values: [Value]
+  ) -> Value {
+    guard
+      !values.isEmpty,
+      let index = values.firstIndex(of: value)
+    else {
+      return values.first ?? value
+    }
+    return values[(index + 1) % values.count]
+  }
+
+  private func setSystem(
+    _ system: LibrarySystem,
+    isIgnored: Bool
+  ) {
+    var systemIDs = ignoredSystemIDs
+    if isIgnored {
+      systemIDs.insert(system.id)
+      queuedSystemIDs.remove(system.id)
+    } else {
+      systemIDs.remove(system.id)
+    }
+    ignoredSystemIDsRawValue = BigPictureIgnoredSystems.encode(systemIDs)
+    optionsSystem = nil
+
+    if page == .ignoredSystems {
+      if systemIDs.isEmpty {
+        navigateBack()
+      } else {
+        rows = makeRows(for: page, catalog: catalog)
+        selectedIndex = min(selectedIndex, max(rows.count - 1, 0))
+        scrollTargetID = rows.indices.contains(selectedIndex)
+          ? rows[selectedIndex].id
+          : nil
+      }
+    } else {
+      rebuildHomeRowsPreservingSelection()
     }
   }
 
@@ -2731,6 +3238,8 @@ enum BigPictureVideoEffectPolicy {
 
 private enum BigPicturePage: Hashable, Sendable {
   case home
+  case ignoredSystems
+  case settings
   case collections
   case saveCenter
   /// The systems that have something downloaded, browsed before the games.
@@ -2776,6 +3285,78 @@ enum BigPictureCommand: Equatable, Sendable {
   case showSyncStatus
   case back
   case exit
+}
+
+enum BigPictureIgnoredSystems {
+  static func decode(_ rawValue: String) -> Set<Int> {
+    Set(
+      rawValue.split(separator: ",").compactMap {
+        Int($0.trimmingCharacters(in: .whitespacesAndNewlines))
+      }
+    )
+  }
+
+  static func encode(_ systemIDs: Set<Int>) -> String {
+    systemIDs.sorted().map(String.init).joined(separator: ",")
+  }
+}
+
+private enum BigPictureSetting: Hashable, Sendable {
+  case romMServer
+  case romMUser
+  case resynchronizeLibrary
+  case purgeAndResynchronize
+  case runtime
+  case videoFilter
+  case internalResolution
+  case wiiController
+  case mapsLeftAnalogToDPad
+  case fastForward
+  case rewind
+  case gamesFullScreen
+  case experimentalCores
+  case dsuEnabled
+  case dsuEndpoint
+  case dsuSlot
+  case dsuLayout
+  case dsuStatus
+  case bigPictureFullScreen
+  case openLogs
+  case disconnect
+}
+
+private struct BigPictureSettingsConfirmationPresentation {
+  let title: String
+  let message: String
+  let systemImage: String
+
+  static func make(for setting: BigPictureSetting) -> Self {
+    switch setting {
+    case .purgeAndResynchronize:
+      Self(
+        title: "Purge Local Cache?",
+        message:
+          "RetroVault will remove cached library metadata, game details, "
+          + "and artwork, then rebuild them from RomM. Managed ROMs, saves, "
+          + "and playback history are preserved.",
+        systemImage: "trash"
+      )
+    case .disconnect:
+      Self(
+        title: "Disconnect from RomM?",
+        message:
+          "RetroVault will remove this server connection and its cached "
+          + "metadata. Managed ROMs and saves remain on this Mac.",
+        systemImage: "network.slash"
+      )
+    default:
+      Self(
+        title: "Confirm Action",
+        message: "Apply this setting?",
+        systemImage: "questionmark.circle"
+      )
+    }
+  }
 }
 
 enum BigPictureSystemGameSort: String, CaseIterable, Sendable {
@@ -3026,6 +3607,7 @@ private struct BigPictureRow: Identifiable, Sendable {
     case collection(LibraryCollection.ID)
     case save(Int)
     case game(Int)
+    case setting(BigPictureSetting)
   }
 
   enum Action: Sendable {
@@ -3033,6 +3615,7 @@ private struct BigPictureRow: Identifiable, Sendable {
     case play(GameSummary)
     case synchronizeSave(Int)
     case downloadSystemQueue
+    case setting(BigPictureSetting)
   }
 
   let id: ID
@@ -3065,6 +3648,7 @@ private struct BigPictureSystemOption: Identifiable {
   enum Action: Hashable {
     case setQueued(Bool)
     case performDownload(BigPictureSystemDownloadAction)
+    case setIgnored(Bool)
   }
 
   var id: Action {

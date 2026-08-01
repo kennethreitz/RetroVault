@@ -20,6 +20,11 @@ struct RootScene: View {
                         model: libraryModel,
                         onExitRequested: {
                             NSApplication.shared.terminate(nil)
+                        },
+                        onDisconnectRequested: {
+                            Task {
+                                await model.disconnect()
+                            }
                         }
                     )
                 } else {

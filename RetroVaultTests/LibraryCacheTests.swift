@@ -552,6 +552,16 @@ struct BigPictureCatalogTests {
     )
   }
 
+  @Test("Persists ignored systems in stable identifier order")
+  func persistsIgnoredSystems() {
+    let encoded = BigPictureIgnoredSystems.encode([42, 7, 19])
+    #expect(encoded == "7,19,42")
+    #expect(BigPictureIgnoredSystems.decode(encoded) == [7, 19, 42])
+    #expect(
+      BigPictureIgnoredSystems.decode("7, invalid, 19") == [7, 19]
+    )
+  }
+
   @Test("Presents a useful system download action for every cache state")
   func presentsSystemDownloadActions() {
     #expect(
