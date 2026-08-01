@@ -464,8 +464,6 @@ struct BigPictureView: View {
           label: "STATUS"
         )
 
-        actionHint(key: "ESC", label: "EXIT")
-
         if page != .home {
           actionHint(
             key: controllerState.backButtonPrompt.label,
