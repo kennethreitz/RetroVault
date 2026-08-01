@@ -512,7 +512,7 @@ struct BigPictureView: View {
       Spacer()
 
       HStack(spacing: 10) {
-        if isSystemGameList {
+        if isSortableGameList {
           actionHint(
             key: controllerState.sortButtonPrompt.label,
             systemImage: controllerState.sortButtonPrompt.systemImage,
@@ -1341,16 +1341,24 @@ struct BigPictureView: View {
       ?? .defaultSort
   }
 
-  private var isSystemGameList: Bool {
-    guard case .games(.system) = page else {
+  private var isSortableGameList: Bool {
+    guard case .games(let scope) = page else {
       return false
     }
-    return true
+    switch scope {
+    case .all, .system:
+      return true
+    default:
+      return false
+    }
   }
 
   private func sortedGames(in scope: BigPictureScope) -> [GameSummary] {
     let games = catalog.games(in: scope)
-    guard case .system = scope else {
+    switch scope {
+    case .all, .system:
+      break
+    default:
       return games
     }
     return systemGameSort.sorted(
@@ -1361,7 +1369,7 @@ struct BigPictureView: View {
   }
 
   private func cycleSystemGameSort() {
-    guard isSystemGameList else {
+    guard isSortableGameList else {
       return
     }
 
@@ -1411,10 +1419,11 @@ struct BigPictureView: View {
     case .downloaded:
       "\(catalog.downloadedSystems.count.formatted()) SYSTEMS"
     case .games(let scope):
-      if case .system = scope {
+      switch scope {
+      case .all, .system:
         "\(catalog.games(in: scope).count.formatted()) GAMES · "
           + systemGameSort.title.uppercased()
-      } else {
+      default:
         "\(catalog.games(in: scope).count.formatted()) GAMES"
       }
     }
