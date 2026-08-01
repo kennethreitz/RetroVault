@@ -177,7 +177,7 @@ struct LibretroDSUInputTests {
   @Test("Treats Share as the Big Picture sync status button")
   func mergesAuxiliaryButtons() {
     var state = DSUPadState()
-    state.buttons = [.share, .options, .x]
+    state.buttons = [.share, .options, .x, .y]
 
     var navigation = BigPictureControllerState()
     navigation.merge(state)
@@ -188,6 +188,7 @@ struct LibretroDSUInputTests {
     // game options rather than launching the selection.
     #expect(navigation.opensGameOptions)
     #expect(navigation.playsFromBeginning)
+    #expect(navigation.cyclesSort)
   }
 
   private func mask(

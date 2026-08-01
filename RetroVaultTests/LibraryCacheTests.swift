@@ -459,6 +459,57 @@ struct BigPictureCatalogTests {
     )
   }
 
+  @Test("Cycles system game sorting and orders every supported mode")
+  func sortsSystemGames() {
+    let games = [
+      GameSummary(
+        id: 1,
+        name: "Zeta",
+        systemID: 1,
+        systemName: "Test",
+        coverURL: nil,
+        releaseYear: 1990,
+        createdAt: "2022-01-01T00:00:00Z"
+      ),
+      GameSummary(
+        id: 2,
+        name: "Alpha",
+        systemID: 1,
+        systemName: "Test",
+        coverURL: nil,
+        releaseYear: 2000,
+        createdAt: "2020-01-01T00:00:00Z",
+        lastPlayedAt: Date(timeIntervalSince1970: 200)
+      ),
+      GameSummary(
+        id: 3,
+        name: "Beta",
+        systemID: 1,
+        systemName: "Test",
+        coverURL: nil,
+        createdAt: "2024-01-01T00:00:00Z",
+        lastPlayedAt: Date(timeIntervalSince1970: 100)
+      ),
+    ]
+
+    func ids(for sort: BigPictureSystemGameSort) -> [Int] {
+      sort.sorted(
+        games,
+        downloadedGameIDs: [2],
+        favoriteGameIDs: [1]
+      ).map(\.id)
+    }
+
+    #expect(ids(for: .favoritesFirst) == [1, 2, 3])
+    #expect(ids(for: .alphabetical) == [2, 3, 1])
+    #expect(ids(for: .localFirst) == [2, 3, 1])
+    #expect(ids(for: .releaseYear) == [2, 1, 3])
+    #expect(ids(for: .recentlyPlayed) == [2, 3, 1])
+    #expect(ids(for: .recentlyAdded) == [3, 1, 2])
+    #expect(BigPictureSystemGameSort.favoritesFirst.next == .alphabetical)
+    #expect(BigPictureSystemGameSort.recentlyAdded.next == .favoritesFirst)
+  }
+
   @Test("Presents a useful system download action for every cache state")
   func presentsSystemDownloadActions() {
     #expect(
@@ -1028,6 +1079,13 @@ struct BigPictureCatalogTests {
       ),
       at: 20.25
     )
+    let sort = navigation.command(
+      for: BigPictureControllerState(
+        isConnected: true,
+        cyclesSort: true
+      ),
+      at: 20.27
+    )
     let back = navigation.command(
       for: BigPictureControllerState(isConnected: true, back: true),
       at: 20.3
@@ -1053,6 +1111,7 @@ struct BigPictureCatalogTests {
     #expect(heldActivate == nil)
     #expect(start == .playFromBeginning)
     #expect(options == .openGameOptions)
+    #expect(sort == .cycleSort)
     #expect(back == .back)
     #expect(pageUp == .pageUp)
     #expect(pageDown == .pageDown)

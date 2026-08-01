@@ -6,6 +6,8 @@ enum BigPictureScene {
   static let opensInFullScreenPreferenceKey =
     "big-picture.opens-in-full-screen.v1"
   static let opensInFullScreenByDefault = true
+  static let systemGameSortPreferenceKey =
+    "big-picture.system-game-sort.v1"
 }
 
 struct BigPictureSynchronizationFooterPresentation:
@@ -57,6 +59,9 @@ struct BigPictureView: View {
   @AppStorage(BigPictureScene.opensInFullScreenPreferenceKey)
   private var opensInFullScreen =
     BigPictureScene.opensInFullScreenByDefault
+  @AppStorage(BigPictureScene.systemGameSortPreferenceKey)
+  private var systemGameSortRawValue =
+    BigPictureSystemGameSort.defaultSort.rawValue
 
   @State private var catalog = BigPictureCatalog.empty
   @State private var rows: [BigPictureRow] = []
@@ -507,6 +512,13 @@ struct BigPictureView: View {
       Spacer()
 
       HStack(spacing: 10) {
+        if isSystemGameList {
+          actionHint(
+            key: controllerState.sortButtonPrompt.label,
+            systemImage: controllerState.sortButtonPrompt.systemImage,
+            label: "SORT"
+          )
+        }
         if selectedSaveCenterItem != nil {
           actionHint(
             key: controllerState.playFromBeginningButtonPrompt.label,
@@ -1129,7 +1141,7 @@ struct BigPictureView: View {
       }
 
     case .games(let scope):
-      catalog.games(in: scope).map { game in
+      sortedGames(in: scope).map { game in
         BigPictureRow(
           id: .game(game.id),
           title: game.name,
@@ -1317,6 +1329,55 @@ struct BigPictureView: View {
     return options
   }
 
+  private var systemGameSort: BigPictureSystemGameSort {
+    BigPictureSystemGameSort(rawValue: systemGameSortRawValue)
+      ?? .defaultSort
+  }
+
+  private var isSystemGameList: Bool {
+    guard case .games(.system) = page else {
+      return false
+    }
+    return true
+  }
+
+  private func sortedGames(in scope: BigPictureScope) -> [GameSummary] {
+    let games = catalog.games(in: scope)
+    guard case .system = scope else {
+      return games
+    }
+    return systemGameSort.sorted(
+      games,
+      downloadedGameIDs: model.downloadedGameIDs,
+      favoriteGameIDs: catalog.favoriteGameIDs
+    )
+  }
+
+  private func cycleSystemGameSort() {
+    guard isSystemGameList else {
+      return
+    }
+
+    let selectedGameID = selectedGame?.id
+    systemGameSortRawValue = systemGameSort.next.rawValue
+    rows = makeRows(for: page, catalog: catalog)
+
+    if
+      let selectedGameID,
+      let index = rows.firstIndex(where: { row in
+        row.id == .game(selectedGameID)
+      })
+    {
+      selectedIndex = index
+      scrollTargetID = rows[index].id
+    } else {
+      selectedIndex = min(selectedIndex, max(rows.count - 1, 0))
+      scrollTargetID = rows.indices.contains(selectedIndex)
+        ? rows[selectedIndex].id
+        : nil
+    }
+  }
+
   private var pageTitle: String {
     switch page {
     case .home:
@@ -1343,7 +1404,12 @@ struct BigPictureView: View {
     case .downloaded:
       "\(catalog.downloadedSystems.count.formatted()) SYSTEMS"
     case .games(let scope):
-      "\(catalog.games(in: scope).count.formatted()) GAMES"
+      if case .system = scope {
+        "\(catalog.games(in: scope).count.formatted()) GAMES · "
+          + systemGameSort.title.uppercased()
+      } else {
+        "\(catalog.games(in: scope).count.formatted()) GAMES"
+      }
     }
   }
 
@@ -1481,7 +1547,8 @@ struct BigPictureView: View {
         synchronizeNow()
       case .playFromBeginning, .openGameOptions, .back:
         isShowingSyncStatus = false
-      case .up, .down, .pageUp, .pageDown, .showSyncStatus, .exit:
+      case .up, .down, .pageUp, .pageDown, .cycleSort, .showSyncStatus,
+        .exit:
         break
       }
       return
@@ -1491,7 +1558,8 @@ struct BigPictureView: View {
       switch command {
       case .activate, .playFromBeginning, .back, .openGameOptions:
         actionNotice = nil
-      case .up, .down, .pageUp, .pageDown, .showSyncStatus, .exit:
+      case .up, .down, .pageUp, .pageDown, .cycleSort, .showSyncStatus,
+        .exit:
         break
       }
       return
@@ -1507,7 +1575,7 @@ struct BigPictureView: View {
         activateSelectedGameOption(for: optionsGame)
       case .back, .openGameOptions:
         self.optionsGame = nil
-      case .pageUp, .pageDown, .showSyncStatus, .exit:
+      case .pageUp, .pageDown, .cycleSort, .showSyncStatus, .exit:
         break
       }
       return
@@ -1523,7 +1591,7 @@ struct BigPictureView: View {
         activateSelectedSystemOption(for: optionsSystem)
       case .back, .openGameOptions:
         self.optionsSystem = nil
-      case .pageUp, .pageDown, .showSyncStatus, .exit:
+      case .pageUp, .pageDown, .cycleSort, .showSyncStatus, .exit:
         break
       }
       return
@@ -1542,7 +1610,7 @@ struct BigPictureView: View {
       case .back:
         playbackErrorMessage = nil
       case .up, .down, .pageUp, .pageDown, .playFromBeginning,
-        .openGameOptions, .showSyncStatus, .exit:
+        .openGameOptions, .cycleSort, .showSyncStatus, .exit:
         break
       }
       return
@@ -1586,6 +1654,8 @@ struct BigPictureView: View {
       }
     case .openGameOptions:
       presentSelectedOptions()
+    case .cycleSort:
+      cycleSystemGameSort()
     case .showSyncStatus:
       break
     case .back:
@@ -2605,9 +2675,95 @@ enum BigPictureCommand: Equatable, Sendable {
   case activate
   case playFromBeginning
   case openGameOptions
+  case cycleSort
   case showSyncStatus
   case back
   case exit
+}
+
+enum BigPictureSystemGameSort: String, CaseIterable, Sendable {
+  case favoritesFirst
+  case alphabetical
+  case localFirst
+  case releaseYear
+  case recentlyPlayed
+  case recentlyAdded
+
+  static let defaultSort = Self.favoritesFirst
+
+  var title: String {
+    switch self {
+    case .favoritesFirst:
+      "Favorites First"
+    case .alphabetical:
+      "Alphabetical"
+    case .localFirst:
+      "Local First"
+    case .releaseYear:
+      "Release Year"
+    case .recentlyPlayed:
+      "Recently Played"
+    case .recentlyAdded:
+      "Recently Added"
+    }
+  }
+
+  var next: Self {
+    let sorts = Self.allCases
+    guard let index = sorts.firstIndex(of: self) else {
+      return Self.defaultSort
+    }
+    return sorts[(index + 1) % sorts.count]
+  }
+
+  func sorted(
+    _ games: [GameSummary],
+    downloadedGameIDs: Set<Int>,
+    favoriteGameIDs: Set<Int>
+  ) -> [GameSummary] {
+    games.sorted { lhs, rhs in
+      switch self {
+      case .favoritesFirst:
+        let leftIsFavorite = favoriteGameIDs.contains(lhs.id)
+        let rightIsFavorite = favoriteGameIDs.contains(rhs.id)
+        if leftIsFavorite != rightIsFavorite {
+          return leftIsFavorite
+        }
+      case .alphabetical:
+        break
+      case .localFirst:
+        let leftIsLocal = downloadedGameIDs.contains(lhs.id)
+        let rightIsLocal = downloadedGameIDs.contains(rhs.id)
+        if leftIsLocal != rightIsLocal {
+          return leftIsLocal
+        }
+      case .releaseYear:
+        if lhs.releaseYear != rhs.releaseYear {
+          return (lhs.releaseYear ?? Int.min) > (rhs.releaseYear ?? Int.min)
+        }
+      case .recentlyPlayed:
+        if lhs.lastPlayedAt != rhs.lastPlayedAt {
+          return (lhs.lastPlayedAt ?? .distantPast)
+            > (rhs.lastPlayedAt ?? .distantPast)
+        }
+      case .recentlyAdded:
+        if lhs.createdAt != rhs.createdAt {
+          return (lhs.createdAt ?? "") > (rhs.createdAt ?? "")
+        }
+      }
+      return Self.isAlphabeticallyOrdered(lhs, rhs)
+    }
+  }
+
+  private static func isAlphabeticallyOrdered(
+    _ lhs: GameSummary,
+    _ rhs: GameSummary
+  ) -> Bool {
+    let comparison = lhs.name.localizedStandardCompare(rhs.name)
+    return comparison == .orderedSame
+      ? lhs.id < rhs.id
+      : comparison == .orderedAscending
+  }
 }
 
 enum BigPictureGameLaunchPresentation {
@@ -2831,6 +2987,7 @@ struct BigPictureControllerState: Equatable, Sendable {
   var activate = false
   var playsFromBeginning = false
   var opensGameOptions = false
+  var cyclesSort = false
   var showsSyncStatus = false
   var back = false
   var opensBigPicture = false
@@ -2840,6 +2997,7 @@ struct BigPictureControllerState: Equatable, Sendable {
   var backButtonPrompt = BigPictureControllerPrompt(label: "A")
   var optionsButtonPrompt = BigPictureControllerPrompt(label: "START")
   var playFromBeginningButtonPrompt = BigPictureControllerPrompt(label: "X")
+  var sortButtonPrompt = BigPictureControllerPrompt(label: "Y")
   var syncStatusButtonPrompt = BigPictureControllerPrompt(label: "SELECT")
 
   static var current: Self {
@@ -2878,6 +3036,11 @@ struct BigPictureControllerState: Equatable, Sendable {
         localizedName: gamepad.buttonX.localizedName,
         systemImage: gamepad.buttonX.sfSymbolsName,
         fallbackLabel: "X"
+      )
+      state.sortButtonPrompt = buttonPrompt(
+        localizedName: gamepad.buttonY.localizedName,
+        systemImage: gamepad.buttonY.sfSymbolsName,
+        fallbackLabel: "Y"
       )
       state.syncStatusButtonPrompt = buttonPrompt(
         localizedName: gamepad.buttonOptions?.localizedName,
@@ -2922,6 +3085,8 @@ struct BigPictureControllerState: Equatable, Sendable {
           state.opensGameOptions || auxiliaryButtons.opensGameOptions
         state.playsFromBeginning =
           state.playsFromBeginning || gamepad.buttonX.isPressed
+        state.cyclesSort =
+          state.cyclesSort || gamepad.buttonY.isPressed
         state.showsSyncStatus =
           state.showsSyncStatus
           || auxiliaryButtons.showsSyncStatus
@@ -2968,6 +3133,7 @@ struct BigPictureControllerState: Equatable, Sendable {
     )
     optionsButtonPrompt = BigPictureControllerPrompt(label: "X")
     playFromBeginningButtonPrompt = BigPictureControllerPrompt(label: "X")
+    sortButtonPrompt = BigPictureControllerPrompt(label: "Y")
     syncStatusButtonPrompt = BigPictureControllerPrompt(label: "SELECT")
   }
 
@@ -3000,6 +3166,7 @@ struct BigPictureControllerState: Equatable, Sendable {
     back = back || faceButtons.back
     opensGameOptions = opensGameOptions || auxiliaryButtons.opensGameOptions
     playsFromBeginning = playsFromBeginning || pad.buttons.contains(.x)
+    cyclesSort = cyclesSort || pad.buttons.contains(.y)
     showsSyncStatus =
       showsSyncStatus || auxiliaryButtons.showsSyncStatus
     opensBigPicture = opensBigPicture || auxiliaryButtons.opensBigPicture
@@ -3111,6 +3278,9 @@ struct BigPictureControllerNavigation: Sendable {
     }
     if state.opensGameOptions, !previousState.opensGameOptions {
       return .openGameOptions
+    }
+    if state.cyclesSort, !previousState.cyclesSort {
+      return .cycleSort
     }
     if state.playsFromBeginning, !previousState.playsFromBeginning {
       return .playFromBeginning
