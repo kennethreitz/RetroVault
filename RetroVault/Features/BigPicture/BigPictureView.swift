@@ -460,17 +460,19 @@ struct BigPictureView: View {
   private var footer: some View {
     HStack {
       HStack(spacing: 10) {
-        actionHint(
-          key:
-            controllerState.isConnected
-            ? controllerState.syncStatusButtonPrompt.label
-            : "SELECT",
-          systemImage:
-            controllerState.isConnected
-            ? controllerState.syncStatusButtonPrompt.systemImage
-            : nil,
-          label: "STATUS"
-        )
+        if page == .home {
+          actionHint(
+            key:
+              controllerState.isConnected
+              ? controllerState.syncStatusButtonPrompt.label
+              : "SELECT",
+            systemImage:
+              controllerState.isConnected
+              ? controllerState.syncStatusButtonPrompt.systemImage
+              : nil,
+            label: "STATUS"
+          )
+        }
 
         if page != .home {
           actionHint(
@@ -1157,7 +1159,11 @@ struct BigPictureView: View {
           title: game.name,
           detail: BigPictureGameRowPresentation.detail(
             releaseYear: game.releaseYear,
-            isDownloaded: downloadedGameIDs.contains(game.id)
+            isDownloaded: downloadedGameIDs.contains(game.id),
+            systemName:
+              scope == .favorites || scope == .recentlyPlayed
+              ? game.systemName
+              : nil
           ),
           isFavorite: catalog.favoriteGameIDs.contains(game.id),
           action: .play(game)
@@ -1413,7 +1419,9 @@ struct BigPictureView: View {
         return Self.gameRows(
           for: sortedGames,
           downloadedGameIDs: downloadedGameIDs,
-          favoriteGameIDs: favoriteGameIDs
+          favoriteGameIDs: favoriteGameIDs,
+          showsSystemName:
+            scope == .favorites || scope == .recentlyPlayed
         )
       }.value
 
@@ -1446,7 +1454,8 @@ struct BigPictureView: View {
   nonisolated private static func gameRows(
     for games: [GameSummary],
     downloadedGameIDs: Set<Int>,
-    favoriteGameIDs: Set<Int>
+    favoriteGameIDs: Set<Int>,
+    showsSystemName: Bool
   ) -> [BigPictureRow] {
     games.map { game in
       BigPictureRow(
@@ -1454,7 +1463,8 @@ struct BigPictureView: View {
         title: game.name,
         detail: BigPictureGameRowPresentation.detail(
           releaseYear: game.releaseYear,
-          isDownloaded: downloadedGameIDs.contains(game.id)
+          isDownloaded: downloadedGameIDs.contains(game.id),
+          systemName: showsSystemName ? game.systemName : nil
         ),
         isFavorite: favoriteGameIDs.contains(game.id),
         action: .play(game)
@@ -2856,18 +2866,16 @@ enum BigPictureSystemGameSort: String, CaseIterable, Sendable {
 enum BigPictureGameRowPresentation {
   static func detail(
     releaseYear: Int?,
-    isDownloaded: Bool
+    isDownloaded: Bool,
+    systemName: String? = nil
   ) -> String? {
-    switch (isDownloaded, releaseYear) {
-    case (true, let year?):
-      "LOCAL · \(year)"
-    case (true, nil):
-      "LOCAL"
-    case (false, let year?):
-      String(year)
-    case (false, nil):
-      nil
-    }
+    let components = [
+      isDownloaded ? "LOCAL" : nil,
+      systemName,
+      releaseYear.map(String.init),
+    ]
+    .compactMap { $0 }
+    return components.isEmpty ? nil : components.joined(separator: " · ")
   }
 }
 

@@ -36,10 +36,10 @@ struct SaveCenterTests {
 
     let items = SaveCenterCatalog.items(games: games, localRecords: records)
 
-    #expect(items.map(\.id) == [2, 3, 1])
-    #expect(items[0].status == .uploadPending)
-    #expect(items[1].status == .remoteOnly)
-    #expect(items[2].status == .synchronized)
+    #expect(items.map(\.id) == [1, 2, 3])
+    #expect(items[0].status == .synchronized)
+    #expect(items[1].status == .uploadPending)
+    #expect(items[2].status == .remoteOnly)
   }
 
   @Test("Prioritizes retryable failures")

@@ -536,6 +536,20 @@ struct BigPictureCatalogTests {
         isDownloaded: false
       ) == nil
     )
+    #expect(
+      BigPictureGameRowPresentation.detail(
+        releaseYear: 1997,
+        isDownloaded: true,
+        systemName: "PlayStation"
+      ) == "LOCAL · PlayStation · 1997"
+    )
+    #expect(
+      BigPictureGameRowPresentation.detail(
+        releaseYear: 1989,
+        isDownloaded: false,
+        systemName: "Game Boy"
+      ) == "Game Boy · 1989"
+    )
   }
 
   @Test("Presents a useful system download action for every cache state")

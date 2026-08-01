@@ -125,13 +125,13 @@ enum SaveCenterCatalog {
 
   private static func priority(of status: SaveCenterStatus) -> Int {
     switch status {
-    case .failed:
-      0
-    case .uploadPending:
-      1
-    case .remoteOnly:
-      2
     case .synchronized:
+      0
+    case .failed:
+      1
+    case .uploadPending:
+      2
+    case .remoteOnly:
       3
     }
   }
