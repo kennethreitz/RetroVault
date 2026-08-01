@@ -120,6 +120,10 @@ struct LibretroGameView: View {
         .background {
             PlayerWindowAccessor { window in
                 playerWindow = window
+                // NSWindow suppresses passive mouse-moved events by default.
+                // DOSBox Pure needs every relative delta, not just movement
+                // received while a button happens to be held.
+                window?.acceptsMouseMovedEvents = true
                 isFullScreen = window?.styleMask.contains(.fullScreen) == true
                 enterFullScreenIfPreferred()
             }
@@ -695,30 +699,87 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
 
     override func mouseExited(with event: NSEvent) {
         isPointerInside = false
+        pointerPressed = false
+        input.releaseMouseButtons()
         restoreCursor()
     }
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         pointerPressed = true
+        input.setMouseButton(LibretroMouseID.left, pressed: true)
         recordPointerActivity()
-        updatePointer(with: event)
+        updatePointingDevices(with: event)
     }
 
     override func mouseDragged(with event: NSEvent) {
         recordPointerActivity()
-        updatePointer(with: event)
+        updatePointingDevices(with: event)
     }
 
     override func mouseMoved(with event: NSEvent) {
         recordPointerActivity()
-        updatePointer(with: event)
+        updatePointingDevices(with: event)
     }
 
     override func mouseUp(with event: NSEvent) {
         pointerPressed = false
+        input.setMouseButton(LibretroMouseID.left, pressed: false)
         recordPointerActivity()
-        updatePointer(with: event)
+        updatePointingDevices(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        input.setMouseButton(LibretroMouseID.right, pressed: true)
+        recordPointerActivity()
+        updatePointingDevices(with: event)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        recordPointerActivity()
+        updatePointingDevices(with: event)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        input.setMouseButton(LibretroMouseID.right, pressed: false)
+        recordPointerActivity()
+        updatePointingDevices(with: event)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            return
+        }
+        window?.makeFirstResponder(self)
+        input.setMouseButton(LibretroMouseID.middle, pressed: true)
+        recordPointerActivity()
+        updatePointingDevices(with: event)
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            return
+        }
+        recordPointerActivity()
+        updatePointingDevices(with: event)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            return
+        }
+        input.setMouseButton(LibretroMouseID.middle, pressed: false)
+        recordPointerActivity()
+        updatePointingDevices(with: event)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard pointerIsOverPicture(event.locationInWindow) else {
+            return
+        }
+        input.scrollMouse(deltaY: event.scrollingDeltaY)
+        recordPointerActivity()
     }
 
     private func recordPointerActivity() {
@@ -858,6 +919,8 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
 
     @objc
     private func playerWindowDidResignKey(_ notification: Notification) {
+        pointerPressed = false
+        input.releaseMouseButtons()
         restoreCursor()
     }
 
@@ -1074,7 +1137,7 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         return sourceTextures.count == 3
     }
 
-    private func updatePointer(with event: NSEvent) {
+    private func updatePointingDevices(with event: NSEvent) {
         guard sourceSize.width > 0, sourceSize.height > 0 else {
             return
         }
@@ -1085,6 +1148,15 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
             aspectRatio: sourceAspectRatio
         )
         let inside = picture.contains(location)
+        if inside {
+            // AppKit's Y delta is positive upward while Libretro mouse Y is
+            // positive downward. DOSBox Pure consumes this relative device;
+            // the absolute pointer below remains available to touch cores.
+            input.moveMouse(
+                deltaX: event.deltaX,
+                deltaY: -event.deltaY
+            )
+        }
         let normalizedX = min(
             max((location.x - picture.minX) / max(picture.width, 1), 0),
             1
@@ -1103,6 +1175,22 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         )
     }
 
+    private func pointerIsOverPicture(_ windowPoint: NSPoint) -> Bool {
+        guard sourceSize.width > 0, sourceSize.height > 0 else {
+            return false
+        }
+        return pictureRect(
+            forSourceSize: sourceSize,
+            aspectRatio: sourceAspectRatio
+        ).contains(convert(windowPoint, from: nil))
+    }
+
+}
+
+private enum LibretroMouseID {
+    static let left: UInt32 = 2
+    static let right: UInt32 = 3
+    static let middle: UInt32 = 6
 }
 
 struct LibretroVideoLayout {

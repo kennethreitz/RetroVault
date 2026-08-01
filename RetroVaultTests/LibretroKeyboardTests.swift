@@ -144,3 +144,58 @@ struct LibretroKeyboardInputStateTests {
         #expect(input.drainKeyEvents().isEmpty)
     }
 }
+
+@Suite("Libretro mouse input state")
+struct LibretroMouseInputStateTests {
+    @Test("Relative motion is reported for one input poll")
+    func relativeMotionIsConsumedOnce() {
+        let input = LibretroInputState()
+        input.moveMouse(deltaX: 12.75, deltaY: -7.25)
+
+        input.pollMouse()
+        #expect(input.mouseValue(for: 0) == 12)
+        #expect(input.mouseValue(for: 1) == -7)
+
+        input.pollMouse()
+        #expect(input.mouseValue(for: 0) == 0)
+        #expect(input.mouseValue(for: 1) == 0)
+    }
+
+    @Test("Fractional movement survives until it reaches a whole unit")
+    func fractionalMovementAccumulates() {
+        let input = LibretroInputState()
+        input.moveMouse(deltaX: 0.4, deltaY: 0)
+        input.pollMouse()
+        #expect(input.mouseValue(for: 0) == 0)
+
+        input.moveMouse(deltaX: 0.7, deltaY: 0)
+        input.pollMouse()
+        #expect(input.mouseValue(for: 0) == 1)
+    }
+
+    @Test("Mouse buttons remain held until released")
+    func buttonsTrackHeldState() {
+        let input = LibretroInputState()
+        input.setMouseButton(2, pressed: true)
+        input.setMouseButton(3, pressed: true)
+        #expect(input.mouseValue(for: 2) == 1)
+        #expect(input.mouseValue(for: 3) == 1)
+        #expect(input.mouseValue(for: 6) == 0)
+
+        input.releaseMouseButtons()
+        #expect(input.mouseValue(for: 2) == 0)
+        #expect(input.mouseValue(for: 3) == 0)
+    }
+
+    @Test("A wheel gesture becomes a one-frame direction pulse")
+    func wheelPulsesOnce() {
+        let input = LibretroInputState()
+        input.scrollMouse(deltaY: -3)
+        input.pollMouse()
+        #expect(input.mouseValue(for: 4) == 0)
+        #expect(input.mouseValue(for: 5) == 1)
+
+        input.pollMouse()
+        #expect(input.mouseValue(for: 5) == 0)
+    }
+}

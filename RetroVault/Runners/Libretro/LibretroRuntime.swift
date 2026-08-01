@@ -677,6 +677,14 @@ final class LibretroInputState: @unchecked Sendable {
     private var pointerY: Int16 = 0
     private var pointerPressed = false
     private var pointerInside = false
+    private var mouseRead = false
+    private var pendingMouseDeltaX: Double = 0
+    private var pendingMouseDeltaY: Double = 0
+    private var polledMouseDeltaX: Int16 = 0
+    private var polledMouseDeltaY: Int16 = 0
+    private var mouseButtons: UInt8 = 0
+    private var pendingMouseWheelY: Double = 0
+    private var polledMouseWheelY: Int16 = 0
     private var transportControls = LibretroTransportControls()
     private var enablesRewind = true
     private var enablesFastForward = true
@@ -739,7 +747,7 @@ final class LibretroInputState: @unchecked Sendable {
         return keyboardEnabled
     }
 
-    /// Whether the running core has actually read the pointer.
+    /// Whether the running core has actually read a pointing device.
     ///
     /// Taken from the core's own behaviour rather than from what the manifest
     /// says it supports, because this decides whether the mouse cursor is
@@ -749,7 +757,7 @@ final class LibretroInputState: @unchecked Sendable {
     var readsPointer: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return pointerRead
+        return pointerRead || mouseRead
     }
 
     func setKeyboardEnabled(_ enabled: Bool) {
@@ -828,6 +836,60 @@ final class LibretroInputState: @unchecked Sendable {
         pointerY = y
         pointerPressed = pressed
         pointerInside = inside
+        lock.unlock()
+    }
+
+    /// Accumulates AppKit's relative motion until the core's next input poll.
+    ///
+    /// Libretro mouse movement is relative and valid for exactly one poll.
+    /// Keeping the pending and polled values separate prevents a fast AppKit
+    /// event stream from losing movement without replaying it across frames.
+    func moveMouse(deltaX: Double, deltaY: Double) {
+        guard deltaX.isFinite, deltaY.isFinite else {
+            return
+        }
+        lock.lock()
+        pendingMouseDeltaX += deltaX
+        pendingMouseDeltaY += deltaY
+        lock.unlock()
+    }
+
+    func setMouseButton(_ id: UInt32, pressed: Bool) {
+        guard let bit = LibretroMouseButton.bit(for: id) else {
+            return
+        }
+        lock.lock()
+        if pressed {
+            mouseButtons |= bit
+        } else {
+            mouseButtons &= ~bit
+        }
+        lock.unlock()
+    }
+
+    func scrollMouse(deltaY: Double) {
+        guard deltaY.isFinite else {
+            return
+        }
+        lock.lock()
+        pendingMouseWheelY += deltaY
+        lock.unlock()
+    }
+
+    func releaseMouseButtons() {
+        lock.lock()
+        mouseButtons = 0
+        lock.unlock()
+    }
+
+    /// Freezes relative input for the frame and consumes only what fits in a
+    /// Libretro `int16_t`. Any extreme remainder stays queued for the next
+    /// poll instead of overflowing or disappearing.
+    func pollMouse() {
+        lock.lock()
+        polledMouseDeltaX = consumeMouseDelta(&pendingMouseDeltaX)
+        polledMouseDeltaY = consumeMouseDelta(&pendingMouseDeltaY)
+        polledMouseWheelY = consumeMouseWheel(&pendingMouseWheelY)
         lock.unlock()
     }
 
@@ -1167,6 +1229,52 @@ final class LibretroInputState: @unchecked Sendable {
         }
     }
 
+    func mouseValue(for id: UInt32) -> Int16 {
+        lock.lock()
+        defer { lock.unlock() }
+        mouseRead = true
+
+        return switch id {
+        case LibretroABI.mouseXID:
+            polledMouseDeltaX
+        case LibretroABI.mouseYID:
+            polledMouseDeltaY
+        case LibretroABI.mouseLeftID,
+             LibretroABI.mouseRightID,
+             LibretroABI.mouseMiddleID:
+            if let bit = LibretroMouseButton.bit(for: id) {
+                mouseButtons & bit == 0 ? 0 : 1
+            } else {
+                0
+            }
+        case LibretroABI.mouseWheelUpID:
+            polledMouseWheelY > 0 ? 1 : 0
+        case LibretroABI.mouseWheelDownID:
+            polledMouseWheelY < 0 ? 1 : 0
+        default:
+            0
+        }
+    }
+
+    private func consumeMouseDelta(_ pending: inout Double) -> Int16 {
+        let integral = pending.rounded(.towardZero)
+        let consumed = min(
+            max(integral, Double(Int16.min)),
+            Double(Int16.max)
+        )
+        pending -= consumed
+        return Int16(consumed)
+    }
+
+    private func consumeMouseWheel(_ pending: inout Double) -> Int16 {
+        guard abs(pending) >= 0.1 else {
+            return 0
+        }
+        let direction: Int16 = pending > 0 ? 1 : -1
+        pending = 0
+        return direction
+    }
+
     /// Cores opt in through `RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE` before
     /// reading, so a sensor that was never enabled stays silent.
     func setSensorEnabled(_ enabled: Bool, accelerometer: Bool) {
@@ -1245,6 +1353,21 @@ final class LibretroInputState: @unchecked Sendable {
 
     private func dominantAxis(_ first: Int16, _ second: Int16) -> Int16 {
         abs(Int(first)) >= abs(Int(second)) ? first : second
+    }
+}
+
+private enum LibretroMouseButton {
+    static func bit(for id: UInt32) -> UInt8? {
+        switch id {
+        case LibretroABI.mouseLeftID:
+            1 << 0
+        case LibretroABI.mouseRightID:
+            1 << 1
+        case LibretroABI.mouseMiddleID:
+            1 << 2
+        default:
+            nil
+        }
     }
 }
 
@@ -1807,6 +1930,14 @@ private enum LibretroABI {
     static let analogRightIndex: UInt32 = 1
     static let analogXID: UInt32 = 0
     static let analogYID: UInt32 = 1
+    static let mouseDevice: UInt32 = 2
+    static let mouseXID: UInt32 = 0
+    static let mouseYID: UInt32 = 1
+    static let mouseLeftID: UInt32 = 2
+    static let mouseRightID: UInt32 = 3
+    static let mouseWheelUpID: UInt32 = 4
+    static let mouseWheelDownID: UInt32 = 5
+    static let mouseMiddleID: UInt32 = 6
     static let pointerDevice: UInt32 = 6
     static let pointerXID: UInt32 = 0
     static let pointerYID: UInt32 = 1
@@ -3345,6 +3476,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
     }
 
     func pollInput() {
+        inputState.pollMouse()
         inputState.pollController()
         deliverKeyEvents()
         if inputState.consumeExitRequest() {
@@ -3394,6 +3526,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 id: id,
                 port: port
             )
+        case LibretroABI.mouseDevice:
+            return port == 0 && index == 0
+                ? inputState.mouseValue(for: id)
+                : 0
         case LibretroABI.pointerDevice:
             return port == 0 && index == 0
                 ? inputState.pointerValue(for: id)
