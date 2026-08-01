@@ -1178,6 +1178,15 @@ struct BigPictureCatalogTests {
     )
   }
 
+  @Test("Smart CRT keeps the hosted Vita display flat")
+  func resolvesVitaVideoEffect() {
+    #expect(
+      LibretroVideoFilter.crtSmart.resolved(
+        forSystemName: Vita3KInstallation.systemName
+      ) == .crt
+    )
+  }
+
   @Test("Maps Nintendo A to select and Nintendo B to back")
   func mapsNintendoFaceButtons() {
     let switchA = BigPictureControllerState.extendedFaceButtonActions(

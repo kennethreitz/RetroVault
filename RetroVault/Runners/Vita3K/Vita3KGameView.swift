@@ -9,11 +9,24 @@ struct Vita3KGameView: View {
   let onCloseRequested: () -> Void
 
   @State private var coordinator = Vita3KPlayerCoordinator()
+  @AppStorage(LibretroVideoPreferences.filterKey)
+  private var videoFilter = LibretroVideoPreferences.defaultFilter
 
   var body: some View {
     ZStack {
       Color.black
       Vita3KSurfaceView(coordinator: coordinator)
+        // Vita3K renders Vulkan directly into the hosted CAMetalLayer, so it
+        // never passes through Libretro's frame-texture compositor. Apply the
+        // selected CRT glass as an independent presentation layer above that
+        // surface. Smart is flat for the Vita because it is a handheld.
+        .modifier(
+          BigPictureVideoEffectModifier(
+            filter: videoFilter.resolved(
+              forSystemName: Vita3KInstallation.systemName
+            )
+          )
+        )
 
       switch coordinator.status {
       case .ready, .running:

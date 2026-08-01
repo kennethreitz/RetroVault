@@ -2510,7 +2510,7 @@ struct BigPictureView: View {
   }
 }
 
-private struct BigPictureVideoEffectModifier: ViewModifier {
+struct BigPictureVideoEffectModifier: ViewModifier {
   @Environment(\.displayScale) private var displayScale
   let filter: LibretroVideoFilter
 
