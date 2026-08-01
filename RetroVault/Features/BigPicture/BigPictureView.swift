@@ -1010,6 +1010,11 @@ struct BigPictureView: View {
         )
         .opacity(model.isSynchronizing ? 0.48 : 1)
         actionHint(
+          key: controllerState.optionsButtonPrompt.label,
+          systemImage: controllerState.optionsButtonPrompt.systemImage,
+          label: "SETTINGS"
+        )
+        actionHint(
           key: controllerState.backButtonPrompt.label,
           systemImage: controllerState.backButtonPrompt.systemImage,
           label: "BACK"
@@ -1197,15 +1202,6 @@ struct BigPictureView: View {
             action: .navigate(.games(.system(system.id)))
           )
         }
-        + [
-          BigPictureRow(
-            id: .home("settings"),
-            title: "Settings",
-            detail: nil,
-            isFavorite: false,
-            action: .navigate(.settings)
-          )
-        ]
 
     case .ignoredSystems:
       ignoredSystems.map { system in
@@ -1953,7 +1949,10 @@ struct BigPictureView: View {
       switch command {
       case .activate:
         synchronizeNow()
-      case .playFromBeginning, .openGameOptions, .back:
+      case .openGameOptions:
+        isShowingSyncStatus = false
+        navigate(to: .settings)
+      case .playFromBeginning, .back:
         isShowingSyncStatus = false
       case .up, .down, .pageUp, .pageDown, .cycleSort, .showSyncStatus,
         .exit:
