@@ -64,6 +64,7 @@ private final class Vita3KPlayerCoordinator {
 
   private var bridge: Vita3KBridge?
   private var runTask: Task<Void, Never>?
+  private var eventPumpTask: Task<Void, Never>?
 
   func start(request: Vita3KRunRequest) async {
     guard runTask == nil, let surfaceView else {
@@ -103,6 +104,13 @@ private final class Vita3KPlayerCoordinator {
 
       let pixelSize = surfaceView.pixelSize
       status = .running
+      eventPumpTask = Task { @MainActor [weak self] in
+        while !Task.isCancelled {
+          bridge.pumpEvents()
+          try? await Task.sleep(for: .milliseconds(8))
+        }
+        self?.eventPumpTask = nil
+      }
       runTask = Task.detached(priority: .userInitiated) { [weak self] in
         do {
           try bridge.run(
@@ -110,8 +118,12 @@ private final class Vita3KPlayerCoordinator {
             pixelSize: pixelSize,
             titleID: titleID
           )
+          await MainActor.run {
+            self?.eventPumpTask?.cancel()
+          }
         } catch {
           await MainActor.run {
+            self?.eventPumpTask?.cancel()
             self?.status = .failed(error.localizedDescription)
           }
         }
@@ -126,6 +138,8 @@ private final class Vita3KPlayerCoordinator {
   }
 
   func stop() {
+    eventPumpTask?.cancel()
+    eventPumpTask = nil
     bridge?.stop()
     runTask?.cancel()
     runTask = nil

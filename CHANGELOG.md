@@ -26,6 +26,8 @@ being a list of every commit.
 
 ### Fixed
 
+- Fixed an experimental Vita3K crash caused by SDL pumping AppKit events from
+  the emulation worker thread.
 - Allowed the experimental Vita runner to launch with main system firmware
   when Vita3K's optional font and preinstalled-content packages are absent.
 

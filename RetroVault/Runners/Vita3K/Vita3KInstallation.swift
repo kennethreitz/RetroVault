@@ -126,6 +126,7 @@ final class Vita3KBridge: @unchecked Sendable {
   typealias Resize = @convention(c) (
     UnsafeMutableRawPointer?, Int32, Int32
   ) -> Void
+  typealias PumpEvents = @convention(c) (UnsafeMutableRawPointer?) -> Void
   typealias Stop = @convention(c) (UnsafeMutableRawPointer?) -> Void
   typealias LastError = @convention(c) (
     UnsafeMutableRawPointer?
@@ -140,6 +141,7 @@ final class Vita3KBridge: @unchecked Sendable {
   private let installedTitleIDFunction: InstalledTitleID
   private let runFunction: Run
   private let resizeFunction: Resize
+  private let pumpEventsFunction: PumpEvents
   private let stopFunction: Stop
   private let lastErrorFunction: LastError
 
@@ -182,6 +184,10 @@ final class Vita3KBridge: @unchecked Sendable {
       )
       runFunction = try symbol("retrovault_vita3k_run", as: Run.self)
       resizeFunction = try symbol("retrovault_vita3k_resize", as: Resize.self)
+      pumpEventsFunction = try symbol(
+        "retrovault_vita3k_pump_events",
+        as: PumpEvents.self
+      )
       stopFunction = try symbol("retrovault_vita3k_stop", as: Stop.self)
       lastErrorFunction = try symbol(
         "retrovault_vita3k_last_error",
@@ -273,6 +279,12 @@ final class Vita3KBridge: @unchecked Sendable {
       Int32(max(1, pixelSize.width.rounded())),
       Int32(max(1, pixelSize.height.rounded()))
     )
+  }
+
+  /// Pumps Vita3K's SDL events from AppKit's required main thread.
+  @MainActor
+  func pumpEvents() {
+    pumpEventsFunction(engine)
   }
 
   func stop() {

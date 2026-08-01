@@ -92,6 +92,7 @@ struct RetroVaultVita3KEngine {
     std::unique_ptr<app::AppSessionController> session;
     std::unique_ptr<MacFrameHost> frame_host;
     std::atomic<bool> stop_requested{ false };
+    std::atomic<bool> controller_refresh_requested{ false };
     std::mutex error_mutex;
     std::string last_error;
     std::string installed_title_id;
@@ -322,12 +323,9 @@ int retrovault_vita3k_run(
     app::LaunchRuntimeMetrics metrics{};
     while (!engine->stop_requested.load(std::memory_order_acquire)
         && engine->session->is_running()) {
-        SDL_Event event{};
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_GAMEPAD_ADDED
-                || event.type == SDL_EVENT_GAMEPAD_REMOVED)
-                refresh_controllers(engine->emuenv->ctrl, *engine->emuenv);
-        }
+        if (engine->controller_refresh_requested.exchange(
+                false, std::memory_order_acq_rel))
+            refresh_controllers(engine->emuenv->ctrl, *engine->emuenv);
         app::update_runtime_metrics(*engine->emuenv, metrics);
         SDL_Delay(8);
     }
@@ -335,6 +333,24 @@ int retrovault_vita3k_run(
     engine->session->stop(app::AppSessionStopReason::UserRequest);
     engine->frame_host.reset();
     return 1;
+}
+
+void retrovault_vita3k_pump_events(void *opaque_engine) {
+    auto *engine = static_cast<RetroVaultVita3KEngine *>(opaque_engine);
+    if (!engine)
+        return;
+
+    // SDL's Cocoa backend calls AppKit while pumping events. AppKit requires
+    // those calls to originate on the main thread, so RetroVault invokes this
+    // narrow bridge entry point from its MainActor rather than from the
+    // emulation worker running retrovault_vita3k_run.
+    SDL_Event event{};
+    while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_EVENT_GAMEPAD_ADDED
+            || event.type == SDL_EVENT_GAMEPAD_REMOVED)
+            engine->controller_refresh_requested.store(
+                true, std::memory_order_release);
+    }
 }
 
 void retrovault_vita3k_resize(
