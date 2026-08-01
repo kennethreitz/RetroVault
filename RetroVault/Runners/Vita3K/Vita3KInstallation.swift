@@ -72,12 +72,30 @@ enum Vita3KBridgeError: LocalizedError {
     case .initializationFailed(let message):
       message ?? "Vita3K could not initialize its private Vita environment."
     case .firmwareMissing:
-      "Vita firmware is required. Upload its .PUP packages as system firmware in RomM, then try again."
+      "The main Vita firmware is required. Upload its .PUP package as system firmware in RomM, then try again."
     case .firmwareInstallFailed(let message):
       message
     case .archiveInstallFailed(let message), .launchFailed(let message):
       message
     }
+  }
+}
+
+struct Vita3KFirmwareState: Equatable, Sendable {
+  let hasPreinstalledPackage: Bool
+  let hasMainFirmware: Bool
+  let hasFontPackage: Bool
+
+  init(mask: Int32) {
+    hasPreinstalledPackage = mask & 0b001 != 0
+    hasMainFirmware = mask & 0b010 != 0
+    hasFontPackage = mask & 0b100 != 0
+  }
+
+  /// Vita3K permits games to launch once the main firmware is present. Its
+  /// font package improves compatibility but is not a launch prerequisite.
+  var canLaunch: Bool {
+    hasMainFirmware
   }
 }
 
@@ -193,9 +211,13 @@ final class Vita3KBridge: @unchecked Sendable {
     dlclose(handle)
   }
 
-  var hasRequiredFirmware: Bool {
+  var firmwareState: Vita3KFirmwareState {
     // Vita3K reports preinstalled, main, and font packages as three bits.
-    firmwareMaskFunction(engine) == 0b111
+    Vita3KFirmwareState(mask: firmwareMaskFunction(engine))
+  }
+
+  var hasRequiredFirmware: Bool {
+    firmwareState.canLaunch
   }
 
   func installFirmware(at url: URL) throws {

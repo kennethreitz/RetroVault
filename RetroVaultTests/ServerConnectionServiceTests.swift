@@ -143,6 +143,13 @@ struct ServerConnectionServiceTests {
 
 @Suite("Library")
 struct LibraryTests {
+    @Test("Vita3K requires main firmware but not its optional font package")
+    func vita3KFirmwareReadiness() {
+        #expect(!Vita3KFirmwareState(mask: 0).canLaunch)
+        #expect(Vita3KFirmwareState(mask: 0b010).canLaunch)
+        #expect(Vita3KFirmwareState(mask: 0b110).canLaunch)
+    }
+
     @Test("Persists RomM Favorites membership in the offline snapshot")
     func persistsFavoriteMembership() async throws {
         let token = try ClientToken(

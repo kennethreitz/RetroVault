@@ -24,6 +24,11 @@ being a list of every commit.
 - Persisted failed save uploads so they remain visible after gameplay and
   across app launches.
 
+### Fixed
+
+- Allowed the experimental Vita runner to launch with main system firmware
+  when Vita3K's optional font and preinstalled-content packages are absent.
+
 ## 2026-07-31
 
 ### Added
