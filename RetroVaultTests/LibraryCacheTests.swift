@@ -1185,6 +1185,19 @@ struct BigPictureCatalogTests {
         forSystemName: Vita3KInstallation.systemName
       ) == .crt
     )
+    #expect(Vita3KVideoEffectPolicy.usesCRTOverlay(.crt))
+    #expect(Vita3KVideoEffectPolicy.usesCRTOverlay(.crtCurved))
+    #expect(!Vita3KVideoEffectPolicy.usesCRTOverlay(.nearest))
+    #expect(!Vita3KVideoEffectPolicy.usesCRTOverlay(.sharpBilinear))
+
+    for y in 0..<Vita3KCRTOverlayPattern.height {
+      for x in 0..<Vita3KCRTOverlayPattern.width {
+        let color = Vita3KCRTOverlayPattern.color(x: x, y: y)
+        #expect(color.x >= 0 && color.x <= 1)
+        #expect(color.y >= 0 && color.y <= 1)
+        #expect(color.z >= 0 && color.z <= 1)
+      }
+    }
   }
 
   @Test("Maps Nintendo A to select and Nintendo B to back")

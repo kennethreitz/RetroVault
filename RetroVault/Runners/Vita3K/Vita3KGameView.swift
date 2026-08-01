@@ -2,6 +2,7 @@
 @preconcurrency import GameController
 import SwiftUI
 import QuartzCore
+import CoreImage
 import Observation
 
 struct Vita3KGameView: View {
@@ -15,18 +16,17 @@ struct Vita3KGameView: View {
   var body: some View {
     ZStack {
       Color.black
-      Vita3KSurfaceView(coordinator: coordinator)
-        // Vita3K renders Vulkan directly into the hosted CAMetalLayer, so it
-        // never passes through Libretro's frame-texture compositor. Apply the
-        // selected CRT glass as an independent presentation layer above that
-        // surface. Smart is flat for the Vita because it is a handheld.
-        .modifier(
-          BigPictureVideoEffectModifier(
-            filter: videoFilter.resolved(
-              forSystemName: Vita3KInstallation.systemName
-            )
-          )
+      Vita3KSurfaceView(
+        coordinator: coordinator,
+        filter: videoFilter.resolved(
+          forSystemName: Vita3KInstallation.systemName
         )
+      )
+        // Vita3K renders Vulkan directly into the hosted CAMetalLayer, so it
+        // never passes through Libretro's frame-texture compositor. The
+        // representable installs the CRT glass in that same Core Animation
+        // subtree; a SwiftUI blend layer is promoted separately in fullscreen
+        // and can cover the Vulkan surface with solid white.
 
       switch coordinator.status {
       case .ready, .running:
@@ -366,9 +366,11 @@ private extension UInt32 {
 
 private struct Vita3KSurfaceView: NSViewRepresentable {
   let coordinator: Vita3KPlayerCoordinator
+  let filter: LibretroVideoFilter
 
   func makeNSView(context: Context) -> NSView {
     let view = Vita3KMetalView()
+    view.videoFilter = filter
     view.onResize = { [weak coordinator] size in
       coordinator?.resize(to: size)
     }
@@ -385,6 +387,7 @@ private struct Vita3KSurfaceView: NSViewRepresentable {
 
   func updateNSView(_ nsView: NSView, context: Context) {
     coordinator.surfaceView = nsView
+    (nsView as? Vita3KMetalView)?.videoFilter = filter
   }
 }
 
@@ -393,6 +396,13 @@ private final class Vita3KMetalView: NSView {
   var onFrontTouch: ((CGPoint, Bool, Bool) -> Void)?
   private var eventMonitor: Any?
   private var pointerIsDown = false
+  private let displayOverlay = Vita3KDisplayOverlayView()
+
+  var videoFilter = LibretroVideoFilter.nearest {
+    didSet {
+      displayOverlay.videoFilter = videoFilter
+    }
+  }
 
   override var acceptsFirstResponder: Bool { true }
 
@@ -408,6 +418,9 @@ private final class Vita3KMetalView: NSView {
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
     wantsLayer = true
+    displayOverlay.frame = bounds
+    displayOverlay.autoresizingMask = [.width, .height]
+    addSubview(displayOverlay)
   }
 
   required init?(coder: NSCoder) {
@@ -438,6 +451,7 @@ private final class Vita3KMetalView: NSView {
       metalLayer.contentsScale = window?.backingScaleFactor ?? 2
       metalLayer.drawableSize = pixelSize
     }
+    displayOverlay.frame = bounds
     onResize?(pixelSize)
   }
 
@@ -482,6 +496,204 @@ private final class Vita3KMetalView: NSView {
       self.eventMonitor = nil
     }
     pointerIsDown = false
+  }
+}
+
+/// The CRT presentation for an engine that owns its drawable directly.
+///
+/// Keeping this layer beneath the hosted view's Core Animation root makes its
+/// multiply composition stable when macOS promotes the Vulkan surface for
+/// fullscreen. SwiftUI's equivalent overlay is correct for ordinary views,
+/// but becomes a separate white plane above an externally rendered layer.
+private final class Vita3KDisplayOverlayView: NSView {
+  var videoFilter = LibretroVideoFilter.nearest {
+    didSet {
+      refreshVisibility()
+    }
+  }
+
+  override init(frame frameRect: NSRect) {
+    super.init(frame: frameRect)
+    wantsLayer = true
+    refreshVisibility()
+  }
+
+  convenience init() {
+    self.init(frame: .zero)
+  }
+
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  override func makeBackingLayer() -> CALayer {
+    let layer = Vita3KCRTOverlayLayer()
+    layer.needsDisplayOnBoundsChange = true
+    layer.compositingFilter = CIFilter(name: "CIMultiplyCompositing")
+    return layer
+  }
+
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    nil
+  }
+
+  override func viewDidChangeBackingProperties() {
+    super.viewDidChangeBackingProperties()
+    refreshScale()
+  }
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    refreshScale()
+  }
+
+  private func refreshVisibility() {
+    isHidden = !Vita3KVideoEffectPolicy.usesCRTOverlay(videoFilter)
+    refreshScale()
+  }
+
+  private func refreshScale() {
+    guard let layer = layer as? Vita3KCRTOverlayLayer else {
+      return
+    }
+    layer.contentsScale = window?.backingScaleFactor
+      ?? NSScreen.main?.backingScaleFactor
+      ?? 2
+    layer.setNeedsDisplay()
+  }
+}
+
+enum Vita3KVideoEffectPolicy {
+  static func usesCRTOverlay(_ filter: LibretroVideoFilter) -> Bool {
+    switch filter {
+    case .crt, .crtSmart, .crtCurved:
+      true
+    case .nearest, .sharpBilinear, .xbr:
+      false
+    }
+  }
+}
+
+private final class Vita3KCRTOverlayLayer: CALayer {
+  override func draw(in context: CGContext) {
+    let scale = max(contentsScale, 1)
+    let patternInfo = Vita3KCRTOverlayPatternInfo(displayScale: scale)
+    var callbacks = CGPatternCallbacks(
+      version: 0,
+      drawPattern: drawVita3KCRTOverlayPattern,
+      releaseInfo: nil
+    )
+    guard
+      let pattern = CGPattern(
+        info: Unmanaged.passUnretained(patternInfo).toOpaque(),
+        bounds: CGRect(
+          x: 0,
+          y: 0,
+          width: CGFloat(Vita3KCRTOverlayPattern.width) / scale,
+          height: CGFloat(Vita3KCRTOverlayPattern.height) / scale
+        ),
+        matrix: .identity,
+        xStep: CGFloat(Vita3KCRTOverlayPattern.width) / scale,
+        yStep: CGFloat(Vita3KCRTOverlayPattern.height) / scale,
+        tiling: .constantSpacingMinimalDistortion,
+        isColored: true,
+        callbacks: &callbacks
+      ),
+      let colorSpace = CGColorSpace(patternBaseSpace: nil)
+    else {
+      return
+    }
+
+    context.setFillColorSpace(colorSpace)
+    var alpha: CGFloat = 1
+    context.setFillPattern(pattern, colorComponents: &alpha)
+    context.fill(bounds)
+  }
+}
+
+private final class Vita3KCRTOverlayPatternInfo {
+  let displayScale: CGFloat
+
+  init(displayScale: CGFloat) {
+    self.displayScale = displayScale
+  }
+}
+
+private func drawVita3KCRTOverlayPattern(
+  info: UnsafeMutableRawPointer?,
+  context: CGContext
+) {
+  guard let info else {
+    return
+  }
+  let patternInfo = Unmanaged<Vita3KCRTOverlayPatternInfo>
+    .fromOpaque(info)
+    .takeUnretainedValue()
+  let scale = patternInfo.displayScale
+
+  for y in 0..<Vita3KCRTOverlayPattern.height {
+    for x in 0..<Vita3KCRTOverlayPattern.width {
+      let color = Vita3KCRTOverlayPattern.color(x: x, y: y)
+      context.setFillColor(
+        red: CGFloat(color.x),
+        green: CGFloat(color.y),
+        blue: CGFloat(color.z),
+        alpha: 1
+      )
+      context.fill(
+        CGRect(
+          x: CGFloat(x) / scale,
+          y: CGFloat(y) / scale,
+          width: 1 / scale,
+          height: 1 / scale
+        )
+      )
+    }
+  }
+}
+
+enum Vita3KCRTOverlayPattern {
+  static let width = 6
+  static let height = 12
+
+  static func color(x: Int, y: Int) -> SIMD3<Float> {
+    let rowInBank = y % 3
+    let bank = (y / 3) % 2
+    let phosphor = ((x + bank * 2) / 2) % 3
+
+    var mask = SIMD3<Float>(repeating: 0.78)
+    mask[phosphor] = 1.22
+    if rowInBank == 2 {
+      mask *= 0.78
+    }
+    mask = mix(SIMD3<Float>(repeating: 1), mask * 1.165, amount: 0.72)
+
+    let scanlinePhase = Float(y % 4) / 4
+    let distanceFromCenter = scanlinePhase - 0.5
+    let beam = exp2(-8 * distanceFromCenter * distanceFromCenter)
+    let scanline = mix(1, beam, amount: 0.34)
+    let output = mask * scanline * Float(1.18)
+    return SIMD3<Float>(
+      min(output.x, 1),
+      min(output.y, 1),
+      min(output.z, 1)
+    )
+  }
+
+  private static func mix<T: SIMD>(
+    _ start: T,
+    _ end: T,
+    amount: T.Scalar
+  ) -> T where T.Scalar == Float {
+    start + (end - start) * amount
+  }
+
+  private static func mix(
+    _ start: Float,
+    _ end: Float,
+    amount: Float
+  ) -> Float {
+    start + (end - start) * amount
   }
 }
 
