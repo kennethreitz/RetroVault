@@ -510,6 +510,34 @@ struct BigPictureCatalogTests {
     #expect(BigPictureSystemGameSort.recentlyAdded.next == .favoritesFirst)
   }
 
+  @Test("Shows local status without hiding the release year")
+  func presentsSystemGameRowDetails() {
+    #expect(
+      BigPictureGameRowPresentation.detail(
+        releaseYear: 1994,
+        isDownloaded: true
+      ) == "LOCAL · 1994"
+    )
+    #expect(
+      BigPictureGameRowPresentation.detail(
+        releaseYear: nil,
+        isDownloaded: true
+      ) == "LOCAL"
+    )
+    #expect(
+      BigPictureGameRowPresentation.detail(
+        releaseYear: 2001,
+        isDownloaded: false
+      ) == "2001"
+    )
+    #expect(
+      BigPictureGameRowPresentation.detail(
+        releaseYear: nil,
+        isDownloaded: false
+      ) == nil
+    )
+  }
+
   @Test("Presents a useful system download action for every cache state")
   func presentsSystemDownloadActions() {
     #expect(

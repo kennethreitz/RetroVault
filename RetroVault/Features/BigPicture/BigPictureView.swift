@@ -1145,10 +1145,10 @@ struct BigPictureView: View {
         BigPictureRow(
           id: .game(game.id),
           title: game.name,
-          detail:
-            downloadedGameIDs.contains(game.id)
-            ? "LOCAL"
-            : game.releaseYear.map(String.init),
+          detail: BigPictureGameRowPresentation.detail(
+            releaseYear: game.releaseYear,
+            isDownloaded: downloadedGameIDs.contains(game.id)
+          ),
           isFavorite: catalog.favoriteGameIDs.contains(game.id),
           action: .play(game)
         )
@@ -2763,6 +2763,24 @@ enum BigPictureSystemGameSort: String, CaseIterable, Sendable {
     return comparison == .orderedSame
       ? lhs.id < rhs.id
       : comparison == .orderedAscending
+  }
+}
+
+enum BigPictureGameRowPresentation {
+  static func detail(
+    releaseYear: Int?,
+    isDownloaded: Bool
+  ) -> String? {
+    switch (isDownloaded, releaseYear) {
+    case (true, let year?):
+      "LOCAL · \(year)"
+    case (true, nil):
+      "LOCAL"
+    case (false, let year?):
+      String(year)
+    case (false, nil):
+      nil
+    }
   }
 }
 
