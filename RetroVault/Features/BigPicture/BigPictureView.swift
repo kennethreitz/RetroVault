@@ -914,11 +914,6 @@ struct BigPictureView: View {
         )
         .opacity(model.isSynchronizing ? 0.48 : 1)
         actionHint(
-          key: controllerState.syncStatusButtonPrompt.label,
-          systemImage: controllerState.syncStatusButtonPrompt.systemImage,
-          label: "CLOSE"
-        )
-        actionHint(
           key: controllerState.backButtonPrompt.label,
           systemImage: controllerState.backButtonPrompt.systemImage,
           label: "BACK"
