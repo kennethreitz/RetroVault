@@ -178,8 +178,12 @@ private struct Vita3KSurfaceView: NSViewRepresentable {
 private final class Vita3KMetalView: NSView {
   var onResize: ((CGSize) -> Void)?
   var onFrontTouch: ((CGPoint, Bool, Bool) -> Void)?
+  private var eventMonitor: Any?
+  private var pointerIsDown = false
 
   override var acceptsFirstResponder: Bool { true }
+
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
   override func makeBackingLayer() -> CALayer {
     let layer = CAMetalLayer()
@@ -197,6 +201,24 @@ private final class Vita3KMetalView: NSView {
     fatalError("init(coder:) has not been implemented")
   }
 
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    removeEventMonitor()
+    guard window != nil else { return }
+    window?.acceptsMouseMovedEvents = true
+    eventMonitor = NSEvent.addLocalMonitorForEvents(
+      matching: [
+        .leftMouseDown,
+        .leftMouseDragged,
+        .leftMouseUp,
+        .mouseMoved,
+      ]
+    ) { [weak self] event in
+      self?.handlePointerEvent(event)
+      return event
+    }
+  }
+
   override func layout() {
     super.layout()
     if let metalLayer = layer as? CAMetalLayer {
@@ -206,17 +228,27 @@ private final class Vita3KMetalView: NSView {
     onResize?(pixelSize)
   }
 
-  override func mouseDown(with event: NSEvent) {
-    window?.makeFirstResponder(self)
-    updateFrontTouch(with: event, pressed: true)
-  }
+  private func handlePointerEvent(_ event: NSEvent) {
+    guard event.window === window else {
+      if event.type == .leftMouseUp, pointerIsDown {
+        pointerIsDown = false
+        onFrontTouch?(.zero, false, false)
+      }
+      return
+    }
 
-  override func mouseDragged(with event: NSEvent) {
-    updateFrontTouch(with: event, pressed: true)
-  }
-
-  override func mouseUp(with event: NSEvent) {
-    updateFrontTouch(with: event, pressed: false)
+    switch event.type {
+    case .leftMouseDown:
+      pointerIsDown = true
+      window?.makeFirstResponder(self)
+    case .leftMouseUp:
+      pointerIsDown = false
+    case .leftMouseDragged, .mouseMoved:
+      break
+    default:
+      return
+    }
+    updateFrontTouch(with: event, pressed: pointerIsDown)
   }
 
   private func updateFrontTouch(with event: NSEvent, pressed: Bool) {
@@ -229,6 +261,14 @@ private final class Vita3KMetalView: NSView {
       return
     }
     onFrontTouch?(point, pressed, bounds.contains(location))
+  }
+
+  private func removeEventMonitor() {
+    if let eventMonitor {
+      NSEvent.removeMonitor(eventMonitor)
+      self.eventMonitor = nil
+    }
+    pointerIsDown = false
   }
 }
 

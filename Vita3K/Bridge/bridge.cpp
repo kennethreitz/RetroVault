@@ -333,14 +333,44 @@ int retrovault_vita3k_run(
                 false, std::memory_order_acq_rel))
             refresh_controllers(engine->emuenv->ctrl, *engine->emuenv);
         auto &touch = engine->emuenv->touch;
-        touch.mouse_x = engine->touch_x.load(std::memory_order_relaxed)
+        const auto normalized_x = std::clamp(
+            engine->touch_x.load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const auto normalized_y = std::clamp(
+            engine->touch_y.load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const auto drawable_x = normalized_x
             * engine->emuenv->display.viewport_drawable_w;
-        touch.mouse_y = engine->touch_y.load(std::memory_order_relaxed)
+        const auto drawable_y = normalized_y
             * engine->emuenv->display.viewport_drawable_h;
-        touch.mouse_button_left = engine->touch_pressed.load(
+        const bool pointer_active = engine->touch_active.load(
             std::memory_order_acquire);
-        touch.renderer_focused = engine->touch_active.load(
+        const bool pointer_pressed = engine->touch_pressed.load(
             std::memory_order_acquire);
+        const bool inside_viewport =
+            drawable_x >= engine->emuenv->display.viewport_x
+            && drawable_y >= engine->emuenv->display.viewport_y
+            && drawable_x < engine->emuenv->display.viewport_x
+                + engine->emuenv->display.viewport_w
+            && drawable_y < engine->emuenv->display.viewport_y
+                + engine->emuenv->display.viewport_h;
+
+        touch.mouse_x = drawable_x;
+        touch.mouse_y = drawable_y;
+        touch.mouse_button_left = pointer_pressed;
+        touch.renderer_focused = pointer_active;
+
+        // Feed the same pointer through Vita3K's real touchscreen path. This
+        // does not depend on its desktop mouse-focus fallback and ensures a
+        // short macOS click is sampled as a Vita front-screen finger.
+        if (pointer_active && pointer_pressed && inside_viewport) {
+            touch.finger_buffer[0] = {};
+            touch.finger_buffer[0].x = normalized_x;
+            touch.finger_buffer[0].y = normalized_y;
+            touch.finger_buffer[0].touchID = 1;
+            touch.finger_count = 1;
+            touch.is_touchpad = false;
+        } else {
+            touch.finger_count = 0;
+        }
         app::update_runtime_metrics(*engine->emuenv, metrics);
         SDL_Delay(8);
     }
