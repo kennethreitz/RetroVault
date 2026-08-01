@@ -82,6 +82,8 @@ struct BigPictureView: View {
   @State private var playbackTask: Task<Void, Never>?
   @State private var exitTask: Task<Void, Never>?
   @State private var fullScreenEscapeTask: Task<Void, Never>?
+  @State private var sortTask: Task<Void, Never>?
+  @State private var sortGeneration = 0
   @State private var isLoadingGameDetails = false
   @State private var playbackErrorMessage: String?
   @State private var requestedGame: GameSummary?
@@ -156,6 +158,7 @@ struct BigPictureView: View {
       playbackTask?.cancel()
       exitTask?.cancel()
       fullScreenEscapeTask?.cancel()
+      sortTask?.cancel()
     }
   }
 
@@ -1369,27 +1372,93 @@ struct BigPictureView: View {
   }
 
   private func cycleSystemGameSort() {
-    guard isSortableGameList else {
+    guard case .games(let scope) = page, isSortableGameList else {
       return
     }
 
     let selectedGameID = selectedGame?.id
     systemGameSortRawValue = systemGameSort.next.rawValue
-    rows = makeRows(for: page, catalog: catalog)
+    prepareSortedRows(
+      for: scope,
+      preservingGameID: selectedGameID,
+      fallbackIndex: selectedIndex
+    )
+  }
 
-    if
-      let selectedGameID,
-      let index = rows.firstIndex(where: { row in
-        row.id == .game(selectedGameID)
-      })
-    {
-      selectedIndex = index
-      scrollTargetID = rows[index].id
-    } else {
-      selectedIndex = min(selectedIndex, max(rows.count - 1, 0))
-      scrollTargetID = rows.indices.contains(selectedIndex)
-        ? rows[selectedIndex].id
+  /// Prepares a potentially large game list away from the main actor, then
+  /// replaces the visible rows in one pass. The existing rows stay interactive
+  /// while sorting, so cycling a sort never blanks or incrementally rebuilds
+  /// the menu.
+  private func prepareSortedRows(
+    for scope: BigPictureScope,
+    preservingGameID selectedGameID: Int?,
+    fallbackIndex: Int
+  ) {
+    let games = catalog.games(in: scope)
+    let downloadedGameIDs = model.downloadedGameIDs
+    let favoriteGameIDs = catalog.favoriteGameIDs
+    let sort = systemGameSort
+
+    sortTask?.cancel()
+    sortGeneration += 1
+    let generation = sortGeneration
+
+    sortTask = Task {
+      let preparedRows = await Task.detached(priority: .userInitiated) {
+        let sortedGames = sort.sorted(
+          games,
+          downloadedGameIDs: downloadedGameIDs,
+          favoriteGameIDs: favoriteGameIDs
+        )
+        return Self.gameRows(
+          for: sortedGames,
+          downloadedGameIDs: downloadedGameIDs,
+          favoriteGameIDs: favoriteGameIDs
+        )
+      }.value
+
+      guard
+        !Task.isCancelled,
+        generation == sortGeneration,
+        page == .games(scope),
+        systemGameSort == sort
+      else {
+        return
+      }
+
+      rows = preparedRows
+      if
+        let selectedGameID,
+        let index = preparedRows.firstIndex(where: {
+          $0.id == .game(selectedGameID)
+        })
+      {
+        selectedIndex = index
+      } else {
+        selectedIndex = min(fallbackIndex, max(preparedRows.count - 1, 0))
+      }
+      scrollTargetID = preparedRows.indices.contains(selectedIndex)
+        ? preparedRows[selectedIndex].id
         : nil
+    }
+  }
+
+  nonisolated private static func gameRows(
+    for games: [GameSummary],
+    downloadedGameIDs: Set<Int>,
+    favoriteGameIDs: Set<Int>
+  ) -> [BigPictureRow] {
+    games.map { game in
+      BigPictureRow(
+        id: .game(game.id),
+        title: game.name,
+        detail: BigPictureGameRowPresentation.detail(
+          releaseYear: game.releaseYear,
+          isDownloaded: downloadedGameIDs.contains(game.id)
+        ),
+        isFavorite: favoriteGameIDs.contains(game.id),
+        action: .play(game)
+      )
     }
   }
 
@@ -1507,6 +1576,8 @@ struct BigPictureView: View {
   }
 
   private func publishCatalog(_ preparedCatalog: BigPictureCatalog) {
+    sortTask?.cancel()
+    sortGeneration += 1
     let selectedRowID =
       rows.indices.contains(selectedIndex)
       ? rows[selectedIndex].id
@@ -2648,7 +2719,7 @@ enum BigPictureVideoEffectPolicy {
   }
 }
 
-private enum BigPicturePage: Hashable {
+private enum BigPicturePage: Hashable, Sendable {
   case home
   case collections
   case saveCenter
@@ -2940,8 +3011,8 @@ enum BigPictureTypeSelection {
   }
 }
 
-private struct BigPictureRow: Identifiable {
-  enum ID: Hashable {
+private struct BigPictureRow: Identifiable, Sendable {
+  enum ID: Hashable, Sendable {
     case home(String)
     case system(Int)
     case collection(LibraryCollection.ID)
@@ -2949,7 +3020,7 @@ private struct BigPictureRow: Identifiable {
     case game(Int)
   }
 
-  enum Action {
+  enum Action: Sendable {
     case navigate(BigPicturePage)
     case play(GameSummary)
     case synchronizeSave(Int)
