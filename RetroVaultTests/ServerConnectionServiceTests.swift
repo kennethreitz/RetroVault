@@ -167,6 +167,52 @@ struct LibraryTests {
         #expect(topLeft == .zero)
     }
 
+    @Test("Vita controller input preserves physical face-button positions")
+    func vitaControllerFaceButtons() {
+        let standard = Vita3KControllerInput.makeState(
+            snapshot: Vita3KControllerSnapshot(
+                buttonA: true,
+                buttonX: true
+            ),
+            layout: .standard
+        )
+        #expect(standard.buttons & 0x0000_4000 != 0) // Cross: bottom
+        #expect(standard.buttons & 0x0000_8000 != 0) // Square: left
+
+        let nintendo = Vita3KControllerInput.makeState(
+            snapshot: Vita3KControllerSnapshot(
+                buttonA: true,
+                buttonX: true
+            ),
+            layout: .nintendo
+        )
+        #expect(nintendo.buttons & 0x0000_2000 != 0) // Circle: right
+        #expect(nintendo.buttons & 0x0000_1000 != 0) // Triangle: top
+    }
+
+    @Test("Vita controller input maps extended controls and analog axes")
+    func vitaControllerExtendedInput() {
+        let state = Vita3KControllerInput.makeState(
+            snapshot: Vita3KControllerSnapshot(
+                up: true,
+                leftShoulder: true,
+                leftTrigger: true,
+                start: true,
+                leftStick: true,
+                leftX: 1.5,
+                leftY: -0.75
+            ),
+            layout: .standard
+        )
+        #expect(state.buttons & 0x0000_0010 != 0)
+        #expect(state.buttons & 0x0000_0100 != 0)
+        #expect(state.extendedButtons & 0x0000_0400 != 0)
+        #expect(state.extendedButtons & 0x0000_0100 != 0)
+        #expect(state.extendedButtons & 0x0000_000A == 0x0000_000A)
+        #expect(state.leftX == 1)
+        #expect(state.leftY == -0.75)
+    }
+
     @Test("Persists RomM Favorites membership in the offline snapshot")
     func persistsFavoriteMembership() async throws {
         let token = try ClientToken(

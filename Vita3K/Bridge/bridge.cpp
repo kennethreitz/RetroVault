@@ -7,6 +7,7 @@
 #include "archive.h"
 #include <config/functions.h>
 #include <ctrl/functions.h>
+#include <ctrl/state.h>
 #include <display/state.h>
 #include <modules/module_parent.h>
 #include <packages/functions.h>
@@ -411,6 +412,28 @@ void retrovault_vita3k_set_front_touch(
     engine->touch_y.store(normalized_y, std::memory_order_relaxed);
     engine->touch_pressed.store(pressed != 0, std::memory_order_release);
     engine->touch_active.store(active != 0, std::memory_order_release);
+}
+
+void retrovault_vita3k_set_controller(
+    void *opaque_engine,
+    uint32_t buttons,
+    uint32_t extended_buttons,
+    float left_x,
+    float left_y,
+    float right_x,
+    float right_y) {
+    auto *engine = static_cast<RetroVaultVita3KEngine *>(opaque_engine);
+    if (!engine || !engine->emuenv)
+        return;
+
+    const std::lock_guard lock(engine->emuenv->ctrl.mutex);
+    auto &state = engine->emuenv->ctrl.keyboard_state;
+    state.buttons = buttons;
+    state.buttons_ext = extended_buttons;
+    state.axes[0] = std::clamp(left_x, -1.0f, 1.0f);
+    state.axes[1] = std::clamp(left_y, -1.0f, 1.0f);
+    state.axes[2] = std::clamp(right_x, -1.0f, 1.0f);
+    state.axes[3] = std::clamp(right_y, -1.0f, 1.0f);
 }
 
 void retrovault_vita3k_resize(

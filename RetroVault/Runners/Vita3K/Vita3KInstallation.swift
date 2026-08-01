@@ -130,6 +130,9 @@ final class Vita3KBridge: @unchecked Sendable {
   typealias SetFrontTouch = @convention(c) (
     UnsafeMutableRawPointer?, Float, Float, Int32, Int32
   ) -> Void
+  typealias SetController = @convention(c) (
+    UnsafeMutableRawPointer?, UInt32, UInt32, Float, Float, Float, Float
+  ) -> Void
   typealias Stop = @convention(c) (UnsafeMutableRawPointer?) -> Void
   typealias LastError = @convention(c) (
     UnsafeMutableRawPointer?
@@ -146,6 +149,7 @@ final class Vita3KBridge: @unchecked Sendable {
   private let resizeFunction: Resize
   private let pumpEventsFunction: PumpEvents
   private let setFrontTouchFunction: SetFrontTouch
+  private let setControllerFunction: SetController
   private let stopFunction: Stop
   private let lastErrorFunction: LastError
 
@@ -195,6 +199,10 @@ final class Vita3KBridge: @unchecked Sendable {
       setFrontTouchFunction = try symbol(
         "retrovault_vita3k_set_front_touch",
         as: SetFrontTouch.self
+      )
+      setControllerFunction = try symbol(
+        "retrovault_vita3k_set_controller",
+        as: SetController.self
       )
       stopFunction = try symbol("retrovault_vita3k_stop", as: Stop.self)
       lastErrorFunction = try symbol(
@@ -303,6 +311,22 @@ final class Vita3KBridge: @unchecked Sendable {
       Float(point.y),
       pressed ? 1 : 0,
       active ? 1 : 0
+    )
+  }
+
+  /// Replaces Vita3K's virtual controller state with the latest state read by
+  /// RetroVault. This keeps DSU and GameController behavior consistent with
+  /// the rest of the app instead of depending on the engine's private SDL
+  /// controller discovery.
+  func setController(_ state: Vita3KControllerState) {
+    setControllerFunction(
+      engine,
+      state.buttons,
+      state.extendedButtons,
+      state.leftX,
+      state.leftY,
+      state.rightX,
+      state.rightY
     )
   }
 
