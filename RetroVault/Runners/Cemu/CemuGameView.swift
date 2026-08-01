@@ -106,12 +106,20 @@ private final class CemuPlayerCoordinator {
 
       let configuration = NSWorkspace.OpenConfiguration()
       configuration.arguments = [
-        "--game", request.contentURL.path,
-        "--mlc", request.saveSync.localSaveURL.path,
-        "--fullscreen",
+        "-g", request.contentURL.path,
+        "-m", request.saveSync.localSaveURL.path,
+        "-f",
       ]
+      // LaunchServices otherwise reuses an existing Cemu process. Cemu only
+      // parses game arguments at process startup, so reuse opens its empty game
+      // list instead of the selected title.
+      configuration.createsNewApplicationInstance = true
       configuration.activates = true
       configuration.addsToRecentItems = false
+
+      RetroVaultLog.cemu.notice(
+        "Launching Cemu for game \(request.gameID, privacy: .public) with content \(request.contentURL.path, privacy: .public)"
+      )
 
       let application = try await NSWorkspace.shared.openApplication(
         at: runtime.applicationURL,
