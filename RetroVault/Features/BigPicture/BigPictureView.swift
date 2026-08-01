@@ -1056,6 +1056,13 @@ struct BigPictureView: View {
           action: .navigate(.games(.recentlyAdded))
         ),
         BigPictureRow(
+          id: .home("all-games"),
+          title: "All Games",
+          detail: catalog.allGames.count.formatted(),
+          isFavorite: false,
+          action: .navigate(.games(.all))
+        ),
+        BigPictureRow(
           id: .home("favorites"),
           title: "Favorites",
           detail: catalog.favoriteGames.count.formatted(),

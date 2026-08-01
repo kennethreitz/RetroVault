@@ -840,12 +840,15 @@ struct BigPictureCatalogTests {
         "Super Nintendo Entertainment System",
       ])
     #expect(catalog.recentlyAddedGames.map(\.id) == [2, 1, 3])
+    #expect(catalog.allGames.map(\.id) == [2, 3, 1])
+    #expect(catalog.games(in: .all).map(\.id) == [2, 3, 1])
     #expect(catalog.favoriteGames.map(\.id) == [1])
     #expect(catalog.downloadedGames.map(\.id) == [3])
     #expect(catalog.games(in: .favorites).map(\.id) == [1])
     #expect(catalog.games(in: .system(1)).map(\.id) == [1, 2])
     #expect(catalog.games(in: .collection(collectionID)).map(\.id) == [2, 1])
     #expect(catalog.favoriteGameIDs == [1])
+    #expect(catalog.title(for: .all) == "All Games")
     #expect(catalog.title(for: .favorites) == "Favorites")
     #expect(catalog.title(for: .collection(collectionID)) == "Mario")
   }
@@ -916,6 +919,7 @@ struct BigPictureCatalogTests {
     )
 
     #expect(catalog.systems.map(\.id) == [1])
+    #expect(catalog.games(in: .all).map(\.id) == [3, 2, 1])
     #expect(catalog.games(in: .system(1)).map(\.id) == [1, 3, 2])
     #expect(catalog.games(in: .collection(collectionID)).map(\.id) == [3, 2])
     #expect(catalog.games(in: .downloadedSystem(1)).map(\.id) == [3, 2])

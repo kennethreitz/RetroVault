@@ -11,6 +11,7 @@ struct BigPictureLibrarySource: Sendable {
 }
 
 enum BigPictureScope: Hashable, Sendable {
+  case all
   case recentlyAdded
   case recentlyPlayed
   case favorites
@@ -47,6 +48,7 @@ struct BigPictureCatalog: Sendable {
   let synchronizedAt: Date?
   let systems: [LibrarySystem]
   let collections: [LibraryCollection]
+  let allGames: [GameSummary]
   let recentlyAddedGames: [GameSummary]
   let recentlyPlayedGames: [GameSummary]
   let favoriteGames: [GameSummary]
@@ -168,6 +170,7 @@ struct BigPictureCatalog: Sendable {
       )
       gamesByCollection = [:]
     }
+    allGames = alphabeticalGames
 
     let downloaded = alphabeticalGames.filter {
       source.downloadedGameIDs.contains($0.id)
@@ -205,6 +208,8 @@ struct BigPictureCatalog: Sendable {
 
   func games(in scope: BigPictureScope) -> [GameSummary] {
     switch scope {
+    case .all:
+      isFullyPrepared ? allGames : Self.alphabeticallySorted(allGames)
     case .recentlyAdded:
       recentlyAddedGames
     case .recentlyPlayed:
@@ -228,6 +233,8 @@ struct BigPictureCatalog: Sendable {
 
   func title(for scope: BigPictureScope) -> String {
     switch scope {
+    case .all:
+      "All Games"
     case .recentlyAdded:
       "Recently Added"
     case .recentlyPlayed:
