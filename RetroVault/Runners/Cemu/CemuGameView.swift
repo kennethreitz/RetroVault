@@ -155,6 +155,9 @@ private final class CemuPlayerCoordinator {
         }
       }
     } catch {
+      RetroVaultLog.cemu.error(
+        "Could not prepare or launch Cemu for game \(request.gameID, privacy: .public): \(error.localizedDescription, privacy: .public)"
+      )
       status = .failed(error.localizedDescription)
     }
   }

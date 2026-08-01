@@ -1,4 +1,5 @@
 @preconcurrency import AppKit
+import Darwin
 import Foundation
 
 /// Locates and prepares the Cemu companion application used for Wii U games.
@@ -52,9 +53,17 @@ struct CemuInstallation: Sendable {
   }
 
   private static func isUsableApplication(at url: URL) -> Bool {
-    FileManager.default.isExecutableFile(
-      atPath: executableURL(in: url).path
-    )
+    let executableURL = executableURL(in: url)
+    guard
+      let attributes = try? FileManager.default.attributesOfItem(
+        atPath: executableURL.path
+      ),
+      attributes[.type] as? FileAttributeType == .typeRegular,
+      let permissions = attributes[.posixPermissions] as? NSNumber
+    else {
+      return false
+    }
+    return permissions.intValue & 0o111 != 0
   }
 
   private static func executableURL(in applicationURL: URL) -> URL {
@@ -109,6 +118,7 @@ struct CemuInstallation: Sendable {
         at: sourceApplicationURL,
         to: stagedApplicationURL
       )
+      Self.removeQuarantineRecursively(at: stagedApplicationURL)
       if fileManager.fileExists(atPath: runtimeDirectory.path) {
         try fileManager.removeItem(at: runtimeDirectory)
       }
@@ -122,6 +132,12 @@ struct CemuInstallation: Sendable {
         encoding: .utf8
       )
     }
+
+    // FileManager adds a quarantine marker when a sandboxed app copies an
+    // executable bundle. The source companion is already part of RetroVault's
+    // signed bundle, so remove that inherited marker from our private copy.
+    // Do this on every launch to repair runtimes created by older builds.
+    Self.removeQuarantineRecursively(at: runtimeApplicationURL)
 
     guard Self.isUsableApplication(at: runtimeApplicationURL) else {
       throw CemuError.invalidInstallation
@@ -159,6 +175,25 @@ struct CemuInstallation: Sendable {
       as? String
       ?? bundle?.object(forInfoDictionaryKey: "CFBundleVersion") as? String
       ?? "unknown"
+  }
+
+  private static func removeQuarantineRecursively(at rootURL: URL) {
+    var urlsToRepair = [rootURL]
+    if let enumerator = FileManager.default.enumerator(
+      at: rootURL,
+      includingPropertiesForKeys: nil
+    ) {
+      for case let childURL as URL in enumerator {
+        urlsToRepair.append(childURL)
+      }
+    }
+
+    for urlToRepair in urlsToRepair {
+      urlToRepair.withUnsafeFileSystemRepresentation { path in
+        guard let path else { return }
+        _ = removexattr(path, "com.apple.quarantine", 0)
+      }
+    }
   }
 
   private func prepareSettings(in portableDirectory: URL) throws {
