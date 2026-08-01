@@ -5,6 +5,17 @@ This changelog records notable user-facing and architectural changes by the
 date they landed on the main branch. It is intentionally curated rather than
 being a list of every commit.
 
+## 2026-08-01
+
+### Added
+
+- Added a controller-first Save Center that combines RomM save availability
+  with RetroVault's local save inventory.
+- Added visible synchronized, upload-needed, RomM-only, and failed save states,
+  with manual conflict-safe reconciliation and retry.
+- Persisted failed save uploads so they remain visible after gameplay and
+  across app launches.
+
 ## 2026-07-31
 
 ### Added

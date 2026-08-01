@@ -1333,6 +1333,11 @@ struct LibraryTests {
             configuration.remoteSaveUpdatedAt
                 == Date(timeIntervalSince1970: 1_000)
         )
+        var localSaveRecords = await service.localSaveRecords(in: session)
+        #expect(localSaveRecords.count == 1)
+        #expect(localSaveRecords.first?.gameID == game.id)
+        #expect(localSaveRecords.first?.sizeBytes == Int64(importedData.count))
+        #expect(localSaveRecords.first?.needsUpload == false)
 
         #expect(
             try await service.syncCartridgeSaveAfterPlay(configuration)
@@ -1341,10 +1346,14 @@ struct LibraryTests {
         #expect(await api.uploadedSaves.isEmpty)
 
         try changedData.write(to: configuration.localSaveURL, options: .atomic)
+        localSaveRecords = await service.localSaveRecords(in: session)
+        #expect(localSaveRecords.first?.needsUpload == true)
         #expect(
             try await service.syncCartridgeSaveAfterPlay(configuration)
                 == .uploaded
         )
+        localSaveRecords = await service.localSaveRecords(in: session)
+        #expect(localSaveRecords.first?.needsUpload == false)
         #expect(await api.uploadedSaves == [changedData])
 
         #expect(

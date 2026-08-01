@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E10000000000000000000001 /* SaveCenterModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000001 /* SaveCenterModels.swift */; };
+		E10000000000000000000002 /* SaveCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* SaveCenterTests.swift */; };
 		A80000000000000000000002 /* BigPictureCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000002 /* BigPictureCatalog.swift */; };
 		A80000000000000000000001 /* BigPictureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000001 /* BigPictureView.swift */; };
 		A80000000000000000000003 /* BigPictureCRTShader.metal in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000003 /* BigPictureCRTShader.metal */; };
@@ -88,6 +90,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		F10000000000000000000001 /* SaveCenterModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SaveCenterModels.swift; sourceTree = "<group>"; };
+		F10000000000000000000002 /* SaveCenterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SaveCenterTests.swift; sourceTree = "<group>"; };
 		B80000000000000000000002 /* BigPictureCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BigPictureCatalog.swift; sourceTree = "<group>"; };
 		B80000000000000000000001 /* BigPictureView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BigPictureView.swift; sourceTree = "<group>"; };
 		B80000000000000000000003 /* BigPictureCRTShader.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = BigPictureCRTShader.metal; sourceTree = "<group>"; };
@@ -390,6 +394,7 @@
 				3040A5BD5E00216649E71C29 /* ClientToken.swift */,
 				B10000000000000000000001 /* GameDetailsModels.swift */,
 				D3F6FC33331B5533BFD83D93 /* LibraryModels.swift */,
+				F10000000000000000000001 /* SaveCenterModels.swift */,
 				A82F533028A891EA05B14D94 /* PairingCode.swift */,
 				78703ACD9FFA7196CE7A4676 /* RemoteServerConfiguration.swift */,
 				375D8CAB07FFA049DFF04051 /* RomMUser.swift */,
@@ -414,6 +419,7 @@
 				D00000000000000000000006 /* LibretroDSUInputTests.swift */,
 				7CE0812D0EFD1CE66AA1BF4E /* PairingValueTests.swift */,
 				B40000000000000000000004 /* SaveBundleArchiveTests.swift */,
+				F10000000000000000000002 /* SaveCenterTests.swift */,
 				A3C9E07B1356C2C0E592CE86 /* ServerConnectionServiceTests.swift */,
 				D00000000000000000000007 /* ServerReachabilityTests.swift */,
 				A21459D026178CE9B0974A8E /* ServerURLTests.swift */,
@@ -607,6 +613,7 @@
 				259E8DB9776D33F818A7B4D8 /* ClientToken.swift in Sources */,
 				A10000000000000000000001 /* GameDetailsModels.swift in Sources */,
 				200C1AC3DF053D405EC0EE4B /* LibraryModels.swift in Sources */,
+				E10000000000000000000001 /* SaveCenterModels.swift in Sources */,
 				09AB210B6FCFB9F8B78F2845 /* PairingCode.swift in Sources */,
 				BB110F0FDC5BD76AE408B2A1 /* RemoteServerConfiguration.swift in Sources */,
 				1A4FF5C985C3BE4B06938EE2 /* RomMUser.swift in Sources */,
@@ -656,6 +663,7 @@
 				D0000000000000000000002E /* LibretroInternalResolutionTests.swift in Sources */,
 				FE03EEAF3465F1282D358BA8 /* PairingValueTests.swift in Sources */,
 				A40000000000000000000005 /* SaveBundleArchiveTests.swift in Sources */,
+				E10000000000000000000002 /* SaveCenterTests.swift in Sources */,
 				099606899B62ABB6D739ACF9 /* ServerConnectionServiceTests.swift in Sources */,
 				FFAD3767D2311D56DA00F120 /* ServerURLTests.swift in Sources */,
 			);

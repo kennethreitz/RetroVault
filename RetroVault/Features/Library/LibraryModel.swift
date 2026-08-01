@@ -206,6 +206,8 @@ final class LibraryModel {
   private(set) var managedDownloadedGameIDs: Set<Int> = []
   private(set) var localQuickStateGameIDs: Set<Int> = []
   private(set) var playHistory = LocalPlayHistory()
+  private(set) var saveCenterItems: [SaveCenterItem] = []
+  private(set) var saveCenterSyncingGameID: Int?
   private(set) var games: [GameSummary] = []
   private(set) var searchTerm = ""
   private(set) var searchesAllSystems = false
@@ -268,6 +270,7 @@ final class LibraryModel {
   private var prioritizedDownloadWaiters:
     [Int: [UUID: CheckedContinuation<PrioritizedGameDownloadResult, Never>]] = [:]
   private var snapshot: LibrarySnapshot?
+  private var saveCenterFailures: [Int: String] = [:]
 
   init(
     session: ServerSession,
@@ -388,6 +391,76 @@ final class LibraryModel {
     return sourceGames.filter {
       $0.systemID == systemID
         && (!hidesBIOSGames || !$0.isBIOS)
+    }
+  }
+
+  /// Rebuilds the local/remote save inventory without contacting RomM.
+  ///
+  /// The synchronized library summary supplies remote availability and the
+  /// service inspects RetroVault's server-scoped save directory. This keeps
+  /// opening Save Center fast and fully usable while offline.
+  func reloadSaveCenter() async {
+    let localRecords = await service.localSaveRecords(in: session)
+    saveCenterItems = SaveCenterCatalog.items(
+      games: bigPictureSource.games,
+      localRecords: localRecords,
+      failures: saveCenterFailures
+    )
+  }
+
+  /// Reconciles one save using the same conflict protection as game launch.
+  ///
+  /// A changed local save is uploaded. A remote-only or newer remote revision
+  /// is imported when it is safe to do so. Unsynchronized local data always
+  /// wins over a remote import.
+  func synchronizeSave(gameID: Int) async -> SaveCenterSyncResult {
+    guard saveCenterSyncingGameID == nil else {
+      return .unchanged
+    }
+    guard let game = bigPictureSource.games.first(where: { $0.id == gameID }) else {
+      return .failed(SaveCenterError.gameUnavailable.localizedDescription)
+    }
+
+    saveCenterSyncingGameID = gameID
+    defer { saveCenterSyncingGameID = nil }
+
+    do {
+      let details = try await transferableDetails(for: game)
+      guard
+        let installation = try? LibretroInstallation.bundled(),
+        let core = installation.compatibleCore(
+          systemName: details.systemName,
+          fileExtension: details.fileExtension,
+          archiveMemberNames: details.files.flatMap {
+            $0.archiveMembers.map(\.name)
+          },
+          contentFileNames: details.files.map(\.name),
+          includingExperimental:
+            LibretroCorePreferences.enablesExperimentalCores()
+        )
+      else {
+        throw SaveCenterError.unsupportedSystem(details.systemName)
+      }
+      guard
+        let configuration = try await service.prepareCartridgeSaveForPlay(
+          details,
+          in: session,
+          emulator: "RetroVault",
+          coreID: core.id,
+          allowsRemoteAccess: true
+        )
+      else {
+        throw SaveCenterError.saveUnavailable
+      }
+      let outcome = try await service.syncCartridgeSaveAfterPlay(configuration)
+      saveCenterFailures[gameID] = nil
+      await reloadSaveCenter()
+      return outcome == .uploaded ? .synchronized : .unchanged
+    } catch {
+      let message = error.localizedDescription
+      saveCenterFailures[gameID] = message
+      await reloadSaveCenter()
+      return .failed(message)
     }
   }
 

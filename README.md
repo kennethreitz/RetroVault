@@ -61,6 +61,8 @@ server library. **Download** keeps a managed copy for offline play;
   [Kenneth Reitz's switch2bridge-macos fork](https://github.com/kennethreitz/switch2bridge-macos).
 - Refreshes cartridge or memory-card saves before launch and uploads changed
   save data to RomM after play. Quick states remain local.
+- Provides a controller-first Save Center that inventories local and RomM save
+  data, surfaces pending or failed uploads, and retries synchronization on demand.
 - Shows live library-sync and bulk-download progress from the Select screen.
 
 ## Why preservation matters

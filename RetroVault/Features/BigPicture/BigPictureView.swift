@@ -124,6 +124,10 @@ struct BigPictureView: View {
     }
     .task {
       await model.load()
+      await model.reloadSaveCenter()
+      if page == .home || page == .saveCenter {
+        rows = makeRows(for: page, catalog: catalog)
+      }
     }
     .task(id: catalogKey) {
       await rebuildCatalog()
@@ -156,6 +160,8 @@ struct BigPictureView: View {
 
       if isPreparingPlayback {
         preparationOverlay
+      } else if let gameID = model.saveCenterSyncingGameID {
+        saveSynchronizationOverlay(gameID: gameID)
       } else if let playbackErrorMessage {
         errorOverlay(playbackErrorMessage)
       } else if let actionProgress, !actionProgress.isBackgrounded {
@@ -353,7 +359,12 @@ struct BigPictureView: View {
             activate(row)
           } label: {
             HStack(spacing: 16) {
-              if page.isGameList {
+              if page == .saveCenter, let item = saveCenterItem(for: row) {
+                Image(systemName: item.status.systemImage)
+                  .font(.system(size: 15, weight: .bold))
+                  .foregroundStyle(saveCenterStatusColor(item.status))
+                  .accessibilityLabel(item.status.title)
+              } else if page.isGameList {
                 Image(systemName: "star.fill")
                   .font(.system(size: 13, weight: .bold))
                   .foregroundStyle(.yellow)
@@ -520,7 +531,9 @@ struct BigPictureView: View {
           key: controllerState.activateButtonPrompt.label,
           systemImage: controllerState.activateButtonPrompt.systemImage,
           label:
-            selectedGame.map {
+            selectedSaveCenterItem != nil
+            ? "SYNC"
+            : selectedGame.map {
               BigPictureGameLaunchPresentation.primaryActionTitle(
                 hasSaveState: hasResumeState(for: $0)
               ).uppercased()
@@ -1047,6 +1060,13 @@ struct BigPictureView: View {
           action: .navigate(.games(.favorites))
         ),
         BigPictureRow(
+          id: .home("save-center"),
+          title: "Save Center",
+          detail: model.saveCenterItems.count.formatted(),
+          isFavorite: false,
+          action: .navigate(.saveCenter)
+        ),
+        BigPictureRow(
           id: .home("downloaded"),
           title: "Downloaded",
           detail: catalog.downloadedGames.count.formatted(),
@@ -1074,6 +1094,17 @@ struct BigPictureView: View {
             action: .navigate(.games(.system(system.id)))
           )
         }
+
+    case .saveCenter:
+      model.saveCenterItems.map { item in
+        BigPictureRow(
+          id: .save(item.id),
+          title: item.game.name,
+          detail: item.detail,
+          isFavorite: false,
+          action: .synchronizeSave(item.id)
+        )
+      }
 
     case .downloaded:
       [
@@ -1130,6 +1161,13 @@ struct BigPictureView: View {
       return game
     }
     return nil
+  }
+
+  private var selectedSaveCenterItem: SaveCenterItem? {
+    guard page == .saveCenter, rows.indices.contains(selectedIndex) else {
+      return nil
+    }
+    return saveCenterItem(for: rows[selectedIndex])
   }
 
   private var selectedSystem: LibrarySystem? {
@@ -1294,6 +1332,8 @@ struct BigPictureView: View {
       "RetroVault"
     case .collections:
       "Collections"
+    case .saveCenter:
+      "Save Center"
     case .downloaded:
       "Downloaded"
     case .games(let scope):
@@ -1307,6 +1347,8 @@ struct BigPictureView: View {
       "BIG PICTURE"
     case .collections:
       "\(catalog.collections.count.formatted()) ROMM COLLECTIONS"
+    case .saveCenter:
+      "\(model.saveCenterItems.count.formatted()) SAVED GAMES"
     case .downloaded:
       "\(catalog.downloadedSystems.count.formatted()) SYSTEMS"
     case .games(let scope):
@@ -1318,7 +1360,7 @@ struct BigPictureView: View {
     switch page {
     case .home:
       31
-    case .collections, .downloaded, .games:
+    case .collections, .saveCenter, .downloaded, .games:
       25
     }
   }
@@ -1609,11 +1651,99 @@ struct BigPictureView: View {
       rows = makeRows(for: destination, catalog: catalog)
       selectedIndex = 0
       scrollTargetID = rows.first?.id
+      if destination == .saveCenter {
+        Task {
+          await model.reloadSaveCenter()
+          guard page == .saveCenter else {
+            return
+          }
+          rows = makeRows(for: page, catalog: catalog)
+          selectedIndex = min(selectedIndex, max(rows.count - 1, 0))
+          scrollTargetID = rows.indices.contains(selectedIndex)
+            ? rows[selectedIndex].id
+            : nil
+        }
+      }
     case .play(let game):
       play(game)
+    case .synchronizeSave(let gameID):
+      synchronizeSave(gameID: gameID)
     case .downloadSystemQueue:
       downloadQueuedSystems()
     }
+  }
+
+  private func synchronizeSave(gameID: Int) {
+    Task {
+      let result = await model.synchronizeSave(gameID: gameID)
+      rows = makeRows(for: page, catalog: catalog)
+      switch result {
+      case .synchronized:
+        actionNotice = BigPictureActionNotice(
+          title: "Save Uploaded",
+          message: "The latest local save is now stored in RomM.",
+          systemImage: "checkmark.icloud.fill"
+        )
+      case .unchanged:
+        actionNotice = BigPictureActionNotice(
+          title: "Save Synchronized",
+          message: "The local save and RomM are already reconciled.",
+          systemImage: "checkmark.circle.fill"
+        )
+      case .failed(let message):
+        actionNotice = BigPictureActionNotice(
+          title: "Save Sync Failed",
+          message: message,
+          systemImage: "exclamationmark.triangle.fill"
+        )
+      }
+    }
+  }
+
+  private func saveCenterItem(for row: BigPictureRow) -> SaveCenterItem? {
+    guard case .save(let gameID) = row.id else {
+      return nil
+    }
+    return model.saveCenterItems.first { $0.id == gameID }
+  }
+
+  private func saveCenterStatusColor(_ status: SaveCenterStatus) -> Color {
+    switch status {
+    case .synchronized:
+      .green
+    case .uploadPending:
+      .yellow
+    case .remoteOnly:
+      .cyan
+    case .failed:
+      .red
+    }
+  }
+
+  private func saveSynchronizationOverlay(gameID: Int) -> some View {
+    VStack(spacing: 20) {
+      ProgressView()
+        .controlSize(.large)
+        .tint(.white)
+
+      Text("SYNCHRONIZING SAVE")
+        .font(.system(size: 22, weight: .black, design: .rounded))
+
+      if let game = model.saveCenterItems.first(where: { $0.id == gameID })?.game {
+        Text(game.name)
+          .font(.system(size: 16, weight: .bold, design: .rounded))
+          .foregroundStyle(.white.opacity(0.58))
+          .lineLimit(1)
+      }
+    }
+    .padding(38)
+    .frame(minWidth: 460)
+    .background(.black.opacity(0.97), in: RoundedRectangle(cornerRadius: 28))
+    .overlay {
+      RoundedRectangle(cornerRadius: 28)
+        .stroke(.white.opacity(0.2), lineWidth: 1)
+    }
+    .shadow(color: .black.opacity(0.85), radius: 55)
   }
 
   /// Boots the selected game without restoring its quick state.
@@ -2286,6 +2416,10 @@ struct BigPictureView: View {
 
     Task { @MainActor in
       await model.reloadLocalQuickStates()
+      await model.reloadSaveCenter()
+      if page == .home || page == .saveCenter {
+        rows = makeRows(for: page, catalog: catalog)
+      }
       await Task.yield()
       hasInterfaceFocus = true
       bigPictureWindow?.makeKeyAndOrderFront(nil)
@@ -2418,6 +2552,7 @@ enum BigPictureVideoEffectPolicy {
 private enum BigPicturePage: Hashable {
   case home
   case collections
+  case saveCenter
   /// The systems that have something downloaded, browsed before the games.
   case downloaded
   case games(BigPictureScope)
@@ -2589,12 +2724,14 @@ private struct BigPictureRow: Identifiable {
     case home(String)
     case system(Int)
     case collection(LibraryCollection.ID)
+    case save(Int)
     case game(Int)
   }
 
   enum Action {
     case navigate(BigPicturePage)
     case play(GameSummary)
+    case synchronizeSave(Int)
     case downloadSystemQueue
   }
 

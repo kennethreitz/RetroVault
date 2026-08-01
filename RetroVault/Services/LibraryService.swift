@@ -120,6 +120,7 @@ protocol LibraryServing: Sendable {
   func syncCartridgeSaveAfterPlay(
     _ configuration: CartridgeSaveSyncConfiguration
   ) async throws -> CartridgeSaveSyncOutcome
+  func localSaveRecords(in session: ServerSession) async -> [LocalSaveRecord]
   func resourceRequest(for url: URL?, in session: ServerSession) async throws -> URLRequest?
 }
 
@@ -292,6 +293,10 @@ extension LibraryServing {
     _ configuration: CartridgeSaveSyncConfiguration
   ) async throws -> CartridgeSaveSyncOutcome {
     .unchanged
+  }
+
+  func localSaveRecords(in session: ServerSession) async -> [LocalSaveRecord] {
+    []
   }
 
 }
@@ -1965,6 +1970,7 @@ actor RomMLibraryService: LibraryServing {
           ),
           for: localSaveURL
         )
+        clearSaveSyncFailure(for: localSaveURL)
         RetroVaultLog.libretro.notice(
           "Imported RomM cartridge save \(save.id, privacy: .public) for game \(game.id, privacy: .public)"
         )
@@ -2021,12 +2027,17 @@ actor RomMLibraryService: LibraryServing {
         data = bundleData
       }
     } catch {
-      throw LibraryServiceError.couldNotSyncSave(reason: error.localizedDescription)
+      let syncError = LibraryServiceError.couldNotSyncSave(
+        reason: error.localizedDescription
+      )
+      recordSaveSyncFailure(syncError.localizedDescription, for: configuration.localSaveURL)
+      throw syncError
     }
     let previousMetadata = loadSaveSyncMetadata(
       for: configuration.localSaveURL
     )
     guard previousMetadata?.localContentHash != localHash else {
+      clearSaveSyncFailure(for: configuration.localSaveURL)
       return .unchanged
     }
 
@@ -2043,9 +2054,15 @@ actor RomMLibraryService: LibraryServing {
         token: token
       )
     } catch RomMAPIError.forbidden {
-      throw LibraryServiceError.saveSyncWritePermissionRequired
+      let syncError = LibraryServiceError.saveSyncWritePermissionRequired
+      recordSaveSyncFailure(syncError.localizedDescription, for: configuration.localSaveURL)
+      throw syncError
     } catch {
-      throw LibraryServiceError.couldNotSyncSave(reason: error.localizedDescription)
+      let syncError = LibraryServiceError.couldNotSyncSave(
+        reason: error.localizedDescription
+      )
+      recordSaveSyncFailure(syncError.localizedDescription, for: configuration.localSaveURL)
+      throw syncError
     }
 
     do {
@@ -2077,7 +2094,90 @@ actor RomMLibraryService: LibraryServing {
     RetroVaultLog.libretro.notice(
       "Uploaded cartridge save \(uploadedSave.id, privacy: .public) for game \(configuration.gameID, privacy: .public)"
     )
+    clearSaveSyncFailure(for: configuration.localSaveURL)
     return .uploaded
+  }
+
+  func localSaveRecords(in session: ServerSession) async -> [LocalSaveRecord] {
+    let serverDirectory = saveDirectory.appending(
+      path: serverKey(for: session),
+      directoryHint: .isDirectory
+    )
+    let resourceKeys: Set<URLResourceKey> = [
+      .isDirectoryKey,
+      .isRegularFileKey,
+      .fileSizeKey,
+      .contentModificationDateKey,
+    ]
+    guard
+      let gameDirectories = try? FileManager.default.contentsOfDirectory(
+        at: serverDirectory,
+        includingPropertiesForKeys: Array(resourceKeys),
+        options: [.skipsHiddenFiles]
+      )
+    else {
+      return []
+    }
+
+    return gameDirectories.compactMap { gameDirectory in
+      guard
+        let gameID = Int(gameDirectory.lastPathComponent),
+        (try? gameDirectory.resourceValues(forKeys: resourceKeys).isDirectory)
+          == true
+      else {
+        return nil
+      }
+
+      let saveRAMURL = gameDirectory.appending(path: "SaveRAM.srm")
+      let directoryBundleURL = gameDirectory.appending(
+        path: "PPSSPP",
+        directoryHint: .isDirectory
+      )
+      let storage: CartridgeSaveSyncConfiguration.Storage
+      let localSaveURL: URL
+      if containsRegularFile(in: directoryBundleURL) {
+        storage = .directoryBundle
+        localSaveURL = directoryBundleURL
+      } else if FileManager.default.fileExists(atPath: saveRAMURL.path),
+        (try? saveRAMURL.resourceValues(forKeys: resourceKeys).isRegularFile)
+          == true
+      {
+        storage = .saveRAM
+        localSaveURL = saveRAMURL
+      } else {
+        return nil
+      }
+
+      let inventory = localSaveInventory(
+        at: localSaveURL,
+        storage: storage,
+        resourceKeys: resourceKeys
+      )
+      guard inventory.sizeBytes > 0 else {
+        return nil
+      }
+      let configuration = CartridgeSaveSyncConfiguration(
+        serverURL: session.serverURL,
+        gameID: gameID,
+        localSaveURL: localSaveURL,
+        uploadFileName: "",
+        emulator: "RetroVault",
+        slot: "autosave",
+        storage: storage
+      )
+      let localHash = saveContentHash(for: configuration)
+      let metadata = loadSaveSyncMetadata(for: localSaveURL)
+      return LocalSaveRecord(
+        gameID: gameID,
+        storage: storage,
+        sizeBytes: inventory.sizeBytes,
+        modifiedAt: inventory.modifiedAt,
+        lastSynchronizedAt: metadata?.remoteUpdatedAt,
+        needsUpload:
+          localHash != nil && metadata?.localContentHash != localHash,
+        failureMessage: loadSaveSyncFailure(for: localSaveURL)?.message
+      )
+    }
   }
 
   func resourceRequest(for url: URL?, in session: ServerSession) async throws -> URLRequest? {
@@ -2430,6 +2530,47 @@ actor RomMLibraryService: LibraryServing {
     }
   }
 
+  private func localSaveInventory(
+    at url: URL,
+    storage: CartridgeSaveSyncConfiguration.Storage,
+    resourceKeys: Set<URLResourceKey>
+  ) -> (sizeBytes: Int64, modifiedAt: Date?) {
+    switch storage {
+    case .saveRAM:
+      guard let values = try? url.resourceValues(forKeys: resourceKeys) else {
+        return (0, nil)
+      }
+      return (Int64(values.fileSize ?? 0), values.contentModificationDate)
+    case .directoryBundle:
+      guard
+        let enumerator = FileManager.default.enumerator(
+          at: url,
+          includingPropertiesForKeys: Array(resourceKeys),
+          options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        )
+      else {
+        return (0, nil)
+      }
+      var sizeBytes: Int64 = 0
+      var modifiedAt: Date?
+      for case let child as URL in enumerator {
+        guard
+          let values = try? child.resourceValues(forKeys: resourceKeys),
+          values.isRegularFile == true
+        else {
+          continue
+        }
+        sizeBytes += Int64(values.fileSize ?? 0)
+        if let date = values.contentModificationDate,
+          modifiedAt.map({ date > $0 }) ?? true
+        {
+          modifiedAt = date
+        }
+      }
+      return (sizeBytes, modifiedAt)
+    }
+  }
+
   private func loadSaveSyncMetadata(
     for localSaveURL: URL
   ) -> CartridgeSaveSyncMetadata? {
@@ -2454,6 +2595,36 @@ actor RomMLibraryService: LibraryServing {
 
   private func saveSyncMetadataURL(for localSaveURL: URL) -> URL {
     localSaveURL.deletingLastPathComponent().appending(path: "Sync.json")
+  }
+
+  private func saveSyncFailureURL(for localSaveURL: URL) -> URL {
+    localSaveURL.deletingLastPathComponent().appending(path: "SyncFailure.json")
+  }
+
+  private func loadSaveSyncFailure(
+    for localSaveURL: URL
+  ) -> SaveSyncFailureMetadata? {
+    guard
+      let data = try? Data(contentsOf: saveSyncFailureURL(for: localSaveURL))
+    else {
+      return nil
+    }
+    return try? JSONDecoder().decode(SaveSyncFailureMetadata.self, from: data)
+  }
+
+  private func recordSaveSyncFailure(_ message: String, for localSaveURL: URL) {
+    let metadata = SaveSyncFailureMetadata(message: message, failedAt: now())
+    guard let data = try? JSONEncoder().encode(metadata) else {
+      return
+    }
+    try? data.write(
+      to: saveSyncFailureURL(for: localSaveURL),
+      options: .atomic
+    )
+  }
+
+  private func clearSaveSyncFailure(for localSaveURL: URL) {
+    try? FileManager.default.removeItem(at: saveSyncFailureURL(for: localSaveURL))
   }
 
   private func storedGameURL(
@@ -2925,6 +3096,11 @@ private struct CartridgeSaveSyncMetadata: Codable {
   let remoteSaveID: Int
   let remoteContentHash: String?
   let remoteUpdatedAt: Date?
+}
+
+private struct SaveSyncFailureMetadata: Codable {
+  let message: String
+  let failedAt: Date
 }
 
 extension Notification.Name {
