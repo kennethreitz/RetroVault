@@ -82,6 +82,7 @@ struct BigPictureView: View {
   @State private var requestedGame: GameSummary?
   @State private var requestedGameStartsFresh = false
   @State private var activePlayerRequest: LibretroRunRequest?
+  @State private var activeVita3KRequest: Vita3KRunRequest?
   @State private var optionsGame: GameSummary?
   @State private var optionsSystem: LibrarySystem?
   @State private var selectedGameOptionIndex = 0
@@ -96,7 +97,14 @@ struct BigPictureView: View {
 
   var body: some View {
     ZStack {
-      if let activePlayerRequest {
+      if let activeVita3KRequest {
+        Vita3KGameView(
+          request: activeVita3KRequest,
+          onCloseRequested: returnToBigPicture
+        )
+        .id(activeVita3KRequest)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else if let activePlayerRequest {
         LibretroGameView(
           request: activePlayerRequest,
           service: model.service,
@@ -115,7 +123,8 @@ struct BigPictureView: View {
     }
     .background {
       BigPictureWindowProbe(
-        isPlaybackActive: activePlayerRequest != nil,
+        isPlaybackActive:
+          activePlayerRequest != nil || activeVita3KRequest != nil,
         opensInFullScreen: opensInFullScreen,
         onBackspaceRequested: handleEscape
       ) { window in
@@ -2352,6 +2361,35 @@ struct BigPictureView: View {
         finishPlaybackPreparation(keepingError: true)
         return
       }
+      if Vita3KInstallation.supports(
+        systemName: details.systemName,
+        includingExperimental: enablesExperimentalCores
+      ) {
+        guard
+          let request = await detailsModel.prepareForVita3K(
+            details,
+            synchronizesWithServer: model.isServerReachable
+          )
+        else {
+          guard !Task.isCancelled else {
+            finishPlaybackPreparation()
+            return
+          }
+          playbackErrorMessage =
+            detailsModel.playbackErrorMessage
+            ?? "RetroVault could not prepare this Vita archive."
+          finishPlaybackPreparation(keepingError: true)
+          return
+        }
+
+        model.recordManagedDownload(gameID: game.id)
+        await model.reloadDownloadedGames(reconcilingDuringDownloads: true)
+        await model.recordPlay(gameID: game.id)
+        activeVita3KRequest = request
+        finishPlaybackPreparation()
+        return
+      }
+
       guard
         let request = await detailsModel.prepareToPlay(
           details,
@@ -2388,10 +2426,11 @@ struct BigPictureView: View {
   }
 
   private func returnToBigPicture() {
-    guard activePlayerRequest != nil else {
+    guard activePlayerRequest != nil || activeVita3KRequest != nil else {
       return
     }
     activePlayerRequest = nil
+    activeVita3KRequest = nil
     controllerNavigation.synchronize(with: .current)
 
     Task { @MainActor in
@@ -2453,6 +2492,7 @@ struct BigPictureView: View {
       controllerState = currentState
       guard
         activePlayerRequest == nil,
+        activeVita3KRequest == nil,
         NSApplication.shared.keyWindow === bigPictureWindow
       else {
         controllerNavigation.synchronize(with: currentState)

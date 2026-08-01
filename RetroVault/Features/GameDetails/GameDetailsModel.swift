@@ -340,6 +340,96 @@ final class GameDetailsModel {
         }
     }
 
+    /// Prepares a managed Vita archive for the optional Vita3K engine.
+    ///
+    /// Vita3K owns installation and firmware inside its private environment;
+    /// RetroVault remains responsible for managed download and offline reuse.
+    func prepareForVita3K(
+        _ game: GameDetails,
+        synchronizesWithServer: Bool = true,
+        onProgress: (@MainActor (RomMDownloadProgress?) -> Void)? = nil
+    ) async -> Vita3KRunRequest? {
+        guard !isPreparingToPlay else {
+            return nil
+        }
+
+        isPreparingToPlay = true
+        playbackDownloadProgress = nil
+        playbackErrorMessage = nil
+        onProgress?(nil)
+        defer {
+            isPreparingToPlay = false
+            playbackDownloadProgress = nil
+            onProgress?(nil)
+        }
+
+        do {
+            let firmwareResult: Result<[URL], Error>
+            do {
+                firmwareResult = .success(
+                    try await service.prepareVitaFirmwareForPlay(
+                        for: game.systemID,
+                        in: session,
+                        allowsRemoteAccess: synchronizesWithServer
+                    )
+                )
+            } catch {
+                // The engine may already have firmware installed. Preserve the
+                // fetch error so the player can show it only when firmware is
+                // actually missing.
+                firmwareResult = .failure(error)
+            }
+
+            let archiveURL = try await service.prepareGameForPlay(
+                game,
+                in: session,
+                // PKG installation also needs a zRIF work.bin key. Keep the
+                // hosted preview honest until RomM can supply that alongside
+                // the package.
+                supportedFileExtensions: ["vpk", "zip"],
+                loadsArchivesDirectly: true,
+                allowsRemoteAccess: synchronizesWithServer,
+                onProgress: { [weak self] progress in
+                    Task { @MainActor [weak self] in
+                        guard let self, self.isPreparingToPlay else {
+                            return
+                        }
+                        if progress.bytesReceived
+                            >= (self.playbackDownloadProgress?.bytesReceived ?? 0)
+                        {
+                            self.playbackDownloadProgress = progress
+                            onProgress?(progress)
+                        }
+                    }
+                }
+            )
+            isDownloaded = true
+            isLocallyAvailable = true
+            let firmwareURLs: [URL]
+            let firmwarePreparationError: String?
+            switch firmwareResult {
+            case .success(let urls):
+                firmwareURLs = urls
+                firmwarePreparationError = nil
+            case .failure(let error):
+                firmwareURLs = []
+                firmwarePreparationError = error.localizedDescription
+            }
+            return Vita3KRunRequest(
+                gameID: game.id,
+                title: game.name,
+                archiveURL: archiveURL,
+                firmwareURLs: firmwareURLs,
+                firmwarePreparationError: firmwarePreparationError
+            )
+        } catch is CancellationError {
+            return nil
+        } catch {
+            playbackErrorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
     func dismissPlaybackError() {
         playbackErrorMessage = nil
     }

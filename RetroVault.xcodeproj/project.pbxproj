@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A31000000000000000000001 /* Vita3KInstallation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B31000000000000000000001 /* Vita3KInstallation.swift */; };
+		A31000000000000000000002 /* Vita3KGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B31000000000000000000002 /* Vita3KGameView.swift */; };
 		E10000000000000000000001 /* SaveCenterModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000001 /* SaveCenterModels.swift */; };
 		E10000000000000000000002 /* SaveCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* SaveCenterTests.swift */; };
 		A80000000000000000000002 /* BigPictureCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000002 /* BigPictureCatalog.swift */; };
@@ -90,6 +92,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B31000000000000000000001 /* Vita3KInstallation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Vita3KInstallation.swift; sourceTree = "<group>"; };
+		B31000000000000000000002 /* Vita3KGameView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Vita3KGameView.swift; sourceTree = "<group>"; };
 		F10000000000000000000001 /* SaveCenterModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SaveCenterModels.swift; sourceTree = "<group>"; };
 		F10000000000000000000002 /* SaveCenterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SaveCenterTests.swift; sourceTree = "<group>"; };
 		B80000000000000000000002 /* BigPictureCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BigPictureCatalog.swift; sourceTree = "<group>"; };
@@ -311,6 +315,7 @@
 			isa = PBXGroup;
 			children = (
 				C30000000000000000000002 /* Libretro */,
+				C31000000000000000000001 /* Vita3K */,
 			);
 			name = Runners;
 			path = Runners;
@@ -329,6 +334,16 @@
 			);
 			name = Libretro;
 			path = Libretro;
+			sourceTree = "<group>";
+		};
+		C31000000000000000000001 /* Vita3K */ = {
+			isa = PBXGroup;
+			children = (
+				B31000000000000000000002 /* Vita3KGameView.swift */,
+				B31000000000000000000001 /* Vita3KInstallation.swift */,
+			);
+			name = Vita3K;
+			path = Vita3K;
 			sourceTree = "<group>";
 		};
 		C50000000000000000000001 /* Shared */ = {
@@ -487,6 +502,7 @@
 				782B37780E00AF14F838410D /* Frameworks */,
 				D92E97EBA0145E0C941E4407 /* Resources */,
 				C0A100000000000000000001 /* Embed Libretro Cores */,
+				C0A200000000000000000001 /* Embed Vita3K Engine */,
 			);
 			buildRules = (
 			);
@@ -563,6 +579,28 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		C0A200000000000000000001 /* Embed Vita3K Engine */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Scripts/embed-vita3k-engine.sh",
+			);
+			name = "Embed Vita3K Engine";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/Vita3K",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Vita3K",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/Scripts/embed-vita3k-engine.sh\"\n";
+		};
 		C0A100000000000000000001 /* Embed Libretro Cores */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -592,6 +630,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A31000000000000000000001 /* Vita3KInstallation.swift in Sources */,
+				A31000000000000000000002 /* Vita3KGameView.swift in Sources */,
 				A80000000000000000000002 /* BigPictureCatalog.swift in Sources */,
 				A80000000000000000000003 /* BigPictureCRTShader.metal in Sources */,
 				A80000000000000000000001 /* BigPictureView.swift in Sources */,

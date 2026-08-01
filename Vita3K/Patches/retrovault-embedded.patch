@@ -1,0 +1,61 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d9edf977..d99f00aa 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -11,0 +12,2 @@ project(Vita3K)
++option(RETROVAULT_EMBEDDED "Build the Vita3K engine for RetroVault hosting" OFF)
++
+diff --git a/vita3k/CMakeLists.txt b/vita3k/CMakeLists.txt
+index 8808485a..5b5a5236 100644
+--- a/vita3k/CMakeLists.txt
++++ b/vita3k/CMakeLists.txt
+@@ -106 +106 @@ endif()
+-if(NOT ANDROID)
++if(NOT ANDROID AND NOT RETROVAULT_EMBEDDED)
+@@ -124 +124 @@ add_subdirectory(updater)
+-if(NOT ANDROID)
++if(NOT ANDROID AND NOT RETROVAULT_EMBEDDED)
+@@ -155 +155,12 @@ add_subdirectory(vkutil)
+-if(ANDROID)
++if(RETROVAULT_EMBEDDED)
++	add_library(retrovault_vita3k SHARED
++		retrovault/bridge.cpp
++		interface.cpp
++		performance.cpp
++	)
++	target_include_directories(retrovault_vita3k PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
++	target_link_libraries(retrovault_vita3k PRIVATE SDL3::SDL3 pugixml::pugixml)
++	set_target_properties(retrovault_vita3k PROPERTIES
++		OUTPUT_NAME RetroVaultVita3K
++		LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
++elseif(ANDROID)
+@@ -213,2 +224,7 @@ endif()
+-target_link_libraries(vita3k PRIVATE app audio compat config cppcommon ctrl dialog display ime lang gdbstub gxm io miniz modules motion packages patch renderer shader touch util psvpfsparser)
+-if(NOT ANDROID)
++set(VITA3K_FRONTEND_TARGET vita3k)
++if(RETROVAULT_EMBEDDED)
++	set(VITA3K_FRONTEND_TARGET retrovault_vita3k)
++endif()
++
++target_link_libraries(${VITA3K_FRONTEND_TARGET} PRIVATE app audio compat config cppcommon ctrl dialog display ime lang gdbstub gxm io miniz modules motion packages patch renderer shader touch util psvpfsparser)
++if(NOT ANDROID AND NOT RETROVAULT_EMBEDDED)
+@@ -218 +234 @@ if(USE_DISCORD_RICH_PRESENCE)
+-	target_link_libraries(vita3k PRIVATE discord-rpc)
++	target_link_libraries(${VITA3K_FRONTEND_TARGET} PRIVATE discord-rpc)
+@@ -221 +237 @@ endif()
+-if(NOT ANDROID)
++if(NOT ANDROID AND NOT RETROVAULT_EMBEDDED)
+@@ -254 +270,3 @@ endif()
+-set_target_properties(vita3k PROPERTIES OUTPUT_NAME Vita3K)
++if(NOT RETROVAULT_EMBEDDED)
++	set_target_properties(vita3k PROPERTIES OUTPUT_NAME Vita3K)
++endif()
+@@ -256 +274 @@ set_target_properties(vita3k PROPERTIES OUTPUT_NAME Vita3K)
+-if(NOT ANDROID)
++if(NOT ANDROID AND NOT RETROVAULT_EMBEDDED)
+@@ -263 +281 @@ endif()
+-if(APPLE)
++if(APPLE AND NOT RETROVAULT_EMBEDDED)
+@@ -463 +481 @@ if(TRACY_ENABLE_ON_CORE_COMPONENTS)
+-	target_link_libraries(vita3k PRIVATE tracy)
++	target_link_libraries(${VITA3K_FRONTEND_TARGET} PRIVATE tracy)

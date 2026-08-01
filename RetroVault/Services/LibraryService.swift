@@ -104,6 +104,11 @@ protocol LibraryServing: Sendable {
     in session: ServerSession,
     allowsRemoteAccess: Bool
   ) async throws -> URL?
+  func prepareVitaFirmwareForPlay(
+    for platformID: Int,
+    in session: ServerSession,
+    allowsRemoteAccess: Bool
+  ) async throws -> [URL]
   func prepareCartridgeSaveForPlay(
     _ game: GameDetails,
     in session: ServerSession,
@@ -274,6 +279,14 @@ extension LibraryServing {
       throw LibraryServiceError.firmwareCacheUnavailable
     }
     return nil
+  }
+
+  func prepareVitaFirmwareForPlay(
+    for platformID: Int,
+    in session: ServerSession,
+    allowsRemoteAccess: Bool
+  ) async throws -> [URL] {
+    []
   }
 
   func prepareFirmwareForPlay(
@@ -1769,6 +1782,123 @@ actor RomMLibraryService: LibraryServing {
     return directory
   }
 
+  func prepareVitaFirmwareForPlay(
+    for platformID: Int,
+    in session: ServerSession,
+    allowsRemoteAccess: Bool
+  ) async throws -> [URL] {
+    let directory = firmwareDirectory
+      .appending(path: serverKey(for: session), directoryHint: .isDirectory)
+      .appending(path: String(platformID), directoryHint: .isDirectory)
+      .appending(path: "Vita3K", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+
+    func cachedPackages() -> [URL] {
+      let packages =
+        (try? FileManager.default.contentsOfDirectory(
+          at: directory,
+          includingPropertiesForKeys: [.isRegularFileKey],
+          options: [.skipsHiddenFiles]
+        )) ?? []
+      return packages
+        .filter { $0.pathExtension.caseInsensitiveCompare("pup") == .orderedSame }
+        .filter {
+          (try? $0.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile
+            == true
+        }
+        .sorted {
+          $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+            == .orderedAscending
+        }
+    }
+
+    guard allowsRemoteAccess else {
+      return cachedPackages()
+    }
+
+    let token: ClientToken
+    let remotePackages: [RomMFirmware]
+    do {
+      token = try await authenticationToken()
+      remotePackages = try await api.firmware(
+        for: platformID,
+        at: session.serverURL,
+        token: token
+      )
+      .filter {
+        !$0.isMissingFromFileSystem
+          && URL(fileURLWithPath: $0.fileName).pathExtension
+            .caseInsensitiveCompare("pup") == .orderedSame
+      }
+    } catch RomMAPIError.forbidden {
+      if !cachedPackages().isEmpty {
+        return cachedPackages()
+      }
+      throw LibraryServiceError.firmwareReadPermissionRequired
+    } catch {
+      if !cachedPackages().isEmpty {
+        RetroVaultLog.libretro.info(
+          "RomM is unavailable; using cached Vita firmware packages"
+        )
+        return cachedPackages()
+      }
+      throw LibraryServiceError.couldNotPrepareFirmware(
+        fileName: "PlayStation Vita firmware",
+        reason: error.localizedDescription
+      )
+    }
+
+    for remote in remotePackages {
+      let fileName = URL(fileURLWithPath: remote.fileName).lastPathComponent
+      let destination = directory.appending(path: "\(remote.id)-\(fileName)")
+      if isValidFirmwarePackage(
+        at: destination,
+        expectedSize: remote.fileSizeBytes,
+        expectedSHA1: remote.sha1Hash
+      ) {
+        continue
+      }
+
+      let download: RomMDownload
+      do {
+        download = try await api.downloadFirmware(
+          remote,
+          at: session.serverURL,
+          token: token
+        )
+      } catch {
+        throw LibraryServiceError.couldNotPrepareFirmware(
+          fileName: remote.fileName,
+          reason: error.localizedDescription
+        )
+      }
+      defer {
+        try? FileManager.default.removeItem(at: download.temporaryFileURL)
+      }
+
+      guard isValidFirmwarePackage(
+        at: download.temporaryFileURL,
+        expectedSize: remote.fileSizeBytes,
+        expectedSHA1: remote.sha1Hash
+      ) else {
+        throw LibraryServiceError.invalidFirmware(fileName: remote.fileName)
+      }
+
+      if FileManager.default.fileExists(atPath: destination.path) {
+        try FileManager.default.removeItem(at: destination)
+      }
+      try FileManager.default.moveItem(
+        at: download.temporaryFileURL,
+        to: destination
+      )
+    }
+
+    return cachedPackages()
+  }
+
   func prepareCartridgeSaveForPlay(
     _ game: GameDetails,
     in session: ServerSession,
@@ -3030,6 +3160,29 @@ actor RomMLibraryService: LibraryServing {
     }
 
     return true
+  }
+
+  private func isValidFirmwarePackage(
+    at url: URL,
+    expectedSize: Int64,
+    expectedSHA1: String?
+  ) -> Bool {
+    guard
+      FileManager.default.fileExists(atPath: url.path),
+      let data = try? Data(contentsOf: url),
+      !data.isEmpty,
+      expectedSize <= 0 || Int64(data.count) == expectedSize
+    else {
+      return false
+    }
+
+    guard let expectedSHA1 = nonEmpty(expectedSHA1) else {
+      return true
+    }
+    let digest = Insecure.SHA1.hash(data: data)
+      .map { String(format: "%02x", $0) }
+      .joined()
+    return expectedSHA1.caseInsensitiveCompare(digest) == .orderedSame
   }
 
   private func containsRegularFile(in directory: URL) -> Bool {

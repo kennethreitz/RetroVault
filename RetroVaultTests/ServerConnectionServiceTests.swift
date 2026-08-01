@@ -1254,6 +1254,84 @@ struct LibraryTests {
         #expect(try Data(contentsOf: cachedURL) == data)
     }
 
+    @Test("Discovers and caches Vita PUP firmware from RomM")
+    func cachesVitaFirmwarePackages() async throws {
+        let token = try ClientToken(
+            rawValue: "rmm_" + String(repeating: "a", count: 64)
+        )
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let data = Data("vita firmware package".utf8)
+        let sha1 = Insecure.SHA1.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let pup = RomMFirmware(
+            id: 37,
+            fileName: "PSP2UPDAT.PUP",
+            fileSizeBytes: Int64(data.count),
+            sha1Hash: sha1,
+            isVerified: true,
+            isMissingFromFileSystem: false
+        )
+        let unrelated = RomMFirmware(
+            id: 38,
+            fileName: "readme.txt",
+            fileSizeBytes: 4,
+            sha1Hash: nil,
+            isVerified: true,
+            isMissingFromFileSystem: false
+        )
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let service = RomMLibraryService(
+            api: MockRomMClient(
+                token: token,
+                user: RomMUser(
+                    id: 1,
+                    username: "kenneth",
+                    scopes: ["firmware.read"]
+                ),
+                firmwareFiles: [pup: data, unrelated: Data("text".utf8)]
+            ),
+            credentialStore: credentials,
+            firmwareDirectory: directory
+        )
+
+        let packages = try await service.prepareVitaFirmwareForPlay(
+            for: 37,
+            in: session,
+            allowsRemoteAccess: true
+        )
+        let cached = try #require(packages.first)
+        #expect(packages.count == 1)
+        #expect(cached.lastPathComponent == "37-PSP2UPDAT.PUP")
+        #expect(try Data(contentsOf: cached) == data)
+
+        await credentials.removeToken()
+        let offlineService = RomMLibraryService(
+            api: MockRomMClient(
+                token: token,
+                user: RomMUser(id: 1, username: "kenneth", scopes: [])
+            ),
+            credentialStore: credentials,
+            firmwareDirectory: directory
+        )
+        let offlinePackages = try await offlineService.prepareVitaFirmwareForPlay(
+            for: 37,
+            in: session,
+            allowsRemoteAccess: false
+        )
+        #expect(offlinePackages == packages)
+    }
+
     @Test("Imports the newest available cartridge save and uploads only local changes")
     func synchronizesCartridgeSaveMemory() async throws {
         let token = try ClientToken(rawValue: "rmm_" + String(repeating: "b", count: 64))

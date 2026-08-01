@@ -79,10 +79,14 @@ struct BigPictureCatalog: Sendable {
     let supportedSystems = source.systems.filter {
       $0.gameCount > 0
         && (
-          manifest?.supportsSystem(
+          (manifest?.supportsSystem(
             named: $0.name,
             includingExperimental: includingExperimental
-          ) ?? true
+          ) ?? true)
+          || Vita3KInstallation.supports(
+            systemName: $0.name,
+            includingExperimental: includingExperimental
+          )
         )
     }
     let supportedSystemIDs = Set(supportedSystems.map(\.id))

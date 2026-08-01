@@ -9,6 +9,11 @@ being a list of every commit.
 
 ### Added
 
+- Added a local-build-only PlayStation Vita technical preview. A pinned Vita3K
+  engine can render through MoltenVK into RetroVault's own native player view,
+  while its firmware and installed titles remain isolated from Libretro data.
+  Required `.PUP` packages are discovered through the authenticated RomM
+  system-firmware API, validated, cached, and installed before Vita playback.
 - Added Switch X as the selected game's contextual action: it opens Options in
   library lists and launches the game from Save Center. Start remains an
   alternate Options shortcut.
