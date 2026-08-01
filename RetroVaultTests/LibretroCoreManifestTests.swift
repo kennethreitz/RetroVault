@@ -1729,3 +1729,62 @@ struct LibretroCoreManifestTests {
         }
     }
 }
+
+@Suite("Cemu companion")
+struct CemuInstallationTests {
+    @Test("Prepares a Vulkan portable runtime and DSU profile")
+    func preparesPortableRuntime() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let sourceApplication = directory.appending(
+            path: "Source/Cemu.app",
+            directoryHint: .isDirectory
+        )
+        let executable = sourceApplication.appending(
+            path: "Contents/MacOS/Cemu"
+        )
+        try FileManager.default.createDirectory(
+            at: executable.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("#!/bin/sh\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+
+        let installation = CemuInstallation(
+            sourceApplicationURL: sourceApplication,
+            applicationSupportURL: directory.appending(
+                path: "Support",
+                directoryHint: .isDirectory
+            )
+        )
+        let runtime = try installation.prepareRuntime(
+            dsuConfiguration: CemuDSUConfiguration(
+                host: "127.0.0.1",
+                port: 26_760,
+                slot: 0
+            )
+        )
+
+        #expect(FileManager.default.isExecutableFile(atPath: runtime.executableURL.path))
+        let settings = try String(
+            contentsOf: runtime.portableDirectory.appending(path: "settings.xml"),
+            encoding: .utf8
+        )
+        #expect(settings.contains("<macos_disclaimer>true</macos_disclaimer>"))
+        #expect(settings.contains("<api>1</api>"))
+
+        let profile = try String(
+            contentsOf: runtime.portableDirectory
+                .appending(path: "controllerProfiles/controller0.xml"),
+            encoding: .utf8
+        )
+        #expect(profile.contains("RetroVault DSU Controller"))
+        #expect(profile.contains("<ip>127.0.0.1</ip>"))
+        #expect(profile.contains("<port>26760</port>"))
+    }
+}

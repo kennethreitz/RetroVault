@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		A31000000000000000000001 /* Vita3KInstallation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B31000000000000000000001 /* Vita3KInstallation.swift */; };
 		A31000000000000000000002 /* Vita3KGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B31000000000000000000002 /* Vita3KGameView.swift */; };
+		A32000000000000000000001 /* CemuInstallation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B32000000000000000000001 /* CemuInstallation.swift */; };
+		A32000000000000000000002 /* CemuGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B32000000000000000000002 /* CemuGameView.swift */; };
 		E10000000000000000000001 /* SaveCenterModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000001 /* SaveCenterModels.swift */; };
 		E10000000000000000000002 /* SaveCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* SaveCenterTests.swift */; };
 		A80000000000000000000002 /* BigPictureCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000002 /* BigPictureCatalog.swift */; };
@@ -94,6 +96,8 @@
 /* Begin PBXFileReference section */
 		B31000000000000000000001 /* Vita3KInstallation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Vita3KInstallation.swift; sourceTree = "<group>"; };
 		B31000000000000000000002 /* Vita3KGameView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Vita3KGameView.swift; sourceTree = "<group>"; };
+		B32000000000000000000001 /* CemuInstallation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CemuInstallation.swift; sourceTree = "<group>"; };
+		B32000000000000000000002 /* CemuGameView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CemuGameView.swift; sourceTree = "<group>"; };
 		F10000000000000000000001 /* SaveCenterModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SaveCenterModels.swift; sourceTree = "<group>"; };
 		F10000000000000000000002 /* SaveCenterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SaveCenterTests.swift; sourceTree = "<group>"; };
 		B80000000000000000000002 /* BigPictureCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BigPictureCatalog.swift; sourceTree = "<group>"; };
@@ -316,6 +320,7 @@
 			children = (
 				C30000000000000000000002 /* Libretro */,
 				C31000000000000000000001 /* Vita3K */,
+				C32000000000000000000001 /* Cemu */,
 			);
 			name = Runners;
 			path = Runners;
@@ -344,6 +349,16 @@
 			);
 			name = Vita3K;
 			path = Vita3K;
+			sourceTree = "<group>";
+		};
+		C32000000000000000000001 /* Cemu */ = {
+			isa = PBXGroup;
+			children = (
+				B32000000000000000000002 /* CemuGameView.swift */,
+				B32000000000000000000001 /* CemuInstallation.swift */,
+			);
+			name = Cemu;
+			path = Cemu;
 			sourceTree = "<group>";
 		};
 		C50000000000000000000001 /* Shared */ = {
@@ -503,6 +518,7 @@
 				D92E97EBA0145E0C941E4407 /* Resources */,
 				C0A100000000000000000001 /* Embed Libretro Cores */,
 				C0A200000000000000000001 /* Embed Vita3K Engine */,
+				C0A300000000000000000001 /* Embed Cemu Companion */,
 			);
 			buildRules = (
 			);
@@ -579,6 +595,28 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		C0A300000000000000000001 /* Embed Cemu Companion */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Scripts/embed-cemu-companion.sh",
+			);
+			name = "Embed Cemu Companion";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/Cemu.app",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Cemu",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/Scripts/embed-cemu-companion.sh\"\n";
+		};
 		C0A200000000000000000001 /* Embed Vita3K Engine */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -632,6 +670,8 @@
 			files = (
 				A31000000000000000000001 /* Vita3KInstallation.swift in Sources */,
 				A31000000000000000000002 /* Vita3KGameView.swift in Sources */,
+				A32000000000000000000001 /* CemuInstallation.swift in Sources */,
+				A32000000000000000000002 /* CemuGameView.swift in Sources */,
 				A80000000000000000000002 /* BigPictureCatalog.swift in Sources */,
 				A80000000000000000000003 /* BigPictureCRTShader.metal in Sources */,
 				A80000000000000000000001 /* BigPictureView.swift in Sources */,

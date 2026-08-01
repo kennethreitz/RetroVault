@@ -1925,19 +1925,33 @@ actor RomMLibraryService: LibraryServing {
     let localSaveURL = saveURL(
       for: game.id,
       in: session,
-      storage: storage
+      storage: storage,
+      coreID: coreID
     )
     try FileManager.default.createDirectory(
       at: localSaveURL.deletingLastPathComponent(),
       withIntermediateDirectories: true
     )
+    if storage == .directoryBundle {
+      // Standalone companions such as Cemu receive this directory as their
+      // writable save root. Creating it before launch also gives an empty,
+      // first-session MLC a valid path without manufacturing a remote save.
+      try FileManager.default.createDirectory(
+        at: localSaveURL,
+        withIntermediateDirectories: true
+      )
+    }
 
     let metadata = loadSaveSyncMetadata(for: localSaveURL)
     let configuration = CartridgeSaveSyncConfiguration(
       serverURL: session.serverURL,
       gameID: game.id,
       localSaveURL: localSaveURL,
-      uploadFileName: saveFileName(for: game, storage: storage),
+      uploadFileName: saveFileName(
+        for: game,
+        storage: storage,
+        coreID: coreID
+      ),
       emulator: emulator,
       slot: "autosave",
       storage: storage,
@@ -2259,13 +2273,14 @@ actor RomMLibraryService: LibraryServing {
       }
 
       let saveRAMURL = gameDirectory.appending(path: "SaveRAM.srm")
-      let directoryBundleURL = gameDirectory.appending(
-        path: "PPSSPP",
-        directoryHint: .isDirectory
-      )
+      let directoryBundleURLs = ["Cemu", "PPSSPP"].map {
+        gameDirectory.appending(path: $0, directoryHint: .isDirectory)
+      }
       let storage: CartridgeSaveSyncConfiguration.Storage
       let localSaveURL: URL
-      if containsRegularFile(in: directoryBundleURL) {
+      if let directoryBundleURL = directoryBundleURLs.first(where: {
+        containsRegularFile(in: $0)
+      }) {
         storage = .directoryBundle
         localSaveURL = directoryBundleURL
       } else if FileManager.default.fileExists(atPath: saveRAMURL.path),
@@ -2571,7 +2586,8 @@ actor RomMLibraryService: LibraryServing {
   private func saveURL(
     for gameID: Int,
     in session: ServerSession,
-    storage: CartridgeSaveSyncConfiguration.Storage
+    storage: CartridgeSaveSyncConfiguration.Storage,
+    coreID: String
   ) -> URL {
     let gameDirectory = saveDirectory
       .appending(path: serverKey(for: session), directoryHint: .isDirectory)
@@ -2581,7 +2597,7 @@ actor RomMLibraryService: LibraryServing {
       return gameDirectory.appending(path: "SaveRAM.srm")
     case .directoryBundle:
       return gameDirectory.appending(
-        path: "PPSSPP",
+        path: saveDirectoryName(forCoreID: coreID),
         directoryHint: .isDirectory
       )
     }
@@ -2589,7 +2605,8 @@ actor RomMLibraryService: LibraryServing {
 
   private func saveFileName(
     for game: GameDetails,
-    storage: CartridgeSaveSyncConfiguration.Storage
+    storage: CartridgeSaveSyncConfiguration.Storage,
+    coreID: String
   ) -> String {
     let stem = URL(fileURLWithPath: game.fileName)
       .deletingPathExtension()
@@ -2598,7 +2615,7 @@ actor RomMLibraryService: LibraryServing {
     case .saveRAM:
       ".srm"
     case .directoryBundle:
-      ".ppsspp.zip"
+      coreID.lowercased().contains("cemu") ? ".cemu.zip" : ".ppsspp.zip"
     }
     return safeFileName(
       "\(stem)\(suffix)",
@@ -2610,9 +2627,14 @@ actor RomMLibraryService: LibraryServing {
   private func saveStorage(
     forCoreID coreID: String
   ) -> CartridgeSaveSyncConfiguration.Storage {
-    coreID.lowercased().contains("ppsspp")
+    let normalized = coreID.lowercased()
+    return normalized.contains("ppsspp") || normalized.contains("cemu")
       ? .directoryBundle
       : .saveRAM
+  }
+
+  private func saveDirectoryName(forCoreID coreID: String) -> String {
+    coreID.lowercased().contains("cemu") ? "Cemu" : "PPSSPP"
   }
 
   private func remoteSaves(

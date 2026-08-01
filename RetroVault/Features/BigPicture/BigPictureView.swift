@@ -124,6 +124,7 @@ struct BigPictureView: View {
   @State private var requestedGameStartsFresh = false
   @State private var activePlayerRequest: LibretroRunRequest?
   @State private var activeVita3KRequest: Vita3KRunRequest?
+  @State private var activeCemuRequest: CemuRunRequest?
   @State private var optionsGame: GameSummary?
   @State private var optionsSystem: LibrarySystem?
   @State private var selectedGameOptionIndex = 0
@@ -146,6 +147,15 @@ struct BigPictureView: View {
         )
         .id(activeVita3KRequest)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else if let activeCemuRequest {
+        CemuGameView(
+          request: activeCemuRequest,
+          service: model.service,
+          dsuConfiguration: cemuDSUConfiguration,
+          onCloseRequested: returnToBigPicture
+        )
+        .id(activeCemuRequest)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if let activePlayerRequest {
         LibretroGameView(
           request: activePlayerRequest,
@@ -166,7 +176,8 @@ struct BigPictureView: View {
     .background {
       BigPictureWindowProbe(
         isPlaybackActive:
-          activePlayerRequest != nil || activeVita3KRequest != nil,
+          activePlayerRequest != nil || activeVita3KRequest != nil
+            || activeCemuRequest != nil,
         opensInFullScreen: opensInFullScreen,
         onBackspaceRequested: handleEscape
       ) { window in
@@ -3090,6 +3101,32 @@ struct BigPictureView: View {
         return
       }
 
+      if CemuInstallation.supports(systemName: details.systemName) {
+        guard
+          let request = await detailsModel.prepareForCemu(
+            details,
+            synchronizesWithServer: model.isServerReachable
+          )
+        else {
+          guard !Task.isCancelled else {
+            finishPlaybackPreparation()
+            return
+          }
+          playbackErrorMessage =
+            detailsModel.playbackErrorMessage
+            ?? "RetroVault could not prepare this Wii U game for Cemu."
+          finishPlaybackPreparation(keepingError: true)
+          return
+        }
+
+        model.recordManagedDownload(gameID: game.id)
+        await model.reloadDownloadedGames(reconcilingDuringDownloads: true)
+        await model.recordPlay(gameID: game.id)
+        activeCemuRequest = request
+        finishPlaybackPreparation()
+        return
+      }
+
       guard
         let request = await detailsModel.prepareToPlay(
           details,
@@ -3126,11 +3163,14 @@ struct BigPictureView: View {
   }
 
   private func returnToBigPicture() {
-    guard activePlayerRequest != nil || activeVita3KRequest != nil else {
+    guard activePlayerRequest != nil || activeVita3KRequest != nil
+      || activeCemuRequest != nil
+    else {
       return
     }
     activePlayerRequest = nil
     activeVita3KRequest = nil
+    activeCemuRequest = nil
     controllerNavigation.synchronize(with: .current)
 
     Task { @MainActor in
@@ -3193,6 +3233,7 @@ struct BigPictureView: View {
       guard
         activePlayerRequest == nil,
         activeVita3KRequest == nil,
+        activeCemuRequest == nil,
         NSApplication.shared.keyWindow === bigPictureWindow
       else {
         controllerNavigation.synchronize(with: currentState)
@@ -3207,6 +3248,15 @@ struct BigPictureView: View {
       }
       try? await Task.sleep(for: .milliseconds(30))
     }
+  }
+
+  private var cemuDSUConfiguration: CemuDSUConfiguration? {
+    guard usesDSUController else { return nil }
+    return CemuDSUConfiguration(
+      host: dsuHost,
+      port: UInt16(clamping: dsuPort),
+      slot: max(0, dsuSlot)
+    )
   }
 }
 

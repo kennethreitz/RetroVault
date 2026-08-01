@@ -10,6 +10,7 @@ enum RetroVaultLog {
     static let library = Logger(subsystem: subsystem, category: "Library")
     static let network = Logger(subsystem: subsystem, category: "Networking")
     static let libretro = Logger(subsystem: subsystem, category: "Libretro")
+    static let cemu = Logger(subsystem: subsystem, category: "Cemu")
 }
 
 enum RetroVaultDiagnosticLevel: Int, CaseIterable, Identifiable, Sendable {

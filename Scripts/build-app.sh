@@ -34,6 +34,10 @@ if [ ! -d "$repository_root/Build/LibretroCores/Cores" ]; then
     exit 1
 fi
 
+if [ ! -x "$repository_root/Build/CemuCompanion/Cemu.app/Contents/MacOS/Cemu" ]; then
+    "$repository_root/Scripts/fetch-cemu-companion.sh"
+fi
+
 echo "Building RetroVault (Release, ad-hoc signed)…"
 rm -rf "$derived_data"
 xcodebuild \

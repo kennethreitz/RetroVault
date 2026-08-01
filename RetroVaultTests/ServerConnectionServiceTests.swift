@@ -1717,6 +1717,134 @@ struct LibraryTests {
         )
         #expect(await api.uploadedSaves.count == 1)
     }
+
+    @Test("Synchronizes Cemu's MLC save data as one ZIP bundle")
+    func synchronizesCemuSaveDirectory() async throws {
+        let token = try ClientToken(
+            rawValue: "rmm_" + String(repeating: "d", count: 64)
+        )
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let remoteDirectory = directory.appending(
+            path: "RemoteCemuMLC",
+            directoryHint: .isDirectory
+        )
+        let remoteDataURL = remoteDirectory.appending(
+            path: "usr/save/00050000/10143500/user/80000001/save.dat"
+        )
+        try FileManager.default.createDirectory(
+            at: remoteDataURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let remoteSaveData = Data("remote-wind-waker".utf8)
+        try remoteSaveData.write(to: remoteDataURL)
+        let remoteBundle = try #require(
+            try SaveBundleArchive().data(from: remoteDirectory)
+        )
+
+        let api = SaveSyncMockRomMClient(
+            token: token,
+            availableSaves: [601: remoteBundle]
+        )
+        let service = RomMLibraryService(
+            api: api,
+            credentialStore: credentials,
+            saveDirectory: directory.appending(
+                path: "Managed",
+                directoryHint: .isDirectory
+            )
+        )
+        let serverURL = try ServerURL("https://romm.example.com")
+        let session = ServerSession(
+            serverURL: serverURL,
+            username: "kenneth"
+        )
+        let save = GameSaveDataItem(
+            id: 601,
+            kind: .save,
+            fileName: "Wind Waker HD.cemu.zip",
+            fileExtension: "zip",
+            filePath: "saves/Wii U",
+            fullPath: "saves/Wii U/Wind Waker HD.cemu.zip",
+            downloadURL: serverURL.resourceURL(
+                for: "/api/saves/601/content"
+            ),
+            fileSizeBytes: Int64(remoteBundle.count),
+            isMissingFromFileSystem: false,
+            createdAt: Date(timeIntervalSince1970: 2_000),
+            updatedAt: Date(timeIntervalSince1970: 2_000),
+            emulator: "Cemu",
+            slot: "autosave",
+            contentHash: "remote-601",
+            isPublic: false,
+            screenshotURL: nil
+        )
+        let game = mockGameDetails(
+            id: 42_000,
+            fileName: "The Legend of Zelda - The Wind Waker HD (USA).wua",
+            systemName: "Wii U",
+            saves: [save]
+        )
+
+        let prepared = try await service.prepareCartridgeSaveForPlay(
+            game,
+            in: session,
+            emulator: "Cemu",
+            coreID: "cemu"
+        )
+        let configuration = try #require(prepared)
+        #expect(configuration.effectiveStorage == .directoryBundle)
+        #expect(configuration.localSaveURL.lastPathComponent == "Cemu")
+        #expect(
+            configuration.uploadFileName
+                == "The Legend of Zelda - The Wind Waker HD (USA).cemu.zip"
+        )
+
+        let localDataURL = configuration.localSaveURL.appending(
+            path: "usr/save/00050000/10143500/user/80000001/save.dat"
+        )
+        #expect(try Data(contentsOf: localDataURL) == remoteSaveData)
+        #expect(
+            try await service.syncCartridgeSaveAfterPlay(configuration)
+                == .unchanged
+        )
+
+        let changedData = Data("changed-wind-waker".utf8)
+        try changedData.write(to: localDataURL, options: .atomic)
+        #expect(
+            try await service.syncCartridgeSaveAfterPlay(configuration)
+                == .uploaded
+        )
+        #expect(
+            await api.uploadedFileNames
+                == ["The Legend of Zelda - The Wind Waker HD (USA).cemu.zip"]
+        )
+
+        let uploadedBundle = try #require(await api.uploadedSaves.first)
+        let uploadedURL = directory.appending(path: "UploadedCemu.zip")
+        try uploadedBundle.write(to: uploadedURL)
+        let restoredDirectory = directory.appending(
+            path: "RestoredCemu",
+            directoryHint: .isDirectory
+        )
+        try SaveBundleArchive().restore(
+            from: uploadedURL,
+            to: restoredDirectory
+        )
+        #expect(
+            try Data(
+                contentsOf: restoredDirectory.appending(
+                    path: "usr/save/00050000/10143500/user/80000001/save.dat"
+                )
+            ) == changedData
+        )
+    }
 }
 
 private actor SaveSyncMockRomMClient: RomMClient {

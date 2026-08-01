@@ -430,6 +430,81 @@ final class GameDetailsModel {
         }
     }
 
+    /// Prepares a managed Wii U image and a private Cemu MLC directory.
+    ///
+    /// The MLC directory is represented as a RomM ZIP save bundle so normal
+    /// Wii U save data survives offline sessions and is reconciled on exit.
+    /// Cemu does not expose portable quick-save states; this preserves the
+    /// console's ordinary in-game save data instead.
+    func prepareForCemu(
+        _ game: GameDetails,
+        synchronizesWithServer: Bool = true,
+        onProgress: (@MainActor (RomMDownloadProgress?) -> Void)? = nil
+    ) async -> CemuRunRequest? {
+        guard !isPreparingToPlay else {
+            return nil
+        }
+
+        isPreparingToPlay = true
+        playbackDownloadProgress = nil
+        playbackErrorMessage = nil
+        onProgress?(nil)
+        defer {
+            isPreparingToPlay = false
+            playbackDownloadProgress = nil
+            onProgress?(nil)
+        }
+
+        do {
+            async let contentURL = service.prepareGameForPlay(
+                game,
+                in: session,
+                supportedFileExtensions: CemuInstallation.supportedFileExtensions,
+                loadsArchivesDirectly: true,
+                allowsRemoteAccess: synchronizesWithServer,
+                onProgress: { [weak self] progress in
+                    Task { @MainActor [weak self] in
+                        guard let self, self.isPreparingToPlay else {
+                            return
+                        }
+                        if progress.bytesReceived
+                            >= (self.playbackDownloadProgress?.bytesReceived ?? 0)
+                        {
+                            self.playbackDownloadProgress = progress
+                            onProgress?(progress)
+                        }
+                    }
+                }
+            )
+            async let saveSync = service.prepareCartridgeSaveForPlay(
+                game,
+                in: session,
+                emulator: "Cemu",
+                coreID: "cemu",
+                allowsRemoteAccess: synchronizesWithServer
+            )
+            let prepared = try await (contentURL, saveSync)
+            guard let saveSync = prepared.1 else {
+                playbackErrorMessage =
+                    "RetroVault could not prepare Cemu's Wii U save directory."
+                return nil
+            }
+            isDownloaded = true
+            isLocallyAvailable = true
+            return CemuRunRequest(
+                gameID: game.id,
+                title: game.name,
+                contentURL: prepared.0,
+                saveSync: saveSync
+            )
+        } catch is CancellationError {
+            return nil
+        } catch {
+            playbackErrorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
     func dismissPlaybackError() {
         playbackErrorMessage = nil
     }
