@@ -79,8 +79,9 @@ private final class CemuPlayerCoordinator {
   var status = Status.ready
 
   private var runningApplication: NSRunningApplication?
+  private var runningProcess: Process?
+  private var launcherLogHandle: FileHandle?
   private var monitorTask: Task<Void, Never>?
-  private var terminationObserver: NSObjectProtocol?
   private var isFinishing = false
 
   func start(
@@ -89,7 +90,7 @@ private final class CemuPlayerCoordinator {
     dsuConfiguration: CemuDSUConfiguration?,
     onFinished: @escaping @MainActor @Sendable () -> Void
   ) async {
-    guard runningApplication == nil, terminationObserver == nil else {
+    guard runningProcess == nil, runningApplication == nil else {
       return
     }
     guard let installation = CemuInstallation.available else {
@@ -104,45 +105,26 @@ private final class CemuPlayerCoordinator {
       }.value
       guard !Task.isCancelled else { return }
 
-      let configuration = NSWorkspace.OpenConfiguration()
-      configuration.arguments = [
+      let process = Process()
+      process.executableURL = runtime.executableURL
+      process.currentDirectoryURL = runtime.applicationURL.deletingLastPathComponent()
+      process.arguments = [
         "-g", request.contentURL.path,
         "-m", request.saveSync.localSaveURL.path,
         "-f",
       ]
-      // LaunchServices otherwise reuses an existing Cemu process. Cemu only
-      // parses game arguments at process startup, so reuse opens its empty game
-      // list instead of the selected title.
-      configuration.createsNewApplicationInstance = true
-      configuration.activates = true
-      configuration.addsToRecentItems = false
 
-      RetroVaultLog.cemu.notice(
-        "Launching Cemu for game \(request.gameID, privacy: .public) with content \(request.contentURL.path, privacy: .public)"
+      let launcherLogURL = runtime.portableDirectory.appending(
+        path: "launcher.log"
       )
-
-      let application = try await NSWorkspace.shared.openApplication(
-        at: runtime.applicationURL,
-        configuration: configuration
+      _ = FileManager.default.createFile(
+        atPath: launcherLogURL.path,
+        contents: nil
       )
-      runningApplication = application
-      status = .running
-      RetroVaultLog.cemu.notice(
-        "Started Cemu for game \(request.gameID, privacy: .public); log: \(runtime.logURL.path, privacy: .public)"
-      )
-
-      terminationObserver = NSWorkspace.shared.notificationCenter.addObserver(
-        forName: NSWorkspace.didTerminateApplicationNotification,
-        object: nil,
-        queue: .main
-      ) { [weak self] notification in
-        guard
-          let terminated = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
-            as? NSRunningApplication,
-          terminated.processIdentifier == application.processIdentifier
-        else {
-          return
-        }
+      let launcherLogHandle = try FileHandle(forWritingTo: launcherLogURL)
+      process.standardOutput = launcherLogHandle
+      process.standardError = launcherLogHandle
+      process.terminationHandler = { [weak self] _ in
         Task { @MainActor [weak self] in
           await self?.finish(
             request: request,
@@ -151,12 +133,39 @@ private final class CemuPlayerCoordinator {
           )
         }
       }
+
+      RetroVaultLog.cemu.notice(
+        "Launching Cemu for game \(request.gameID, privacy: .public) with content \(request.contentURL.path, privacy: .public)"
+      )
+
+      do {
+        try process.run()
+      } catch {
+        try? launcherLogHandle.close()
+        throw CemuError.launchFailed(error.localizedDescription)
+      }
+      runningProcess = process
+      self.launcherLogHandle = launcherLogHandle
+
+      // A directly executed application does not always become frontmost on
+      // its first AppKit run-loop turn. Give it a moment to register, then
+      // activate only this exact process.
+      try? await Task.sleep(for: .milliseconds(100))
+      let application = NSRunningApplication(
+        processIdentifier: process.processIdentifier
+      )
+      runningApplication = application
+      application?.activate(options: [.activateAllWindows])
+      status = .running
+      RetroVaultLog.cemu.notice(
+        "Started Cemu for game \(request.gameID, privacy: .public); logs: \(runtime.logURL.path, privacy: .public), \(launcherLogURL.path, privacy: .public)"
+      )
       monitorTask = Task { @MainActor [weak self] in
         var wasExitChordPressed = false
         while !Task.isCancelled {
           let isPressed = Self.isExitChordPressed
           if isPressed, !wasExitChordPressed {
-            self?.runningApplication?.terminate()
+            self?.runningProcess?.terminate()
           }
           wasExitChordPressed = isPressed
           try? await Task.sleep(for: .milliseconds(24))
@@ -173,7 +182,10 @@ private final class CemuPlayerCoordinator {
   func stop() {
     monitorTask?.cancel()
     monitorTask = nil
-    removeTerminationObserver()
+    runningProcess?.terminationHandler = nil
+    runningProcess = nil
+    try? launcherLogHandle?.close()
+    launcherLogHandle = nil
   }
 
   private func finish(
@@ -185,8 +197,11 @@ private final class CemuPlayerCoordinator {
     isFinishing = true
     monitorTask?.cancel()
     monitorTask = nil
-    removeTerminationObserver()
+    runningProcess?.terminationHandler = nil
+    runningProcess = nil
     runningApplication = nil
+    try? launcherLogHandle?.close()
+    launcherLogHandle = nil
     status = .synchronizing
 
     do {
@@ -202,13 +217,6 @@ private final class CemuPlayerCoordinator {
       )
     }
     onFinished()
-  }
-
-  private func removeTerminationObserver() {
-    if let terminationObserver {
-      NSWorkspace.shared.notificationCenter.removeObserver(terminationObserver)
-      self.terminationObserver = nil
-    }
   }
 
   private static var isExitChordPressed: Bool {
