@@ -1197,17 +1197,6 @@ struct BigPictureView: View {
             action: .navigate(.games(.system(system.id)))
           )
         }
-        + (ignoredSystems.isEmpty
-          ? []
-          : [
-            BigPictureRow(
-              id: .home("ignored-systems"),
-              title: "Ignored Systems",
-              detail: ignoredSystems.count.formatted(),
-              isFavorite: false,
-              action: .navigate(.ignoredSystems)
-            )
-          ])
         + [
           BigPictureRow(
             id: .home("settings"),
@@ -1366,7 +1355,18 @@ struct BigPictureView: View {
   }
 
   private var settingsRows: [BigPictureRow] {
-    [
+    (ignoredSystemIDs.isEmpty
+      ? []
+      : [
+        BigPictureRow(
+          id: .home("ignored-systems"),
+          title: "Ignored Systems",
+          detail: ignoredSystemIDs.count.formatted(),
+          isFavorite: false,
+          action: .navigate(.ignoredSystems)
+        )
+      ])
+      + [
       settingRow(
         .romMServer,
         title: "RomM Server",
@@ -1466,7 +1466,7 @@ struct BigPictureView: View {
       ),
       settingRow(.openLogs, title: "Open Log Viewer"),
       settingRow(.disconnect, title: "Disconnect from RomM"),
-    ]
+      ]
   }
 
   private func settingRow(
