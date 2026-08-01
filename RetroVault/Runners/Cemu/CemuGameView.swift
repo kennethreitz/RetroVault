@@ -106,38 +106,44 @@ private final class CemuPlayerCoordinator {
       guard !Task.isCancelled else { return }
 
       let process = Process()
-      process.executableURL = runtime.executableURL
-      process.currentDirectoryURL = runtime.applicationURL.deletingLastPathComponent()
+      // A sandboxed app cannot execute Cemu's writable copy from Application
+      // Support directly. Use macOS's system launcher so Cemu runs with its
+      // own signing context, while --args still delivers the selected title.
+      process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+      process.currentDirectoryURL =
+        runtime.applicationURL.deletingLastPathComponent()
+      let launcherLogURL = runtime.portableDirectory.appending(
+        path: "launcher.log"
+      )
       process.arguments = [
+        "-F", "-n", "-W",
+        "-a", runtime.applicationURL.path,
+        "--stdout", launcherLogURL.path,
+        "--stderr", launcherLogURL.path,
+        "--args",
         "-g", request.contentURL.path,
         "-m", request.saveSync.localSaveURL.path,
         "-f",
       ]
 
-      let launcherLogURL = runtime.portableDirectory.appending(
-        path: "launcher.log"
-      )
       _ = FileManager.default.createFile(
         atPath: launcherLogURL.path,
         contents: nil
       )
       let launcherLogHandle = try FileHandle(forWritingTo: launcherLogURL)
+      try launcherLogHandle.truncate(atOffset: 0)
       process.standardOutput = launcherLogHandle
       process.standardError = launcherLogHandle
-      process.terminationHandler = { [weak self] _ in
-        Task { @MainActor [weak self] in
-          await self?.finish(
-            request: request,
-            service: service,
-            onFinished: onFinished
-          )
-        }
-      }
 
       RetroVaultLog.cemu.notice(
         "Launching Cemu for game \(request.gameID, privacy: .public) with content \(request.contentURL.path, privacy: .public)"
       )
 
+      let existingCemuProcessIDs = Set(
+        NSRunningApplication.runningApplications(
+          withBundleIdentifier: "info.cemu.Cemu"
+        ).map(\.processIdentifier)
+      )
       do {
         try process.run()
       } catch {
@@ -147,15 +153,34 @@ private final class CemuPlayerCoordinator {
       runningProcess = process
       self.launcherLogHandle = launcherLogHandle
 
-      // A directly executed application does not always become frontmost on
-      // its first AppKit run-loop turn. Give it a moment to register, then
-      // activate only this exact process.
-      try? await Task.sleep(for: .milliseconds(100))
-      let application = NSRunningApplication(
-        processIdentifier: process.processIdentifier
-      )
+      // `open -W` remains alive for the Cemu session. A short launch window
+      // lets us distinguish a successful handoff from an immediate launcher
+      // failure and locate the new Cemu instance for the exit chord.
+      try? await Task.sleep(for: .milliseconds(350))
+      guard process.isRunning else {
+        let status = process.terminationStatus
+        runningProcess = nil
+        try? launcherLogHandle.close()
+        self.launcherLogHandle = nil
+        throw CemuError.launchFailed(
+          "The macOS launcher exited with status \(status)."
+        )
+      }
+
+      let application = NSRunningApplication.runningApplications(
+        withBundleIdentifier: "info.cemu.Cemu"
+      ).first { !existingCemuProcessIDs.contains($0.processIdentifier) }
       runningApplication = application
       application?.activate(options: [.activateAllWindows])
+      process.terminationHandler = { [weak self] _ in
+        Task { @MainActor [weak self] in
+          await self?.finish(
+            request: request,
+            service: service,
+            onFinished: onFinished
+          )
+        }
+      }
       status = .running
       RetroVaultLog.cemu.notice(
         "Started Cemu for game \(request.gameID, privacy: .public); logs: \(runtime.logURL.path, privacy: .public), \(launcherLogURL.path, privacy: .public)"
@@ -165,7 +190,7 @@ private final class CemuPlayerCoordinator {
         while !Task.isCancelled {
           let isPressed = Self.isExitChordPressed
           if isPressed, !wasExitChordPressed {
-            self?.runningProcess?.terminate()
+            self?.runningApplication?.terminate()
           }
           wasExitChordPressed = isPressed
           try? await Task.sleep(for: .milliseconds(24))
