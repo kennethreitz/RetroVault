@@ -9,6 +9,9 @@ being a list of every commit.
 
 ### Added
 
+- Added Switch X as the selected game's contextual action: it opens Options in
+  library lists and launches the game from Save Center. Start remains an
+  alternate Options shortcut.
 - Added a controller-first Save Center that combines RomM save availability
   with RetroVault's local save inventory.
 - Added visible synchronized, upload-needed, RomM-only, and failed save states,

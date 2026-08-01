@@ -442,6 +442,21 @@ struct BigPictureCatalogTests {
         hasSaveState: true
       )
     )
+    #expect(
+      BigPictureGameLaunchPresentation.secondaryAction(
+        isSaveCenter: false
+      ) == .options
+    )
+    #expect(
+      BigPictureGameLaunchPresentation.secondaryAction(
+        isSaveCenter: true
+      ) == .play
+    )
+    #expect(
+      BigPictureGameLaunchPresentation.secondaryActionTitle(
+        isSaveCenter: true
+      ) == "Play"
+    )
   }
 
   @Test("Presents a useful system download action for every cache state")

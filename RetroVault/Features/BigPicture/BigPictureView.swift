@@ -500,31 +500,20 @@ struct BigPictureView: View {
       Spacer()
 
       HStack(spacing: 10) {
-        if page.isGameList {
+        if selectedSaveCenterItem != nil {
+          actionHint(
+            key: controllerState.playFromBeginningButtonPrompt.label,
+            systemImage:
+              controllerState.playFromBeginningButtonPrompt.systemImage,
+            label: BigPictureGameLaunchPresentation.secondaryActionTitle(
+              isSaveCenter: true
+            ).uppercased()
+          )
+        } else if page.isGameList || selectedSystem != nil {
           actionHint(
             key: controllerState.optionsButtonPrompt.label,
             systemImage: controllerState.optionsButtonPrompt.systemImage,
             label: "OPTIONS"
-          )
-        } else if selectedSystem != nil {
-          actionHint(
-            key: controllerState.playFromBeginningButtonPrompt.label,
-            systemImage:
-              controllerState.playFromBeginningButtonPrompt.systemImage,
-            label: "OPTIONS"
-          )
-        }
-        if
-          let selectedGame,
-          BigPictureGameLaunchPresentation.showsPlayFromBeginning(
-            hasSaveState: hasResumeState(for: selectedGame)
-          )
-        {
-          actionHint(
-            key: controllerState.playFromBeginningButtonPrompt.label,
-            systemImage:
-              controllerState.playFromBeginningButtonPrompt.systemImage,
-            label: "PLAY"
           )
         }
         actionHint(
@@ -1582,10 +1571,16 @@ struct BigPictureView: View {
       }
       activate(rows[selectedIndex])
     case .playFromBeginning:
-      if selectedSystem != nil {
+      switch BigPictureGameLaunchPresentation.secondaryAction(
+        isSaveCenter: selectedSaveCenterItem != nil
+      ) {
+      case .play:
+        guard let selectedSaveCenterItem else {
+          return
+        }
+        play(selectedSaveCenterItem.game)
+      case .options:
         presentSelectedOptions()
-      } else {
-        playSelectedGameFromBeginning()
       }
     case .openGameOptions:
       presentSelectedOptions()
@@ -1744,21 +1739,6 @@ struct BigPictureView: View {
         .stroke(.white.opacity(0.2), lineWidth: 1)
     }
     .shadow(color: .black.opacity(0.85), radius: 55)
-  }
-
-  /// Boots the selected game without restoring its quick state.
-  ///
-  /// The confirm button already resumes, because `play(_:)` restores the quick
-  /// state whenever one exists and boots normally when it does not. This is
-  /// the deliberate way past that, for when the saved position is somewhere
-  /// you no longer want to be.
-  private func playSelectedGameFromBeginning() {
-    guard rows.indices.contains(selectedIndex),
-      case let .play(game) = rows[selectedIndex].action
-    else {
-      return
-    }
-    play(game, fromBeginning: true)
   }
 
   private func presentSelectedOptions() {
@@ -2598,12 +2578,30 @@ enum BigPictureCommand: Equatable, Sendable {
 }
 
 enum BigPictureGameLaunchPresentation {
+  enum SecondaryAction: Equatable {
+    case options
+    case play
+  }
+
   static func primaryActionTitle(hasSaveState: Bool) -> String {
     hasSaveState ? "Resume" : "Play"
   }
 
   static func showsPlayFromBeginning(hasSaveState: Bool) -> Bool {
     hasSaveState
+  }
+
+  static func secondaryAction(isSaveCenter: Bool) -> SecondaryAction {
+    isSaveCenter ? .play : .options
+  }
+
+  static func secondaryActionTitle(isSaveCenter: Bool) -> String {
+    switch secondaryAction(isSaveCenter: isSaveCenter) {
+    case .options:
+      "Options"
+    case .play:
+      "Play"
+    }
   }
 }
 
@@ -2839,9 +2837,9 @@ struct BigPictureControllerState: Equatable, Sendable {
         fallbackLabel: layout == .nintendo ? "B" : "A"
       )
       state.optionsButtonPrompt = buttonPrompt(
-        localizedName: gamepad.buttonMenu.localizedName,
-        systemImage: gamepad.buttonMenu.sfSymbolsName,
-        fallbackLabel: "START"
+        localizedName: gamepad.buttonX.localizedName,
+        systemImage: gamepad.buttonX.sfSymbolsName,
+        fallbackLabel: "X"
       )
       state.playFromBeginningButtonPrompt = buttonPrompt(
         localizedName: gamepad.buttonX.localizedName,
@@ -2935,7 +2933,7 @@ struct BigPictureControllerState: Equatable, Sendable {
     backButtonPrompt = BigPictureControllerPrompt(
       label: layout == .nintendo ? "B" : "A"
     )
-    optionsButtonPrompt = BigPictureControllerPrompt(label: "START")
+    optionsButtonPrompt = BigPictureControllerPrompt(label: "X")
     playFromBeginningButtonPrompt = BigPictureControllerPrompt(label: "X")
     syncStatusButtonPrompt = BigPictureControllerPrompt(label: "SELECT")
   }
