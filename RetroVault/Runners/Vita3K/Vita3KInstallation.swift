@@ -127,6 +127,9 @@ final class Vita3KBridge: @unchecked Sendable {
     UnsafeMutableRawPointer?, Int32, Int32
   ) -> Void
   typealias PumpEvents = @convention(c) (UnsafeMutableRawPointer?) -> Void
+  typealias SetFrontTouch = @convention(c) (
+    UnsafeMutableRawPointer?, Float, Float, Int32, Int32
+  ) -> Void
   typealias Stop = @convention(c) (UnsafeMutableRawPointer?) -> Void
   typealias LastError = @convention(c) (
     UnsafeMutableRawPointer?
@@ -142,6 +145,7 @@ final class Vita3KBridge: @unchecked Sendable {
   private let runFunction: Run
   private let resizeFunction: Resize
   private let pumpEventsFunction: PumpEvents
+  private let setFrontTouchFunction: SetFrontTouch
   private let stopFunction: Stop
   private let lastErrorFunction: LastError
 
@@ -187,6 +191,10 @@ final class Vita3KBridge: @unchecked Sendable {
       pumpEventsFunction = try symbol(
         "retrovault_vita3k_pump_events",
         as: PumpEvents.self
+      )
+      setFrontTouchFunction = try symbol(
+        "retrovault_vita3k_set_front_touch",
+        as: SetFrontTouch.self
       )
       stopFunction = try symbol("retrovault_vita3k_stop", as: Stop.self)
       lastErrorFunction = try symbol(
@@ -285,6 +293,17 @@ final class Vita3KBridge: @unchecked Sendable {
   @MainActor
   func pumpEvents() {
     pumpEventsFunction(engine)
+  }
+
+  /// Updates the primary pointer presented as the Vita's front touchscreen.
+  func setFrontTouch(at point: CGPoint, pressed: Bool, active: Bool) {
+    setFrontTouchFunction(
+      engine,
+      Float(point.x),
+      Float(point.y),
+      pressed ? 1 : 0,
+      active ? 1 : 0
+    )
   }
 
   func stop() {

@@ -137,6 +137,10 @@ private final class Vita3KPlayerCoordinator {
     bridge?.resize(to: size)
   }
 
+  func setFrontTouch(at point: CGPoint, pressed: Bool, active: Bool) {
+    bridge?.setFrontTouch(at: point, pressed: pressed, active: active)
+  }
+
   func stop() {
     eventPumpTask?.cancel()
     eventPumpTask = nil
@@ -155,6 +159,13 @@ private struct Vita3KSurfaceView: NSViewRepresentable {
     view.onResize = { [weak coordinator] size in
       coordinator?.resize(to: size)
     }
+    view.onFrontTouch = { [weak coordinator] point, pressed, active in
+      coordinator?.setFrontTouch(
+        at: point,
+        pressed: pressed,
+        active: active
+      )
+    }
     coordinator.surfaceView = view
     return view
   }
@@ -166,6 +177,9 @@ private struct Vita3KSurfaceView: NSViewRepresentable {
 
 private final class Vita3KMetalView: NSView {
   var onResize: ((CGSize) -> Void)?
+  var onFrontTouch: ((CGPoint, Bool, Bool) -> Void)?
+
+  override var acceptsFirstResponder: Bool { true }
 
   override func makeBackingLayer() -> CALayer {
     let layer = CAMetalLayer()
@@ -190,6 +204,45 @@ private final class Vita3KMetalView: NSView {
       metalLayer.drawableSize = pixelSize
     }
     onResize?(pixelSize)
+  }
+
+  override func mouseDown(with event: NSEvent) {
+    window?.makeFirstResponder(self)
+    updateFrontTouch(with: event, pressed: true)
+  }
+
+  override func mouseDragged(with event: NSEvent) {
+    updateFrontTouch(with: event, pressed: true)
+  }
+
+  override func mouseUp(with event: NSEvent) {
+    updateFrontTouch(with: event, pressed: false)
+  }
+
+  private func updateFrontTouch(with event: NSEvent, pressed: Bool) {
+    let location = convert(event.locationInWindow, from: nil)
+    guard let point = Vita3KTouchMapper.normalized(
+      point: location,
+      in: bounds
+    ) else {
+      onFrontTouch?(.zero, false, false)
+      return
+    }
+    onFrontTouch?(point, pressed, bounds.contains(location))
+  }
+}
+
+enum Vita3KTouchMapper {
+  /// Converts AppKit's bottom-left coordinate space into normalized,
+  /// top-left-origin coordinates for Vita3K's renderer surface.
+  static func normalized(point: CGPoint, in bounds: CGRect) -> CGPoint? {
+    guard bounds.width > 0, bounds.height > 0 else {
+      return nil
+    }
+    return CGPoint(
+      x: (point.x - bounds.minX) / bounds.width,
+      y: 1 - ((point.y - bounds.minY) / bounds.height)
+    )
   }
 }
 

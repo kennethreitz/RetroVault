@@ -150,6 +150,23 @@ struct LibraryTests {
         #expect(Vita3KFirmwareState(mask: 0b110).canLaunch)
     }
 
+    @Test("Vita pointer input maps AppKit coordinates onto the front touchscreen")
+    func vitaTouchMapping() throws {
+        let bounds = CGRect(x: 10, y: 20, width: 960, height: 544)
+        let center = try #require(Vita3KTouchMapper.normalized(
+            point: CGPoint(x: 490, y: 292),
+            in: bounds
+        ))
+        #expect(center.x == 0.5)
+        #expect(center.y == 0.5)
+
+        let topLeft = try #require(Vita3KTouchMapper.normalized(
+            point: CGPoint(x: 10, y: 564),
+            in: bounds
+        ))
+        #expect(topLeft == .zero)
+    }
+
     @Test("Persists RomM Favorites membership in the offline snapshot")
     func persistsFavoriteMembership() async throws {
         let token = try ClientToken(

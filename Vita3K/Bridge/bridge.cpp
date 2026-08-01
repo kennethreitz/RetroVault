@@ -7,10 +7,12 @@
 #include "archive.h"
 #include <config/functions.h>
 #include <ctrl/functions.h>
+#include <display/state.h>
 #include <modules/module_parent.h>
 #include <packages/functions.h>
 #include <renderer/functions.h>
 #include <renderer/frame_host.h>
+#include <touch/state.h>
 #include <util/fs.h>
 #include <util/log.h>
 
@@ -93,6 +95,10 @@ struct RetroVaultVita3KEngine {
     std::unique_ptr<MacFrameHost> frame_host;
     std::atomic<bool> stop_requested{ false };
     std::atomic<bool> controller_refresh_requested{ false };
+    std::atomic<float> touch_x{ 0.0f };
+    std::atomic<float> touch_y{ 0.0f };
+    std::atomic<bool> touch_pressed{ false };
+    std::atomic<bool> touch_active{ false };
     std::mutex error_mutex;
     std::string last_error;
     std::string installed_title_id;
@@ -326,6 +332,15 @@ int retrovault_vita3k_run(
         if (engine->controller_refresh_requested.exchange(
                 false, std::memory_order_acq_rel))
             refresh_controllers(engine->emuenv->ctrl, *engine->emuenv);
+        auto &touch = engine->emuenv->touch;
+        touch.mouse_x = engine->touch_x.load(std::memory_order_relaxed)
+            * engine->emuenv->display.viewport_drawable_w;
+        touch.mouse_y = engine->touch_y.load(std::memory_order_relaxed)
+            * engine->emuenv->display.viewport_drawable_h;
+        touch.mouse_button_left = engine->touch_pressed.load(
+            std::memory_order_acquire);
+        touch.renderer_focused = engine->touch_active.load(
+            std::memory_order_acquire);
         app::update_runtime_metrics(*engine->emuenv, metrics);
         SDL_Delay(8);
     }
@@ -351,6 +366,21 @@ void retrovault_vita3k_pump_events(void *opaque_engine) {
             engine->controller_refresh_requested.store(
                 true, std::memory_order_release);
     }
+}
+
+void retrovault_vita3k_set_front_touch(
+    void *opaque_engine,
+    float normalized_x,
+    float normalized_y,
+    int pressed,
+    int active) {
+    auto *engine = static_cast<RetroVaultVita3KEngine *>(opaque_engine);
+    if (!engine)
+        return;
+    engine->touch_x.store(normalized_x, std::memory_order_relaxed);
+    engine->touch_y.store(normalized_y, std::memory_order_relaxed);
+    engine->touch_pressed.store(pressed != 0, std::memory_order_release);
+    engine->touch_active.store(active != 0, std::memory_order_release);
 }
 
 void retrovault_vita3k_resize(

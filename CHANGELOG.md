@@ -9,6 +9,8 @@ being a list of every commit.
 
 ### Added
 
+- Added front-touchscreen input for the experimental Vita3K runner using
+  mouse clicks and click-drag gestures on the rendered game surface.
 - Added a local-build-only PlayStation Vita technical preview. A pinned Vita3K
   engine can render through MoltenVK into RetroVault's own native player view,
   while its firmware and installed titles remain isolated from Libretro data.
