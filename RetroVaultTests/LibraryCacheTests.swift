@@ -1420,21 +1420,21 @@ struct BigPictureCatalogTests {
     )
   }
 
-  @Test("Keeps Big Picture selection at list boundaries")
-  func clampsBigPictureSelection() {
+  @Test("Wraps Big Picture selection around list boundaries")
+  func wrapsBigPictureSelection() {
     #expect(
       BigPictureSelectionNavigation.index(
         afterMovingFrom: 0,
         by: -1,
         itemCount: 20
-      ) == 0
+      ) == 19
     )
     #expect(
       BigPictureSelectionNavigation.index(
         afterMovingFrom: 19,
         by: 1,
         itemCount: 20
-      ) == 19
+      ) == 0
     )
     #expect(
       BigPictureSelectionNavigation.index(
@@ -1442,6 +1442,13 @@ struct BigPictureCatalogTests {
         by: 10,
         itemCount: 20
       ) == 17
+    )
+    #expect(
+      BigPictureSelectionNavigation.index(
+        afterMovingFrom: 15,
+        by: 10,
+        itemCount: 20
+      ) == 5
     )
   }
 

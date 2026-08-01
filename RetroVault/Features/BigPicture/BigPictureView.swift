@@ -4032,7 +4032,8 @@ enum BigPictureSelectionNavigation {
     guard itemCount > 0 else {
       return 0
     }
-    return min(max(index + offset, 0), itemCount - 1)
+    let remainder = (index + offset) % itemCount
+    return remainder >= 0 ? remainder : remainder + itemCount
   }
 }
 
