@@ -1,4 +1,5 @@
 import Foundation
+import ZIPFoundation
 
 /// Locates and prepares the Cemu companion application used for Wii U games.
 ///
@@ -98,7 +99,8 @@ struct CemuInstallation: Sendable {
     dsuConfiguration: CemuDSUConfiguration?,
     contentURL: URL,
     mlcURL: URL,
-    launchPresentation: CemuLaunchPresentation
+    launchPresentation: CemuLaunchPresentation,
+    internalResolution: LibretroInternalResolution = .native
   ) throws -> CemuRuntime {
     let fileManager = FileManager.default
     try fileManager.createDirectory(
@@ -128,7 +130,8 @@ struct CemuInstallation: Sendable {
       gameDirectory: contentURL.deletingLastPathComponent(),
       mlcDirectory: mlcURL,
       dsuConfiguration: dsuConfiguration,
-      launchPresentation: launchPresentation
+      launchPresentation: launchPresentation,
+      internalResolution: internalResolution
     )
     if let dsuConfiguration {
       removeManagedControllerProfiles(in: cemuUserDataURL)
@@ -146,6 +149,21 @@ struct CemuInstallation: Sendable {
       userDataDirectory: cemuUserDataURL,
       homeDirectory: processHomeURL,
       logURL: cemuUserDataURL.appending(path: "log.txt")
+    )
+  }
+
+  /// Installs Cemu's official community graphics packs when a higher internal
+  /// resolution was requested. The archive is kept in RetroVault's private
+  /// Cemu data directory and reused by later launches.
+  @discardableResult
+  func ensureGraphicPacksAvailable(
+    for resolution: LibretroInternalResolution
+  ) async throws -> Bool {
+    guard resolution != .native else {
+      return false
+    }
+    return try await CemuGraphicPackInstaller.ensureInstalled(
+      in: cemuUserDataURL
     )
   }
 
@@ -342,7 +360,8 @@ struct CemuInstallation: Sendable {
     gameDirectory: URL,
     mlcDirectory: URL,
     dsuConfiguration: CemuDSUConfiguration?,
-    launchPresentation: CemuLaunchPresentation
+    launchPresentation: CemuLaunchPresentation,
+    internalResolution: LibretroInternalResolution
   ) throws {
     let settingsURL = portableDirectory.appending(path: "settings.xml")
     // This is RetroVault's private Cemu user-data directory, so keep the small
@@ -356,6 +375,22 @@ struct CemuInstallation: Sendable {
           </Input>
       """
     } ?? ""
+    let graphicPackSettings = try CemuGraphicPackCatalog.settingsXML(
+      in: portableDirectory,
+      resolution: internalResolution,
+      xmlEscaped: xmlEscaped
+    )
+    if internalResolution != .native {
+      if graphicPackSettings == "  <GraphicPack/>" {
+        RetroVaultLog.cemu.notice(
+          "No compatible Cemu \(internalResolution.displayName, privacy: .public) graphics-pack preset was found; using the title's native resolution"
+        )
+      } else {
+        RetroVaultLog.cemu.notice(
+          "Configured Cemu graphics packs for \(internalResolution.displayName, privacy: .public) internal resolution"
+        )
+      }
+    }
     let settings = """
       <?xml version="1.0" encoding="UTF-8"?>
       <content>
@@ -366,6 +401,7 @@ struct CemuInstallation: Sendable {
         <GamePaths>
           <Entry>\(xmlEscaped(gameDirectory.path))</Entry>
         </GamePaths>
+      \(graphicPackSettings)
         <fullscreen_menubar>false</fullscreen_menubar>
         <fullscreen>\(launchPresentation.settingsValue)</fullscreen>
         <disable_screensaver>true</disable_screensaver>
@@ -472,6 +508,461 @@ struct CemuInstallation: Sendable {
       .replacingOccurrences(of: ">", with: "&gt;")
       .replacingOccurrences(of: "\"", with: "&quot;")
       .replacingOccurrences(of: "'", with: "&apos;")
+  }
+}
+
+enum CemuGraphicPackCatalog {
+  private struct Preset {
+    let name: String
+    let category: String?
+    let values: [String: String]
+  }
+
+  private struct Rules {
+    let definition: [String: String]
+    let defaults: [String: String]
+    let presets: [Preset]
+  }
+
+  private struct Selection {
+    let rulesURL: URL
+    let category: String?
+    let preset: String
+    let error: Double
+  }
+
+  static func settingsXML(
+    in userDataDirectory: URL,
+    resolution: LibretroInternalResolution,
+    xmlEscaped: (String) -> String
+  ) throws -> String {
+    guard resolution != .native else {
+      return "  <GraphicPack/>"
+    }
+
+    let graphicPacksURL = userDataDirectory.appending(
+      path: "graphicPacks",
+      directoryHint: .isDirectory
+    )
+    guard
+      let enumerator = FileManager.default.enumerator(
+        at: graphicPacksURL,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles, .skipsPackageDescendants]
+      )
+    else {
+      return "  <GraphicPack/>"
+    }
+
+    var selections: [Selection] = []
+    for case let rulesURL as URL in enumerator where rulesURL.lastPathComponent == "rules.txt" {
+      guard
+        let contents = try? String(contentsOf: rulesURL, encoding: .utf8),
+        let selection = selection(
+          in: parse(contents),
+          rulesURL: rulesURL,
+          scale: resolution.scale
+        )
+      else {
+        continue
+      }
+      selections.append(selection)
+    }
+
+    selections.sort {
+      $0.rulesURL.path.localizedStandardCompare($1.rulesURL.path)
+        == .orderedAscending
+    }
+    guard !selections.isEmpty else {
+      return "  <GraphicPack/>"
+    }
+
+    let rootPath = userDataDirectory.standardizedFileURL.path
+      .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    let entries = selections.compactMap { selection -> String? in
+      let path = selection.rulesURL.standardizedFileURL.path
+        .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+      guard path.hasPrefix(rootPath + "/") else {
+        return nil
+      }
+      let relativePath = String(path.dropFirst(rootPath.count + 1))
+      let categoryAttribute = selection.category.map {
+        " category=\"\(xmlEscaped($0))\""
+      } ?? ""
+      return """
+          <Entry filename="\(xmlEscaped(relativePath))">
+            <Preset\(categoryAttribute) preset="\(xmlEscaped(selection.preset))"/>
+          </Entry>
+      """
+    }
+    guard !entries.isEmpty else {
+      return "  <GraphicPack/>"
+    }
+    return """
+        <GraphicPack>
+    \(entries.joined(separator: "\n"))
+        </GraphicPack>
+    """
+  }
+
+  private static func selection(
+    in rules: Rules,
+    rulesURL: URL,
+    scale: Int
+  ) -> Selection? {
+    let definitionDescription = [
+      rules.definition["name"],
+      rules.definition["path"],
+    ]
+    .compactMap { $0 }
+    .joined(separator: " ")
+    .lowercased()
+
+    return rules.presets.compactMap { preset -> Selection? in
+      let normalizedCategory = preset.category?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      let categoryDescription = normalizedCategory?.lowercased() ?? ""
+      let isResolutionPreset: Bool
+      if categoryDescription.isEmpty {
+        isResolutionPreset = definitionDescription.contains("resolution")
+      } else {
+        isResolutionPreset = categoryDescription.contains("resolution")
+          && !categoryDescription.contains("gamepad")
+          && !categoryDescription.contains("game pad")
+      }
+      guard isResolutionPreset else {
+        return nil
+      }
+
+      let effectiveValues = rules.defaults.merging(preset.values) { _, preset in
+        preset
+      }
+      guard
+        let width = integerValue(effectiveValues["$width"]),
+        let height = integerValue(effectiveValues["$height"]),
+        let gameWidth = integerValue(effectiveValues["$gamewidth"]),
+        let gameHeight = integerValue(effectiveValues["$gameheight"]),
+        gameWidth > 0,
+        gameHeight > 0
+      else {
+        return nil
+      }
+      let widthScale = Double(width) / Double(gameWidth)
+      let heightScale = Double(height) / Double(gameHeight)
+      let target = Double(scale)
+      let error = abs(widthScale - target) + abs(heightScale - target)
+      guard error <= 0.1 else {
+        return nil
+      }
+      let selectedCategory = normalizedCategory.flatMap {
+        $0.isEmpty ? nil : $0
+      }
+      return Selection(
+        rulesURL: rulesURL,
+        category: selectedCategory,
+        preset: preset.name,
+        error: error
+      )
+    }
+    .min {
+      if $0.error != $1.error {
+        return $0.error < $1.error
+      }
+      return $0.preset.localizedStandardCompare($1.preset) == .orderedAscending
+    }
+  }
+
+  private static func parse(_ contents: String) -> Rules {
+    enum Section {
+      case definition
+      case defaults
+      case preset
+      case ignored
+    }
+
+    var section = Section.ignored
+    var definition: [String: String] = [:]
+    var defaults: [String: String] = [:]
+    var currentPreset: [String: String] = [:]
+    var presets: [Preset] = []
+
+    func normalizedKey(_ value: String) -> String {
+      value
+        .split(separator: ":", maxSplits: 1)
+        .first
+        .map(String.init)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased() ?? ""
+    }
+
+    func appendPreset() {
+      guard let name = currentPreset["name"], !name.isEmpty else {
+        currentPreset = [:]
+        return
+      }
+      let category = currentPreset["category"]
+      presets.append(
+        Preset(name: name, category: category, values: currentPreset)
+      )
+      currentPreset = [:]
+    }
+
+    for rawLine in contents.split(
+      omittingEmptySubsequences: false,
+      whereSeparator: { $0.isNewline }
+    ) {
+      let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix(";") else {
+        continue
+      }
+      if line.hasPrefix("["), let closingBracket = line.firstIndex(of: "]") {
+        if section == .preset {
+          appendPreset()
+        }
+        let name = line[line.index(after: line.startIndex)..<closingBracket]
+          .lowercased()
+        switch name {
+        case "definition": section = .definition
+        case "default": section = .defaults
+        case "preset": section = .preset
+        default: section = .ignored
+        }
+        continue
+      }
+      guard
+        let separator = line.firstIndex(of: "="),
+        separator != line.startIndex
+      else {
+        continue
+      }
+      let key = normalizedKey(String(line[..<separator]))
+      var value = String(line[line.index(after: separator)...])
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      if value.count >= 2, value.first == "\"", value.last == "\"" {
+        value.removeFirst()
+        value.removeLast()
+      }
+      switch section {
+      case .definition: definition[key] = value
+      case .defaults: defaults[key] = value
+      case .preset: currentPreset[key] = value
+      case .ignored: break
+      }
+    }
+    if section == .preset {
+      appendPreset()
+    }
+    return Rules(
+      definition: definition,
+      defaults: defaults,
+      presets: presets
+    )
+  }
+
+  private static func integerValue(_ value: String?) -> Int? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    let prefix = trimmed.prefix { $0.isNumber }
+    return prefix.isEmpty ? nil : Int(prefix)
+  }
+}
+
+private enum CemuGraphicPackInstaller {
+  private static let releasesURL = URL(
+    string: "https://api.github.com/repos/cemu-project/cemu_graphic_packs/releases/latest"
+  )!
+  private static let maximumEntryCount = 50_000
+  private static let maximumArchiveBytes = 64 * 1_024 * 1_024
+  private static let maximumUncompressedBytes: UInt64 = 1_024 * 1_024 * 1_024
+
+  private struct Release: Decodable {
+    let assets: [Asset]
+  }
+
+  private struct Asset: Decodable {
+    let name: String
+    let browserDownloadURL: URL
+
+    enum CodingKeys: String, CodingKey {
+      case name
+      case browserDownloadURL = "browser_download_url"
+    }
+  }
+
+  static func ensureInstalled(in userDataDirectory: URL) async throws -> Bool {
+    let fileManager = FileManager.default
+    let graphicPacksURL = userDataDirectory.appending(
+      path: "graphicPacks",
+      directoryHint: .isDirectory
+    )
+    let destinationURL = graphicPacksURL.appending(
+      path: "downloadedGraphicPacks",
+      directoryHint: .isDirectory
+    )
+    let markerURL = destinationURL.appending(path: "version.txt")
+    if fileManager.fileExists(atPath: markerURL.path),
+      containsRules(in: destinationURL)
+    {
+      return false
+    }
+
+    var request = URLRequest(url: releasesURL)
+    request.setValue("RetroVault", forHTTPHeaderField: "User-Agent")
+    request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+    let (releaseData, releaseResponse) = try await URLSession.shared.data(for: request)
+    try validate(releaseResponse, data: releaseData)
+    let release = try JSONDecoder().decode(Release.self, from: releaseData)
+    guard let asset = release.assets.first(where: {
+      $0.name.lowercased().hasSuffix(".zip")
+    }) else {
+      throw CemuGraphicPackError.releaseHasNoArchive
+    }
+
+    let (archiveData, archiveResponse) = try await URLSession.shared.data(from: asset.browserDownloadURL)
+    try validate(archiveResponse, data: archiveData)
+    guard archiveData.count <= maximumArchiveBytes else {
+      throw CemuGraphicPackError.archiveTooLarge
+    }
+
+    try fileManager.createDirectory(
+      at: graphicPacksURL,
+      withIntermediateDirectories: true
+    )
+    let archiveURL = fileManager.temporaryDirectory.appending(
+      path: "RetroVault-CemuGraphicPacks-\(UUID().uuidString).zip"
+    )
+    let stagingURL = graphicPacksURL.appending(
+      path: ".RetroVaultCemuGraphicPacks-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+    try archiveData.write(to: archiveURL, options: .atomic)
+    try fileManager.createDirectory(
+      at: stagingURL,
+      withIntermediateDirectories: true
+    )
+    defer {
+      try? fileManager.removeItem(at: archiveURL)
+      try? fileManager.removeItem(at: stagingURL)
+    }
+
+    let archive = try Archive(url: archiveURL, accessMode: .read)
+    let entries = Array(archive)
+    guard !entries.isEmpty, entries.count <= maximumEntryCount else {
+      throw CemuGraphicPackError.archiveTooLarge
+    }
+    var uncompressedBytes: UInt64 = 0
+    for entry in entries {
+      guard entry.type != .symlink, isSafePath(entry.path) else {
+        throw CemuGraphicPackError.unsafeEntry(entry.path)
+      }
+      let (total, overflow) = uncompressedBytes.addingReportingOverflow(
+        entry.uncompressedSize
+      )
+      guard !overflow, total <= maximumUncompressedBytes else {
+        throw CemuGraphicPackError.archiveTooLarge
+      }
+      uncompressedBytes = total
+    }
+    for entry in entries {
+      let destination = stagingURL.appending(path: entry.path)
+      if entry.type == .directory {
+        try fileManager.createDirectory(
+          at: destination,
+          withIntermediateDirectories: true
+        )
+      } else {
+        _ = try archive.extract(entry, to: destination)
+      }
+    }
+    guard containsRules(in: stagingURL) else {
+      throw CemuGraphicPackError.archiveHasNoRules
+    }
+    try asset.name.write(
+      to: stagingURL.appending(path: "version.txt"),
+      atomically: true,
+      encoding: .utf8
+    )
+
+    if fileManager.fileExists(atPath: destinationURL.path) {
+      let backupName = ".RetroVaultCemuGraphicPacksBackup-\(UUID().uuidString)"
+      _ = try fileManager.replaceItemAt(
+        destinationURL,
+        withItemAt: stagingURL,
+        backupItemName: backupName,
+        options: [.usingNewMetadataOnly]
+      )
+      try? fileManager.removeItem(at: graphicPacksURL.appending(path: backupName))
+    } else {
+      try fileManager.moveItem(at: stagingURL, to: destinationURL)
+    }
+    return true
+  }
+
+  private static func validate(_ response: URLResponse, data: Data) throws {
+    guard
+      let httpResponse = response as? HTTPURLResponse,
+      (200..<300).contains(httpResponse.statusCode)
+    else {
+      throw CemuGraphicPackError.downloadFailed
+    }
+    guard !data.isEmpty else {
+      throw CemuGraphicPackError.downloadFailed
+    }
+  }
+
+  private static func containsRules(in directory: URL) -> Bool {
+    guard let enumerator = FileManager.default.enumerator(
+      at: directory,
+      includingPropertiesForKeys: [.isRegularFileKey],
+      options: [.skipsHiddenFiles, .skipsPackageDescendants]
+    ) else {
+      return false
+    }
+    return enumerator.contains { value in
+      (value as? URL)?.lastPathComponent == "rules.txt"
+    }
+  }
+
+  private static func isSafePath(_ path: String) -> Bool {
+    guard
+      !path.isEmpty,
+      !path.hasPrefix("/"),
+      !path.contains("\\")
+    else {
+      return false
+    }
+    let normalized = path.hasSuffix("/")
+      ? String(path.dropLast())
+      : path
+    guard !normalized.isEmpty else { return false }
+    let components = normalized.split(
+      separator: "/",
+      omittingEmptySubsequences: false
+    )
+    return !components.contains { $0.isEmpty || $0 == "." || $0 == ".." }
+  }
+}
+
+private enum CemuGraphicPackError: LocalizedError {
+  case downloadFailed
+  case releaseHasNoArchive
+  case archiveTooLarge
+  case archiveHasNoRules
+  case unsafeEntry(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .downloadFailed:
+      "Cemu's official graphics packs could not be downloaded."
+    case .releaseHasNoArchive:
+      "Cemu's latest graphics-pack release has no ZIP archive."
+    case .archiveTooLarge:
+      "Cemu's graphics-pack archive is unexpectedly large."
+    case .archiveHasNoRules:
+      "Cemu's graphics-pack archive contains no usable rules."
+    case .unsafeEntry(let path):
+      "Cemu's graphics-pack archive contains an unsafe entry: \(path)"
+    }
   }
 }
 

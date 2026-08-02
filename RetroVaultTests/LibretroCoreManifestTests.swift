@@ -1974,4 +1974,100 @@ struct CemuInstallationTests {
         #expect(windowedSettings.contains("<fullscreen>false</fullscreen>"))
         #expect(runtime.processEnvironment(merging: [:])["HOME"] == homeURL.path)
     }
+
+    @Test("Maps the shared internal-resolution setting to Cemu graphics packs")
+    func mapsInternalResolutionToGraphicPacks() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let modernPackURL = directory.appending(
+            path: "graphicPacks/downloadedGraphicPacks/MarioKart8/Graphics/rules.txt"
+        )
+        try FileManager.default.createDirectory(
+            at: modernPackURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+            [Definition]
+            name = Graphic Options
+            path = "Mario Kart 8/Graphics"
+
+            [Default]
+            $width = 1280
+            $height = 720
+            $gameWidth = 1280
+            $gameHeight = 720
+
+            [Preset]
+            category = TV Resolution
+            name = 2560x1440
+            $width = 2560
+            $height = 1440
+
+            [Preset]
+            category = TV Resolution
+            name = 5120x2880
+            $width = 5120
+            $height = 2880
+
+            [Preset]
+            category = Gamepad Resolution
+            name = 2560x1440 Gamepad
+            $width = 2560
+            $height = 1440
+            """.write(to: modernPackURL, atomically: true, encoding: .utf8)
+
+        let legacyPackURL = directory.appending(
+            path: "graphicPacks/downloadedGraphicPacks/WindWakerHD_Resolution/rules.txt"
+        )
+        try FileManager.default.createDirectory(
+            at: legacyPackURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+            [Definition]
+            name = Resolution
+            path = "The Legend of Zelda: The Wind Waker HD/Graphics/Resolution"
+
+            [Preset]
+            name = 2560x1440
+            $width = 2560
+            $height = 1440
+            $gameWidth = 1280
+            $gameHeight = 720
+
+            [Preset]
+            name = 5120x2880
+            $width = 5120
+            $height = 2880
+            $gameWidth = 1280
+            $gameHeight = 720
+            """.write(to: legacyPackURL, atomically: true, encoding: .utf8)
+
+        let twoX = try CemuGraphicPackCatalog.settingsXML(
+            in: directory,
+            resolution: .double,
+            xmlEscaped: { $0 }
+        )
+        #expect(twoX.contains("category=\"TV Resolution\" preset=\"2560x1440\""))
+        #expect(twoX.contains("WindWakerHD_Resolution/rules.txt"))
+        #expect(twoX.contains("<Preset preset=\"2560x1440\"/>"))
+        #expect(!twoX.contains("Gamepad Resolution"))
+
+        let fourX = try CemuGraphicPackCatalog.settingsXML(
+            in: directory,
+            resolution: .quadruple,
+            xmlEscaped: { $0 }
+        )
+        #expect(fourX.contains("category=\"TV Resolution\" preset=\"5120x2880\""))
+        #expect(fourX.contains("<Preset preset=\"5120x2880\"/>"))
+
+        let native = try CemuGraphicPackCatalog.settingsXML(
+            in: directory,
+            resolution: .native,
+            xmlEscaped: { $0 }
+        )
+        #expect(native == "  <GraphicPack/>")
+    }
 }

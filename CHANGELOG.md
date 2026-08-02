@@ -30,6 +30,9 @@ being a list of every commit.
 - Cemu now inherits RetroVault's current presentation when a Wii U game starts:
   windowed RetroVault sessions launch Cemu windowed, while fullscreen sessions
   continue launching Cemu fullscreen.
+- Cemu now honors RetroVault's shared Native, 2x, and 4x internal-resolution
+  setting through cached official community graphics packs, while retaining a
+  native fallback for Wii U titles without a compatible resolution preset.
 
 ### Fixed
 
