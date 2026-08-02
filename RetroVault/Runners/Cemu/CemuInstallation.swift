@@ -117,6 +117,11 @@ struct CemuInstallation: Sendable {
       at: mlcURL,
       withIntermediateDirectories: true
     )
+    if try Self.prepareRestoredSaveData(in: mlcURL) {
+      RetroVaultLog.cemu.notice(
+        "Mapped a restored RomM Cemu save bundle into the desktop MLC layout"
+      )
+    }
     try prepareSettings(
       in: cemuUserDataURL,
       gameDirectory: contentURL.deletingLastPathComponent(),
@@ -139,6 +144,102 @@ struct CemuInstallation: Sendable {
       homeDirectory: processHomeURL,
       logURL: cemuUserDataURL.appending(path: "log.txt")
     )
+  }
+
+  /// Converts Cannoli's portable per-title Cemu save bundle into the MLC
+  /// layout expected by desktop Cemu.
+  ///
+  /// Cannoli stores the title directory at `save/` and records its Wii U title
+  /// ID in `cannoli-standalone-save.txt`. Desktop Cemu instead reads that same
+  /// directory from `usr/save/<high title ID>/<low title ID>/`. RomM may hold
+  /// either representation, so normalize the portable form after download and
+  /// before Cemu starts. The source is removed only after the replacement has
+  /// succeeded, keeping interrupted migrations recoverable.
+  @discardableResult
+  static func prepareRestoredSaveData(in mlcURL: URL) throws -> Bool {
+    let fileManager = FileManager.default
+    let markerURL = mlcURL.appending(path: "cannoli-standalone-save.txt")
+    guard fileManager.fileExists(atPath: markerURL.path) else {
+      return false
+    }
+
+    let marker = try String(contentsOf: markerURL, encoding: .utf8)
+    var fields: [String: String] = [:]
+    for line in marker.split(whereSeparator: { $0.isNewline }) {
+      let components = line.split(separator: "=", maxSplits: 1)
+      guard components.count == 2 else { continue }
+      fields[String(components[0])] = String(components[1])
+    }
+    let titleID = fields["title_id"]?
+      .replacingOccurrences(of: "-", with: "")
+      .lowercased()
+    guard
+      fields["emulator"]?.uppercased() == "CEMU",
+      let titleID,
+      titleID.count == 16,
+      titleID.allSatisfy(\.isHexDigit)
+    else {
+      throw CemuError.invalidSaveBundle(
+        "The RomM Cemu save bundle has no valid Wii U title ID."
+      )
+    }
+
+    let sourceURL = mlcURL.appending(
+      path: "save",
+      directoryHint: .isDirectory
+    )
+    var sourceIsDirectory: ObjCBool = false
+    guard
+      fileManager.fileExists(
+        atPath: sourceURL.path,
+        isDirectory: &sourceIsDirectory
+      ),
+      sourceIsDirectory.boolValue
+    else {
+      throw CemuError.invalidSaveBundle(
+        "The RomM Cemu save bundle does not contain its save directory."
+      )
+    }
+
+    let highTitleID = String(titleID.prefix(8))
+    let lowTitleID = String(titleID.suffix(8))
+    let destinationParentURL = mlcURL
+      .appending(path: "usr/save", directoryHint: .isDirectory)
+      .appending(path: highTitleID, directoryHint: .isDirectory)
+    let destinationURL = destinationParentURL.appending(
+      path: lowTitleID,
+      directoryHint: .isDirectory
+    )
+    try fileManager.createDirectory(
+      at: destinationParentURL,
+      withIntermediateDirectories: true
+    )
+
+    let stagingURL = destinationParentURL.appending(
+      path: ".RetroVaultCemuSaveImport-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+    try fileManager.copyItem(at: sourceURL, to: stagingURL)
+    defer { try? fileManager.removeItem(at: stagingURL) }
+
+    if fileManager.fileExists(atPath: destinationURL.path) {
+      let backupName = ".RetroVaultCemuSaveBackup-\(UUID().uuidString)"
+      _ = try fileManager.replaceItemAt(
+        destinationURL,
+        withItemAt: stagingURL,
+        backupItemName: backupName,
+        options: [.usingNewMetadataOnly]
+      )
+      try? fileManager.removeItem(
+        at: destinationParentURL.appending(path: backupName)
+      )
+    } else {
+      try fileManager.moveItem(at: stagingURL, to: destinationURL)
+    }
+
+    try fileManager.removeItem(at: sourceURL)
+    try fileManager.removeItem(at: markerURL)
+    return true
   }
 
   private func prepareSettings(
@@ -298,6 +399,7 @@ enum CemuError: LocalizedError {
   case unavailable
   case invalidInstallation
   case invalidLaunchPath
+  case invalidSaveBundle(String)
   case launchFailed(String)
 
   var errorDescription: String? {
@@ -308,6 +410,8 @@ enum CemuError: LocalizedError {
       "RetroVault could not prepare its private Cemu installation."
     case .invalidLaunchPath:
       "The selected Wii U game or save path cannot be passed to Cemu."
+    case .invalidSaveBundle(let reason):
+      "RetroVault could not restore Cemu save data from RomM: \(reason)"
     case .launchFailed(let reason):
       "Cemu could not be launched: \(reason)"
     }

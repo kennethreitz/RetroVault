@@ -1732,6 +1732,66 @@ struct LibretroCoreManifestTests {
 
 @Suite("Cemu companion")
 struct CemuInstallationTests {
+    @Test("Maps a Cannoli Cemu save bundle into desktop Cemu's MLC layout")
+    func mapsPortableSaveBundleIntoMLC() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let portableSaveURL = directory.appending(
+            path: "save/user/80000001",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: portableSaveURL,
+            withIntermediateDirectories: true
+        )
+        let restoredData = Data("romm-wind-waker-save".utf8)
+        try restoredData.write(
+            to: portableSaveURL.appending(path: "cking.sav")
+        )
+        try """
+            format=1
+            emulator=CEMU
+            title_id=0005000010143500
+            """.write(
+                to: directory.appending(path: "cannoli-standalone-save.txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+
+        let staleSaveURL = directory.appending(
+            path: "usr/save/00050000/10143500/user/80000001",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: staleSaveURL,
+            withIntermediateDirectories: true
+        )
+        try Data("stale".utf8).write(
+            to: staleSaveURL.appending(path: "cking.sav")
+        )
+
+        #expect(try CemuInstallation.prepareRestoredSaveData(in: directory))
+        let desktopSaveURL = directory.appending(
+            path: "usr/save/00050000/10143500/user/80000001/cking.sav"
+        )
+        #expect(try Data(contentsOf: desktopSaveURL) == restoredData)
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: directory.appending(path: "save").path
+            )
+        )
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: directory.appending(
+                    path: "cannoli-standalone-save.txt"
+                ).path
+            )
+        )
+        #expect(try !CemuInstallation.prepareRestoredSaveData(in: directory))
+    }
+
     @Test("Prepares private Cemu data and direct quick-launch arguments")
     func preparesPrivateRuntime() throws {
         let directory = FileManager.default.temporaryDirectory
