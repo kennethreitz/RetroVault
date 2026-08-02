@@ -12,7 +12,7 @@ fi
 
 if [ ! -f "$source_application/Contents/Resources/RetroVaultDSURumble" ]; then
   echo "note: This Cemu companion does not include RetroVault DSU rumble."
-  echo "note: Run Scripts/build-cemu-companion.sh to enable it."
+  echo "note: Build it with a macOS 14/Xcode 15-compatible toolchain to enable it."
 fi
 
 plugins_directory="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/PlugIns"

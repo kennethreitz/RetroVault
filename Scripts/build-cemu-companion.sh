@@ -10,7 +10,6 @@ build_directory="$source_directory/build-retrovault-rumble"
 artifact_directory="$repository_root/Build/CemuCompanion"
 application="$artifact_directory/Cemu.app"
 rumble_patch="$repository_root/Patches/Cemu/0001-retrovault-dsu-rumble.patch"
-toolchain_patch="$repository_root/Patches/Cemu/0002-xcode-27-fmt-compatibility.patch"
 
 for required_tool in autoconf automake autoreconf nasm; do
   if ! command -v "$required_tool" >/dev/null 2>&1; then
@@ -19,6 +18,23 @@ for required_tool in autoconf automake autoreconf nasm; do
     exit 1
   fi
 done
+
+# Cemu 2.6's macOS release is built with the macOS 14 generation of Apple's
+# compiler. Apple Clang 21 can be made to compile the pinned dependency tree,
+# but the resulting Cemu/MoltenVK combination emits invalid Metal render
+# pipelines for real Wii U titles (including Wind Waker HD). Refuse that
+# deceptively successful build rather than replacing the known-good official
+# companion with an executable that fails only at runtime.
+clang_major=$(xcrun clang --version | sed -n 's/Apple clang version \([0-9][0-9]*\).*/\1/p' | head -1)
+if [ -z "$clang_major" ]; then
+  echo "error: Could not determine the Apple Clang version." >&2
+  exit 1
+fi
+if [ "$clang_major" -ge 21 ]; then
+  echo "error: Cemu 2.6 cannot be safely built with Apple Clang $clang_major." >&2
+  echo "error: Use a macOS 14/Xcode 15-compatible toolchain, or keep the official companion." >&2
+  exit 1
+fi
 
 cemu_version="2.6"
 cmake_version="3.30.9"
@@ -56,11 +72,6 @@ fi
 if ! git -C "$source_directory" apply --reverse --check "$rumble_patch" 2>/dev/null; then
   git -C "$source_directory" apply --check "$rumble_patch"
   git -C "$source_directory" apply "$rumble_patch"
-fi
-
-if ! git -C "$source_directory" apply --reverse --check "$toolchain_patch" 2>/dev/null; then
-  git -C "$source_directory" apply --check "$toolchain_patch"
-  git -C "$source_directory" apply "$toolchain_patch"
 fi
 
 # Cemu 2.6 pins a 2024 vcpkg helper that emits a bare `-isysroot` when

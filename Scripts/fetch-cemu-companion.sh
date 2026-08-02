@@ -11,7 +11,16 @@ archive_url="https://github.com/cemu-project/Cemu/releases/download/v${version}/
 archive_sha256="698c4b298f94983e4d6c30e9687ba8ff05094dd3930837c5104cddc0b0a49e4e"
 license_url="https://raw.githubusercontent.com/cemu-project/Cemu/v${version}/LICENSE.txt"
 
-if [ -x "$application/Contents/MacOS/Cemu" ] \
+force=false
+if [ "$#" -eq 1 ] && [ "$1" = "--force" ]; then
+  force=true
+elif [ "$#" -ne 0 ]; then
+  echo "usage: $0 [--force]" >&2
+  exit 2
+fi
+
+if [ "$force" = false ] \
+  && [ -x "$application/Contents/MacOS/Cemu" ] \
   && [ -f "$artifact_directory/COPYING-Cemu.txt" ]; then
   echo "Cemu $version is already prepared in $artifact_directory"
   exit 0
@@ -47,10 +56,13 @@ if [ ! -x "$mount_point/Cemu.app/Contents/MacOS/Cemu" ]; then
   exit 1
 fi
 
+if [ "$force" = true ]; then
+  echo "Replacing the existing Cemu companion with official v${version}…"
+fi
 rm -rf "$artifact_directory"
 mkdir -p "$artifact_directory"
 ditto "$mount_point/Cemu.app" "$application"
 curl --fail --location --silent --show-error "$license_url" \
   --output "$artifact_directory/COPYING-Cemu.txt"
 
-echo "Prepared official Cemu v$version in $artifact_directory"
+echo "Prepared official Cemu v${version} in $artifact_directory"

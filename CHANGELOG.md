@@ -15,8 +15,9 @@ being a list of every commit.
   that support multiplayer can consume up to four players.
 - Added four managed Wii U Pro Controller profiles backed by RetroVault's
   localhost DSU relay for multiplayer Cemu titles.
-- Added Wii U rumble through RetroVault's local DSU relay and a reproducible
-  patched Cemu companion build.
+- Added Wii U rumble handling to RetroVault's local DSU relay and an opt-in
+  patched Cemu companion build path. The default companion remains upstream
+  Cemu 2.6 until the patch is rebuilt with a validated toolchain.
 
 ### Changed
 
@@ -29,6 +30,13 @@ being a list of every commit.
 - Cemu now inherits RetroVault's current presentation when a Wii U game starts:
   windowed RetroVault sessions launch Cemu windowed, while fullscreen sessions
   continue launching Cemu fullscreen.
+
+### Fixed
+
+- Restored the official Cemu 2.6 companion after the Apple Clang 21 rebuild
+  caused MoltenVK render-pipeline failures in games such as Wind Waker HD.
+  Patched Cemu builds now refuse that known-bad toolchain instead of producing
+  an executable that fails only after a title starts.
 
 ## 2026-08-01
 
