@@ -6,6 +6,7 @@ struct CemuGameView: View {
   let request: CemuRunRequest
   let service: any LibraryServing
   let dsuConfiguration: CemuDSUConfiguration?
+  let launchPresentation: CemuLaunchPresentation
   let onCloseRequested: @MainActor @Sendable () -> Void
 
   @State private var coordinator = CemuPlayerCoordinator()
@@ -57,6 +58,7 @@ struct CemuGameView: View {
         request: request,
         service: service,
         dsuConfiguration: dsuConfiguration,
+        launchPresentation: launchPresentation,
         onFinished: onCloseRequested
       )
     }
@@ -88,6 +90,7 @@ private final class CemuPlayerCoordinator {
     request: CemuRunRequest,
     service: any LibraryServing,
     dsuConfiguration: CemuDSUConfiguration?,
+    launchPresentation: CemuLaunchPresentation,
     onFinished: @escaping @MainActor @Sendable () -> Void
   ) async {
     guard runningProcess == nil, runningApplication == nil else {
@@ -125,7 +128,8 @@ private final class CemuPlayerCoordinator {
         try installation.prepareRuntime(
           dsuConfiguration: effectiveDSUConfiguration,
           contentURL: request.contentURL,
-          mlcURL: request.saveSync.localSaveURL
+          mlcURL: request.saveSync.localSaveURL,
+          launchPresentation: launchPresentation
         )
       }.value
       guard !Task.isCancelled else { return }
@@ -143,7 +147,8 @@ private final class CemuPlayerCoordinator {
       )
       process.arguments = runtime.launchArguments(
         contentURL: request.contentURL,
-        mlcURL: request.saveSync.localSaveURL
+        mlcURL: request.saveSync.localSaveURL,
+        presentation: launchPresentation
       )
 
       _ = FileManager.default.createFile(
@@ -155,7 +160,7 @@ private final class CemuPlayerCoordinator {
       process.standardOutput = launcherLogHandle
       process.standardError = launcherLogHandle
       RetroVaultLog.cemu.notice(
-        "Launching bundled Cemu directly for game \(request.gameID, privacy: .public) with content \(request.contentURL.path, privacy: .public)"
+        "Launching bundled Cemu \(launchPresentation.logDescription, privacy: .public) for game \(request.gameID, privacy: .public) with content \(request.contentURL.path, privacy: .public)"
       )
 
       let existingCemuProcessIDs = Set(

@@ -97,7 +97,8 @@ struct CemuInstallation: Sendable {
   func prepareRuntime(
     dsuConfiguration: CemuDSUConfiguration?,
     contentURL: URL,
-    mlcURL: URL
+    mlcURL: URL,
+    launchPresentation: CemuLaunchPresentation
   ) throws -> CemuRuntime {
     let fileManager = FileManager.default
     try fileManager.createDirectory(
@@ -126,7 +127,8 @@ struct CemuInstallation: Sendable {
       in: cemuUserDataURL,
       gameDirectory: contentURL.deletingLastPathComponent(),
       mlcDirectory: mlcURL,
-      dsuConfiguration: dsuConfiguration
+      dsuConfiguration: dsuConfiguration,
+      launchPresentation: launchPresentation
     )
     if let dsuConfiguration {
       removeManagedControllerProfiles(in: cemuUserDataURL)
@@ -339,7 +341,8 @@ struct CemuInstallation: Sendable {
     in portableDirectory: URL,
     gameDirectory: URL,
     mlcDirectory: URL,
-    dsuConfiguration: CemuDSUConfiguration?
+    dsuConfiguration: CemuDSUConfiguration?,
+    launchPresentation: CemuLaunchPresentation
   ) throws {
     let settingsURL = portableDirectory.appending(path: "settings.xml")
     // This is RetroVault's private Cemu user-data directory, so keep the small
@@ -364,7 +367,7 @@ struct CemuInstallation: Sendable {
           <Entry>\(xmlEscaped(gameDirectory.path))</Entry>
         </GamePaths>
         <fullscreen_menubar>false</fullscreen_menubar>
-        <fullscreen>true</fullscreen>
+        <fullscreen>\(launchPresentation.settingsValue)</fullscreen>
         <disable_screensaver>true</disable_screensaver>
         <Graphic>
           <api>1</api>
@@ -481,12 +484,19 @@ struct CemuRuntime: Hashable, Sendable {
   /// Native Cemu quick-launch arguments. RetroVault executes the signed Cemu
   /// binary embedded in its own bundle directly so LaunchServices cannot
   /// rewrite the arguments or App-Translocate a copied application bundle.
-  func launchArguments(contentURL: URL, mlcURL: URL) -> [String] {
-    [
+  func launchArguments(
+    contentURL: URL,
+    mlcURL: URL,
+    presentation: CemuLaunchPresentation
+  ) -> [String] {
+    var arguments = [
       "-g", contentURL.path,
       "-m", mlcURL.path,
-      "-f",
     ]
+    if presentation == .fullScreen {
+      arguments.append("-f")
+    }
+    return arguments
   }
 
   func processEnvironment(
@@ -495,6 +505,23 @@ struct CemuRuntime: Hashable, Sendable {
     var environment = environment
     environment["HOME"] = homeDirectory.path
     return environment
+  }
+}
+
+enum CemuLaunchPresentation: Hashable, Sendable {
+  case windowed
+  case fullScreen
+
+  static func matching(hostWindowIsFullScreen: Bool) -> Self {
+    hostWindowIsFullScreen ? .fullScreen : .windowed
+  }
+
+  var settingsValue: String {
+    self == .fullScreen ? "true" : "false"
+  }
+
+  var logDescription: String {
+    self == .fullScreen ? "fullscreen" : "windowed"
   }
 }
 

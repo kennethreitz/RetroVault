@@ -150,6 +150,7 @@ struct BigPictureView: View {
           request: activeCemuRequest,
           service: model.service,
           dsuConfiguration: cemuDSUConfiguration,
+          launchPresentation: cemuLaunchPresentation,
           onCloseRequested: returnToBigPicture
         )
         .id(activeCemuRequest)
@@ -3260,6 +3261,13 @@ struct BigPictureView: View {
       host: dsuHost,
       port: UInt16(clamping: dsuPort),
       playerCount: Int(DSUProtocol.slotCount)
+    )
+  }
+
+  private var cemuLaunchPresentation: CemuLaunchPresentation {
+    .matching(
+      hostWindowIsFullScreen:
+        bigPictureWindow?.styleMask.contains(.fullScreen) == true
     )
   }
 }

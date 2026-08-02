@@ -1732,6 +1732,16 @@ struct LibretroCoreManifestTests {
 
 @Suite("Cemu companion")
 struct CemuInstallationTests {
+    @Test("Matches Cemu presentation to the RetroVault window")
+    func matchesHostWindowPresentation() {
+        #expect(CemuLaunchPresentation.matching(
+            hostWindowIsFullScreen: true
+        ) == .fullScreen)
+        #expect(CemuLaunchPresentation.matching(
+            hostWindowIsFullScreen: false
+        ) == .windowed)
+    }
+
     @Test("Maps a Cannoli Cemu save bundle into desktop Cemu's MLC layout")
     func mapsPortableSaveBundleIntoMLC() throws {
         let directory = FileManager.default.temporaryDirectory
@@ -1878,7 +1888,8 @@ struct CemuInstallationTests {
                 playerCount: 4
             ),
             contentURL: gameURL,
-            mlcURL: mlcURL
+            mlcURL: mlcURL,
+            launchPresentation: .fullScreen
         )
 
         #expect(FileManager.default.isExecutableFile(atPath: runtime.executableURL.path))
@@ -1888,6 +1899,7 @@ struct CemuInstallationTests {
             encoding: .utf8
         )
         #expect(settings.contains("<macos_disclaimer>true</macos_disclaimer>"))
+        #expect(settings.contains("<fullscreen>true</fullscreen>"))
         #expect(settings.contains("<api>1</api>"))
         #expect(settings.contains("<mlc_path>\(directory.path)/Saves &amp; Data/Wind Waker</mlc_path>"))
         #expect(settings.contains("<Entry>\(directory.path)/Games &amp; More</Entry>"))
@@ -1923,13 +1935,34 @@ struct CemuInstallationTests {
 
         let launchArguments = runtime.launchArguments(
             contentURL: gameURL,
-            mlcURL: mlcURL
+            mlcURL: mlcURL,
+            presentation: .fullScreen
         )
         #expect(launchArguments == [
             "-g", gameURL.path,
             "-m", mlcURL.path,
             "-f",
         ])
+        #expect(runtime.launchArguments(
+            contentURL: gameURL,
+            mlcURL: mlcURL,
+            presentation: .windowed
+        ) == [
+            "-g", gameURL.path,
+            "-m", mlcURL.path,
+        ])
+
+        _ = try installation.prepareRuntime(
+            dsuConfiguration: nil,
+            contentURL: gameURL,
+            mlcURL: mlcURL,
+            launchPresentation: .windowed
+        )
+        let windowedSettings = try String(
+            contentsOf: runtime.userDataDirectory.appending(path: "settings.xml"),
+            encoding: .utf8
+        )
+        #expect(windowedSettings.contains("<fullscreen>false</fullscreen>"))
         #expect(runtime.processEnvironment(merging: [:])["HOME"] == homeURL.path)
     }
 }

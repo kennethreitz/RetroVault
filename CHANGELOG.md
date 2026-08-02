@@ -24,6 +24,9 @@ being a list of every commit.
 - Reordered the home library shortcuts around local play: Downloaded Games,
   Recently Played, Favorite Games, Recently Added, and All Games. Save Center
   now sits at the bottom of the home page after the systems list.
+- Cemu now inherits RetroVault's current presentation when a Wii U game starts:
+  windowed RetroVault sessions launch Cemu windowed, while fullscreen sessions
+  continue launching Cemu fullscreen.
 
 ## 2026-08-01
 
