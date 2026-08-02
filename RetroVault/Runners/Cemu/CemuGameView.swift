@@ -85,6 +85,7 @@ private final class CemuPlayerCoordinator {
   private var controllerRelay: CemuDSURelay?
   private var monitorTask: Task<Void, Never>?
   private var expectsEscapeToLeaveFullScreen = false
+  private var didHideHostApplication = false
   private var isFinishing = false
 
   func start(
@@ -199,7 +200,18 @@ private final class CemuPlayerCoordinator {
       ).first { !existingCemuProcessIDs.contains($0.processIdentifier) }
       runningApplication = application
       expectsEscapeToLeaveFullScreen = launchPresentation == .fullScreen
-      application?.activate(options: [.activateAllWindows])
+      if let application {
+        // Cemu is intentionally a separate hosted application. Hiding the
+        // host is the reliable modern macOS handoff: activation options that
+        // used to force another process forward are ignored on macOS 14+.
+        NSApplication.shared.hide(nil)
+        didHideHostApplication = true
+        if !application.activate(options: [.activateAllWindows]) {
+          RetroVaultLog.cemu.error(
+            "Cemu started, but macOS did not move it to the foreground."
+          )
+        }
+      }
       process.terminationHandler = { [weak self] _ in
         Task { @MainActor [weak self] in
           await self?.finish(
@@ -254,6 +266,7 @@ private final class CemuPlayerCoordinator {
     controllerRelay = nil
     try? launcherLogHandle?.close()
     launcherLogHandle = nil
+    restoreRetroVaultFocusIfNeeded()
   }
 
   private func finish(
@@ -273,6 +286,7 @@ private final class CemuPlayerCoordinator {
     controllerRelay = nil
     try? launcherLogHandle?.close()
     launcherLogHandle = nil
+    restoreRetroVaultFocusIfNeeded()
     status = .synchronizing
 
     do {
@@ -288,6 +302,13 @@ private final class CemuPlayerCoordinator {
       )
     }
     onFinished()
+  }
+
+  private func restoreRetroVaultFocusIfNeeded() {
+    guard didHideHostApplication else { return }
+    didHideHostApplication = false
+    NSApplication.shared.unhide(nil)
+    NSRunningApplication.current.activate(options: [.activateAllWindows])
   }
 
   private func handleEscapeKey() {
