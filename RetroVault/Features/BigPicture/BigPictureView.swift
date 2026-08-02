@@ -591,9 +591,11 @@ struct BigPictureView: View {
           key: controllerState.activateButtonPrompt.label,
           systemImage: controllerState.activateButtonPrompt.systemImage,
           label:
-            selectedSaveCenterItem != nil
-            ? "SYNC"
-            : selectedSetting.map(settingActionLabel) ?? selectedGame.map {
+            selectedSaveCenterItem.map {
+              BigPictureSaveCenterPresentation.primaryActionTitle(
+                for: $0.status
+              ).uppercased()
+            } ?? selectedSetting.map(settingActionLabel) ?? selectedGame.map {
               BigPictureGameLaunchPresentation.primaryActionTitle(
                 hasSaveState: hasResumeState(for: $0)
               ).uppercased()
@@ -1202,7 +1204,11 @@ struct BigPictureView: View {
           title: item.game.name,
           detail: item.detail,
           isFavorite: false,
-          action: .synchronizeSave(item.id)
+          action:
+            BigPictureSaveCenterPresentation.primaryAction(for: item.status)
+              == .play
+            ? .play(item.game)
+            : .synchronizeSave(item.id)
         )
       }
 
@@ -3578,6 +3584,30 @@ enum BigPictureGameLaunchPresentation {
       "Options"
     case .play:
       "Play"
+    }
+  }
+}
+
+enum BigPictureSaveCenterPresentation {
+  enum PrimaryAction: Equatable {
+    case play
+    case synchronize
+  }
+
+  static func primaryAction(
+    for status: SaveCenterStatus
+  ) -> PrimaryAction {
+    status == .synchronized ? .play : .synchronize
+  }
+
+  static func primaryActionTitle(
+    for status: SaveCenterStatus
+  ) -> String {
+    switch primaryAction(for: status) {
+    case .play:
+      "Play"
+    case .synchronize:
+      "Sync"
     }
   }
 }

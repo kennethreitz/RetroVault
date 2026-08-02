@@ -109,6 +109,35 @@ struct SaveCenterTests {
     #expect(items[0].status == .failed("RomM is offline"))
   }
 
+  @Test("Uses play for synchronized saves and sync for every other state")
+  func presentsContextualPrimaryAction() {
+    #expect(
+      BigPictureSaveCenterPresentation.primaryAction(for: .synchronized)
+        == .play
+    )
+    #expect(
+      BigPictureSaveCenterPresentation.primaryActionTitle(
+        for: .synchronized
+      ) == "Play"
+    )
+
+    let synchronizationStatuses: [SaveCenterStatus] = [
+      .uploadPending,
+      .remoteOnly,
+      .failed("RomM is offline"),
+    ]
+    for status in synchronizationStatuses {
+      #expect(
+        BigPictureSaveCenterPresentation.primaryAction(for: status)
+          == .synchronize
+      )
+      #expect(
+        BigPictureSaveCenterPresentation.primaryActionTitle(for: status)
+          == "Sync"
+      )
+    }
+  }
+
   private func game(
     id: Int,
     name: String,
