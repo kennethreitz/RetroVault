@@ -1165,6 +1165,13 @@ struct BigPictureView: View {
           action: .navigate(.games(.recentlyAdded))
         ),
         BigPictureRow(
+          id: .home("downloaded"),
+          title: "Downloaded",
+          detail: catalog.downloadedGames.count.formatted(),
+          isFavorite: false,
+          action: .navigate(.downloaded)
+        ),
+        BigPictureRow(
           id: .home("all-games"),
           title: "All Games",
           detail: catalog.allGames.count.formatted(),
@@ -1184,13 +1191,6 @@ struct BigPictureView: View {
           detail: model.saveCenterItems.count.formatted(),
           isFavorite: false,
           action: .navigate(.saveCenter)
-        ),
-        BigPictureRow(
-          id: .home("downloaded"),
-          title: "Downloaded",
-          detail: catalog.downloadedGames.count.formatted(),
-          isFavorite: false,
-          action: .navigate(.downloaded)
         ),
       ]
         + (queuedSystemIDs.isEmpty
