@@ -1732,8 +1732,8 @@ struct LibretroCoreManifestTests {
 
 @Suite("Cemu companion")
 struct CemuInstallationTests {
-    @Test("Prepares a Vulkan portable runtime and DSU profile")
-    func preparesPortableRuntime() throws {
+    @Test("Prepares private Cemu data and direct quick-launch arguments")
+    func preparesPrivateRuntime() throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -1754,13 +1754,28 @@ struct CemuInstallationTests {
             [.posixPermissions: 0o755],
             ofItemAtPath: executable.path
         )
+        let realExecutable = executable.deletingLastPathComponent()
+            .appending(path: "Cemu.real")
+        try Data("direct executable\n".utf8).write(to: realExecutable)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: realExecutable.path
+        )
 
+        let homeURL = directory.appending(
+            path: "Home",
+            directoryHint: .isDirectory
+        )
+        let userDataURL = homeURL
+            .appending(path: "Library/Application Support/Cemu")
         let installation = CemuInstallation(
             sourceApplicationURL: sourceApplication,
             applicationSupportURL: directory.appending(
                 path: "Support",
                 directoryHint: .isDirectory
-            )
+            ),
+            cemuUserDataURL: userDataURL,
+            processHomeURL: homeURL
         )
         let gameURL = directory.appending(path: "Games & More/Wind Waker.wua")
         let mlcURL = directory.appending(
@@ -1778,8 +1793,9 @@ struct CemuInstallationTests {
         )
 
         #expect(FileManager.default.isExecutableFile(atPath: runtime.executableURL.path))
+        #expect(runtime.executableURL == realExecutable)
         let settings = try String(
-            contentsOf: runtime.portableDirectory.appending(path: "settings.xml"),
+            contentsOf: runtime.userDataDirectory.appending(path: "settings.xml"),
             encoding: .utf8
         )
         #expect(settings.contains("<macos_disclaimer>true</macos_disclaimer>"))
@@ -1788,7 +1804,7 @@ struct CemuInstallationTests {
         #expect(settings.contains("<Entry>\(directory.path)/Games &amp; More</Entry>"))
 
         let profile = try String(
-            contentsOf: runtime.portableDirectory
+            contentsOf: runtime.userDataDirectory
                 .appending(path: "controllerProfiles/controller0.xml"),
             encoding: .utf8
         )
@@ -1796,31 +1812,15 @@ struct CemuInstallationTests {
         #expect(profile.contains("<ip>127.0.0.1</ip>"))
         #expect(profile.contains("<port>26760</port>"))
 
-        try runtime.writeLaunchRequest(contentURL: gameURL, mlcURL: mlcURL)
-        let launchRequest = try String(
-            contentsOf: runtime.launchRequestURL,
-            encoding: .utf8
-        )
-        #expect(launchRequest == "\(gameURL.path)\n\(mlcURL.path)\n")
-        runtime.removeLaunchRequest()
-        #expect(!FileManager.default.fileExists(atPath: runtime.launchRequestURL.path))
-
-        let launcherLogURL = runtime.portableDirectory.appending(
-            path: "launcher.log"
-        )
-        let launcherArguments = runtime.launcherArguments(
-            logURL: launcherLogURL,
+        let launchArguments = runtime.launchArguments(
             contentURL: gameURL,
             mlcURL: mlcURL
         )
-        #expect(!launcherArguments.contains("-a"))
-        #expect(launcherArguments.contains(launcherLogURL.path))
-        #expect(launcherArguments.contains(runtime.applicationURL.path))
-        #expect(launcherArguments.contains("--args"))
-        #expect(launcherArguments.contains("--game"))
-        #expect(launcherArguments.contains(gameURL.path))
-        #expect(launcherArguments.contains("--mlc"))
-        #expect(launcherArguments.contains(mlcURL.path))
-        #expect(launcherArguments.last == "--fullscreen")
+        #expect(launchArguments == [
+            "-g", gameURL.path,
+            "-m", mlcURL.path,
+            "-f",
+        ])
+        #expect(runtime.processEnvironment(merging: [:])["HOME"] == homeURL.path)
     }
 }

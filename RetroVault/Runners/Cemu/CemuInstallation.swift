@@ -1,5 +1,3 @@
-@preconcurrency import AppKit
-import Darwin
 import Foundation
 
 /// Locates and prepares the Cemu companion application used for Wii U games.
@@ -10,10 +8,10 @@ import Foundation
 struct CemuInstallation: Sendable {
   static let systemName = "Wii U"
   static let supportedFileExtensions = ["wua", "wux", "wud", "rpx"]
-  private static let runtimeRevision = "launcher-1"
-
   let sourceApplicationURL: URL
   let applicationSupportURL: URL
+  let cemuUserDataURL: URL
+  let processHomeURL: URL
 
   static var available: CemuInstallation? {
     guard let sourceApplicationURL else {
@@ -21,7 +19,9 @@ struct CemuInstallation: Sendable {
     }
     return CemuInstallation(
       sourceApplicationURL: sourceApplicationURL,
-      applicationSupportURL: defaultApplicationSupportURL
+      applicationSupportURL: defaultApplicationSupportURL,
+      cemuUserDataURL: defaultCemuUserDataURL,
+      processHomeURL: defaultProcessHomeURL
     )
   }
 
@@ -53,6 +53,22 @@ struct CemuInstallation: Sendable {
     .appending(path: "Cemu", directoryHint: .isDirectory)
   }
 
+  private static var defaultProcessHomeURL: URL {
+    FileManager.default.urls(
+      for: .applicationSupportDirectory,
+      in: .userDomainMask
+    )[0]
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+  }
+
+  private static var defaultCemuUserDataURL: URL {
+    defaultProcessHomeURL
+      .appending(path: "Library", directoryHint: .isDirectory)
+      .appending(path: "Application Support", directoryHint: .isDirectory)
+      .appending(path: "Cemu", directoryHint: .isDirectory)
+  }
+
   private static func isUsableApplication(at url: URL) -> Bool {
     let executableURL = executableURL(in: url)
     guard
@@ -68,10 +84,14 @@ struct CemuInstallation: Sendable {
   }
 
   private static func executableURL(in applicationURL: URL) -> URL {
-    applicationURL
+    let executableDirectory = applicationURL
       .appending(path: "Contents", directoryHint: .isDirectory)
       .appending(path: "MacOS", directoryHint: .isDirectory)
-      .appending(path: "Cemu")
+    let realExecutableURL = executableDirectory.appending(path: "Cemu.real")
+    if FileManager.default.isExecutableFile(atPath: realExecutableURL.path) {
+      return realExecutableURL
+    }
+    return executableDirectory.appending(path: "Cemu")
   }
 
   func prepareRuntime(
@@ -85,73 +105,12 @@ struct CemuInstallation: Sendable {
       withIntermediateDirectories: true
     )
 
-    let runtimeDirectory = applicationSupportURL.appending(
-      path: "Runtime",
-      directoryHint: .isDirectory
-    )
-    let runtimeApplicationURL = runtimeDirectory.appending(
-      path: "Cemu.app",
-      directoryHint: .isDirectory
-    )
-    let sourceVersion = "\(applicationVersion(at: sourceApplicationURL))-\(Self.runtimeRevision)"
-    let versionMarkerURL = runtimeDirectory.appending(path: "source-version.txt")
-    let installedVersion = try? String(
-      contentsOf: versionMarkerURL,
-      encoding: .utf8
-    )
-    .trimmingCharacters(in: .whitespacesAndNewlines)
-
-    if !Self.isUsableApplication(at: runtimeApplicationURL)
-      || installedVersion != sourceVersion
-    {
-      let stagingDirectory = applicationSupportURL.appending(
-        path: "Staging-\(UUID().uuidString)",
-        directoryHint: .isDirectory
-      )
-      defer { try? fileManager.removeItem(at: stagingDirectory) }
-      try fileManager.createDirectory(
-        at: stagingDirectory,
-        withIntermediateDirectories: true
-      )
-      let stagedApplicationURL = stagingDirectory.appending(
-        path: "Cemu.app",
-        directoryHint: .isDirectory
-      )
-      try fileManager.copyItem(
-        at: sourceApplicationURL,
-        to: stagedApplicationURL
-      )
-      Self.removeQuarantineRecursively(at: stagedApplicationURL)
-      if fileManager.fileExists(atPath: runtimeDirectory.path) {
-        try fileManager.removeItem(at: runtimeDirectory)
-      }
-      try fileManager.moveItem(
-        at: stagingDirectory,
-        to: runtimeDirectory
-      )
-      try sourceVersion.write(
-        to: versionMarkerURL,
-        atomically: true,
-        encoding: .utf8
-      )
-    }
-
-    // FileManager adds a quarantine marker when a sandboxed app copies an
-    // executable bundle. The source companion is already part of RetroVault's
-    // signed bundle, so remove that inherited marker from our private copy.
-    // Do this on every launch to repair runtimes created by older builds.
-    Self.removeQuarantineRecursively(at: runtimeApplicationURL)
-
-    guard Self.isUsableApplication(at: runtimeApplicationURL) else {
+    let executableURL = Self.executableURL(in: sourceApplicationURL)
+    guard fileManager.isExecutableFile(atPath: executableURL.path) else {
       throw CemuError.invalidInstallation
     }
-
-    let portableDirectory = runtimeDirectory.appending(
-      path: "portable",
-      directoryHint: .isDirectory
-    )
     try fileManager.createDirectory(
-      at: portableDirectory,
+      at: cemuUserDataURL,
       withIntermediateDirectories: true
     )
     try fileManager.createDirectory(
@@ -159,52 +118,26 @@ struct CemuInstallation: Sendable {
       withIntermediateDirectories: true
     )
     try prepareSettings(
-      in: portableDirectory,
+      in: cemuUserDataURL,
       gameDirectory: contentURL.deletingLastPathComponent(),
       mlcDirectory: mlcURL
     )
     if let dsuConfiguration {
       try prepareControllerProfile(
         dsuConfiguration,
-        in: portableDirectory
+        in: cemuUserDataURL
       )
     } else {
-      removeManagedControllerProfile(in: portableDirectory)
+      removeManagedControllerProfile(in: cemuUserDataURL)
     }
 
     return CemuRuntime(
-      applicationURL: runtimeApplicationURL,
-      executableURL: Self.executableURL(in: runtimeApplicationURL),
-      portableDirectory: portableDirectory,
-      logURL: portableDirectory.appending(path: "log.txt")
+      applicationURL: sourceApplicationURL,
+      executableURL: executableURL,
+      userDataDirectory: cemuUserDataURL,
+      homeDirectory: processHomeURL,
+      logURL: cemuUserDataURL.appending(path: "log.txt")
     )
-  }
-
-  private func applicationVersion(at url: URL) -> String {
-    let bundle = Bundle(url: url)
-    return bundle?.object(forInfoDictionaryKey: "CFBundleShortVersionString")
-      as? String
-      ?? bundle?.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-      ?? "unknown"
-  }
-
-  private static func removeQuarantineRecursively(at rootURL: URL) {
-    var urlsToRepair = [rootURL]
-    if let enumerator = FileManager.default.enumerator(
-      at: rootURL,
-      includingPropertiesForKeys: nil
-    ) {
-      for case let childURL as URL in enumerator {
-        urlsToRepair.append(childURL)
-      }
-    }
-
-    for urlToRepair in urlsToRepair {
-      urlToRepair.withUnsafeFileSystemRepresentation { path in
-        guard let path else { return }
-        _ = removexattr(path, "com.apple.quarantine", 0)
-      }
-    }
   }
 
   private func prepareSettings(
@@ -213,7 +146,7 @@ struct CemuInstallation: Sendable {
     mlcDirectory: URL
   ) throws {
     let settingsURL = portableDirectory.appending(path: "settings.xml")
-    // This is RetroVault's private Cemu runtime, so keep the small launcher
+    // This is RetroVault's private Cemu user-data directory, so keep the small
     // configuration deterministic. An incomplete settings file makes Cemu
     // fall back to OpenGL, which is unsupported on Apple silicon under
     // Rosetta; Vulkan is required for the MoltenVK renderer.
@@ -315,52 +248,27 @@ struct CemuInstallation: Sendable {
 struct CemuRuntime: Hashable, Sendable {
   let applicationURL: URL
   let executableURL: URL
-  let portableDirectory: URL
+  let userDataDirectory: URL
+  let homeDirectory: URL
   let logURL: URL
 
-  var launchRequestURL: URL {
-    portableDirectory.appending(path: "retrovault-launch.txt")
-  }
-
-  /// Atomically records the title and private MLC paths consumed by the
-  /// bundled Cemu launcher on its next invocation.
-  func writeLaunchRequest(contentURL: URL, mlcURL: URL) throws {
-    let paths = [contentURL.path, mlcURL.path]
-    guard paths.allSatisfy({ !$0.contains("\n") && !$0.contains("\r") }) else {
-      throw CemuError.invalidLaunchPath
-    }
-    try (paths.joined(separator: "\n") + "\n").write(
-      to: launchRequestURL,
-      atomically: true,
-      encoding: .utf8
-    )
-  }
-
-  func removeLaunchRequest() {
-    try? FileManager.default.removeItem(at: launchRequestURL)
-  }
-
-  /// Arguments for opening this exact private app bundle through
-  /// LaunchServices and forwarding Cemu's quick-launch arguments. Passing the
-  /// bundle as the item to open avoids `open -a`, which can resolve another
-  /// registered Cemu installation with the same bundle identifier. Forwarding
-  /// the title after `--args` also works when LaunchServices bypasses the
-  /// bundle's request wrapper on macOS.
-  func launcherArguments(
-    logURL: URL,
-    contentURL: URL,
-    mlcURL: URL
-  ) -> [String] {
+  /// Native Cemu quick-launch arguments. RetroVault executes the signed Cemu
+  /// binary embedded in its own bundle directly so LaunchServices cannot
+  /// rewrite the arguments or App-Translocate a copied application bundle.
+  func launchArguments(contentURL: URL, mlcURL: URL) -> [String] {
     [
-      "-F", "-n", "-W",
-      "--stdout", logURL.path,
-      "--stderr", logURL.path,
-      applicationURL.path,
-      "--args",
-      "--game", contentURL.path,
-      "--mlc", mlcURL.path,
-      "--fullscreen",
+      "-g", contentURL.path,
+      "-m", mlcURL.path,
+      "-f",
     ]
+  }
+
+  func processEnvironment(
+    merging environment: [String: String] = ProcessInfo.processInfo.environment
+  ) -> [String: String] {
+    var environment = environment
+    environment["HOME"] = homeDirectory.path
+    return environment
   }
 }
 

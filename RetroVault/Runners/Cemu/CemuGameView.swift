@@ -110,18 +110,17 @@ private final class CemuPlayerCoordinator {
       guard !Task.isCancelled else { return }
 
       let process = Process()
-      // A sandboxed app cannot execute Cemu's writable copy from Application
-      // Support directly. LaunchServices starts the signed bundle, whose
-      // bundled launcher consumes the atomic request below before execing the
-      // original Cemu binary with its quick-launch arguments.
-      process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-      process.currentDirectoryURL =
-        runtime.applicationURL.deletingLastPathComponent()
-      let launcherLogURL = runtime.portableDirectory.appending(
+      // Execute the signed Cemu binary embedded in RetroVault directly.
+      // LaunchServices rewrites forwarded arguments for sandboxed callers and
+      // App-Translocates writable app copies, causing Cemu to open an empty
+      // library instead of the requested title.
+      process.executableURL = runtime.executableURL
+      process.currentDirectoryURL = runtime.executableURL.deletingLastPathComponent()
+      process.environment = runtime.processEnvironment()
+      let launcherLogURL = runtime.userDataDirectory.appending(
         path: "launcher.log"
       )
-      process.arguments = runtime.launcherArguments(
-        logURL: launcherLogURL,
+      process.arguments = runtime.launchArguments(
         contentURL: request.contentURL,
         mlcURL: request.saveSync.localSaveURL
       )
@@ -134,13 +133,8 @@ private final class CemuPlayerCoordinator {
       try launcherLogHandle.truncate(atOffset: 0)
       process.standardOutput = launcherLogHandle
       process.standardError = launcherLogHandle
-      try runtime.writeLaunchRequest(
-        contentURL: request.contentURL,
-        mlcURL: request.saveSync.localSaveURL
-      )
-
       RetroVaultLog.cemu.notice(
-        "Launching Cemu for game \(request.gameID, privacy: .public) with content \(request.contentURL.path, privacy: .public)"
+        "Launching bundled Cemu directly for game \(request.gameID, privacy: .public) with content \(request.contentURL.path, privacy: .public)"
       )
 
       let existingCemuProcessIDs = Set(
@@ -151,7 +145,6 @@ private final class CemuPlayerCoordinator {
       do {
         try process.run()
       } catch {
-        runtime.removeLaunchRequest()
         try? launcherLogHandle.close()
         throw CemuError.launchFailed(error.localizedDescription)
       }
@@ -164,7 +157,6 @@ private final class CemuPlayerCoordinator {
       try? await Task.sleep(for: .milliseconds(350))
       guard process.isRunning else {
         let status = process.terminationStatus
-        runtime.removeLaunchRequest()
         runningProcess = nil
         try? launcherLogHandle.close()
         self.launcherLogHandle = nil
@@ -173,12 +165,9 @@ private final class CemuPlayerCoordinator {
         )
       }
 
-      // The wrapper removes this itself when LaunchServices invokes it. When
-      // macOS launches the original executable directly, the forwarded CLI
-      // arguments above are authoritative and this request must not linger.
-      runtime.removeLaunchRequest()
-
-      let application = NSRunningApplication.runningApplications(
+      let application = NSRunningApplication(
+        processIdentifier: process.processIdentifier
+      ) ?? NSRunningApplication.runningApplications(
         withBundleIdentifier: "info.cemu.Cemu"
       ).first { !existingCemuProcessIDs.contains($0.processIdentifier) }
       runningApplication = application
@@ -201,7 +190,9 @@ private final class CemuPlayerCoordinator {
         while !Task.isCancelled {
           let isPressed = Self.isExitChordPressed
           if isPressed, !wasExitChordPressed {
-            self?.runningApplication?.terminate()
+            if self?.runningApplication?.terminate() != true {
+              self?.runningProcess?.terminate()
+            }
           }
           wasExitChordPressed = isPressed
           try? await Task.sleep(for: .milliseconds(24))
