@@ -9,6 +9,10 @@ being a list of every commit.
 
 ### Added
 
+- Added a reversible, separately built native-arm64 Cemu Metal trial. When the
+  capability-marked trial companion is present, RetroVault selects Cemu's
+  native Metal renderer; the stable Cemu 2.6 Vulkan companion remains intact
+  as the fallback.
 - Added one automatic controller roster shared by Big Picture, Libretro,
   Vita3K, and the hosted Cemu runner. Every live external DSU slot keeps its
   player number, while native macOS controllers fill vacant slots; runners

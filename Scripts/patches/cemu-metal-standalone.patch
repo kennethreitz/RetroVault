@@ -1,0 +1,19 @@
+diff --git a/src/Cafe/HW/Latte/Core/LatteBufferData.cpp b/src/Cafe/HW/Latte/Core/LatteBufferData.cpp
+index 71b4a14..6a3f286 100644
+--- a/src/Cafe/HW/Latte/Core/LatteBufferData.cpp
++++ b/src/Cafe/HW/Latte/Core/LatteBufferData.cpp
+@@ -283 +283 @@ void LatteBufferCache_Sync(uint32 maxIndex, uint32 baseInstance, uint32 instance
+-			stageUniformModifiedMask |= (1<<VulkanRendererConst::SHADER_STAGE_INDEX_VERTEX);
++			stageUniformModifiedMask |= (1 << static_cast<int>(LatteConst::ShaderType::Vertex));
+@@ -288 +288 @@ void LatteBufferCache_Sync(uint32 maxIndex, uint32 baseInstance, uint32 instance
+-			stageUniformModifiedMask |= (1<<VulkanRendererConst::SHADER_STAGE_INDEX_FRAGMENT); // todo - move this enum to Latte?
++			stageUniformModifiedMask |= (1 << static_cast<int>(LatteConst::ShaderType::Pixel));
+@@ -293 +293 @@ void LatteBufferCache_Sync(uint32 maxIndex, uint32 baseInstance, uint32 instance
+-			stageUniformModifiedMask |= (1<<VulkanRendererConst::SHADER_STAGE_INDEX_GEOMETRY);
++			stageUniformModifiedMask |= (1 << static_cast<int>(LatteConst::ShaderType::Geometry));
+diff --git a/src/Cafe/HW/Latte/Core/LatteShader.cpp b/src/Cafe/HW/Latte/Core/LatteShader.cpp
+index 3041f63..b465fa8 100644
+--- a/src/Cafe/HW/Latte/Core/LatteShader.cpp
++++ b/src/Cafe/HW/Latte/Core/LatteShader.cpp
+@@ -17,0 +18 @@
++#include "util/containers/robin_hood.h"

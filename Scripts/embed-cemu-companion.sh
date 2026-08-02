@@ -2,7 +2,14 @@
 
 set -eu
 
-artifact_directory="$SRCROOT/Build/CemuCompanion"
+stable_artifact_directory="$SRCROOT/Build/CemuCompanion"
+metal_artifact_directory="$SRCROOT/Build/CemuMetalCompanion"
+artifact_directory="$stable_artifact_directory"
+if [ -x "$metal_artifact_directory/Cemu.app/Contents/MacOS/Cemu" ] \
+  && [ -f "$metal_artifact_directory/Cemu.app/Contents/Resources/RetroVaultMetalRenderer" ]; then
+  artifact_directory="$metal_artifact_directory"
+  echo "note: Embedding the native Cemu Metal trial companion."
+fi
 source_application="$artifact_directory/Cemu.app"
 if [ ! -x "$source_application/Contents/MacOS/Cemu" ]; then
   echo "note: No Cemu companion found; skipping Wii U support."
@@ -12,7 +19,11 @@ fi
 
 if [ ! -f "$source_application/Contents/Resources/RetroVaultDSURumble" ]; then
   echo "note: This Cemu companion does not include RetroVault DSU rumble."
-  echo "note: Build it with a macOS 14/Xcode 15-compatible toolchain to enable it."
+  if [ "$artifact_directory" = "$metal_artifact_directory" ]; then
+    echo "note: The stable Cemu 2.6 companion remains available as a fallback."
+  else
+    echo "note: Build it with a macOS 14/Xcode 15-compatible toolchain to enable it."
+  fi
 fi
 
 plugins_directory="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/PlugIns"

@@ -1973,6 +1973,30 @@ struct CemuInstallationTests {
         )
         #expect(windowedSettings.contains("<fullscreen>false</fullscreen>"))
         #expect(runtime.processEnvironment(merging: [:])["HOME"] == homeURL.path)
+
+        let resourcesURL = sourceApplication.appending(
+            path: "Contents/Resources",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: resourcesURL,
+            withIntermediateDirectories: true
+        )
+        try Data().write(
+            to: resourcesURL.appending(path: "RetroVaultMetalRenderer")
+        )
+        _ = try installation.prepareRuntime(
+            dsuConfiguration: nil,
+            contentURL: gameURL,
+            mlcURL: mlcURL,
+            launchPresentation: .windowed
+        )
+        let metalSettings = try String(
+            contentsOf: runtime.userDataDirectory.appending(path: "settings.xml"),
+            encoding: .utf8
+        )
+        #expect(installation.rendererName == "Metal")
+        #expect(metalSettings.contains("<api>2</api>"))
     }
 
     @Test("Maps the shared internal-resolution setting to Cemu graphics packs")

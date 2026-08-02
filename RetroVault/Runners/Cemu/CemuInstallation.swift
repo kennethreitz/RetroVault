@@ -14,6 +14,18 @@ struct CemuInstallation: Sendable {
   let cemuUserDataURL: URL
   let processHomeURL: URL
 
+  var rendererName: String {
+    usesMetalRenderer ? "Metal" : "Vulkan"
+  }
+
+  private var usesMetalRenderer: Bool {
+    FileManager.default.fileExists(
+      atPath: sourceApplicationURL
+        .appending(path: "Contents/Resources/RetroVaultMetalRenderer")
+        .path
+    )
+  }
+
   static var available: CemuInstallation? {
     guard let sourceApplicationURL else {
       return nil
@@ -380,6 +392,7 @@ struct CemuInstallation: Sendable {
       resolution: internalResolution,
       xmlEscaped: xmlEscaped
     )
+    let graphicsAPI = usesMetalRenderer ? 2 : 1
     if internalResolution != .native {
       if graphicPackSettings == "  <GraphicPack/>" {
         RetroVaultLog.cemu.notice(
@@ -406,7 +419,7 @@ struct CemuInstallation: Sendable {
         <fullscreen>\(launchPresentation.settingsValue)</fullscreen>
         <disable_screensaver>true</disable_screensaver>
         <Graphic>
-          <api>1</api>
+          <api>\(graphicsAPI)</api>
         </Graphic>
         <Audio>
           <api>3</api>

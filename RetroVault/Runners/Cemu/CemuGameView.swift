@@ -185,7 +185,7 @@ private final class CemuPlayerCoordinator {
       process.standardOutput = launcherLogHandle
       process.standardError = launcherLogHandle
       RetroVaultLog.cemu.notice(
-        "Launching bundled Cemu \(launchPresentation.logDescription, privacy: .public) for game \(request.gameID, privacy: .public) with requested \(internalResolution.displayName, privacy: .public) internal resolution and content \(request.contentURL.path, privacy: .public)"
+        "Launching bundled Cemu with \(installation.rendererName, privacy: .public) \(launchPresentation.logDescription, privacy: .public) for game \(request.gameID, privacy: .public) with requested \(internalResolution.displayName, privacy: .public) internal resolution and content \(request.contentURL.path, privacy: .public)"
       )
 
       let existingCemuProcessIDs = Set(
