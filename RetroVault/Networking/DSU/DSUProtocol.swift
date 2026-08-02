@@ -34,6 +34,10 @@ enum DSUMessageType: UInt32, Sendable {
     case protocolVersion = 0x0010_0000
     case controllerInfo = 0x0010_0001
     case controllerData = 0x0010_0002
+    /// Unofficial DSU extension used by Switch2Bridge and other servers.
+    case motorInfo = 0x0011_0001
+    /// Unofficial DSU extension carrying one motor's current intensity.
+    case rumble = 0x0011_0002
 }
 
 enum DSUDecodingError: Error, Equatable {
@@ -168,10 +172,17 @@ struct DSUPadState: Equatable, Sendable {
     }
 }
 
+/// The rumble capabilities published by the unofficial DSU motor extension.
+struct DSUMotorInfo: Equatable, Sendable {
+    var descriptor = DSUSlotDescriptor()
+    var motorCount: UInt8 = 0
+}
+
 enum DSUMessage: Equatable, Sendable {
     case protocolVersion(UInt16)
     case controllerInfo(DSUSlotDescriptor)
     case controllerData(DSUPadState)
+    case motorInfo(DSUMotorInfo)
 }
 
 /// The small request surface a DSU server receives from clients such as Cemu.
@@ -180,6 +191,8 @@ enum DSUClientRequest: Equatable, Sendable {
     case controllerInfo(slots: [UInt8])
     /// `nil` means the client subscribed to every published slot.
     case controllerData(slot: UInt8?)
+    case motorInfo(slot: UInt8?)
+    case rumble(slot: UInt8?, motor: UInt8, intensity: UInt8)
 }
 
 // MARK: - Encoding
@@ -201,6 +214,29 @@ extension DSUProtocol {
         var payload = littleEndianBytes(Int32(slotCount))
         payload.append(contentsOf: 0..<slotCount)
         return encode(message: .controllerInfo, payload: payload, clientID: clientID)
+    }
+
+    /// Asks how many independently addressable motors a slot exposes.
+    static func motorInfoRequest(slot: UInt8, clientID: UInt32) -> Data {
+        encode(
+            message: .motorInfo,
+            payload: controllerSelectorPayload(slot: slot),
+            clientID: clientID
+        )
+    }
+
+    /// Sets one motor through the unofficial DSU rumble extension.
+    static func rumbleRequest(
+        slot: UInt8,
+        motor: UInt8,
+        intensity: UInt8,
+        clientID: UInt32
+    ) -> Data {
+        encode(
+            message: .rumble,
+            payload: controllerSelectorPayload(slot: slot) + [motor, intensity],
+            clientID: clientID
+        )
     }
 
     static func encode(
@@ -247,6 +283,18 @@ extension DSUProtocol {
         encodeServer(
             message: .controllerInfo,
             payload: descriptorPayload(descriptor) + [isActive ? 1 : 0],
+            serverID: serverID
+        )
+    }
+
+    static func motorInfoResponse(
+        descriptor: DSUSlotDescriptor,
+        motorCount: UInt8,
+        serverID: UInt32
+    ) -> Data {
+        encodeServer(
+            message: .motorInfo,
+            payload: descriptorPayload(descriptor) + [motorCount],
             serverID: serverID
         )
     }
@@ -321,6 +369,15 @@ extension DSUProtocol {
         )
         payload.append(descriptor.battery)
         return payload
+    }
+
+    private static func controllerSelectorPayload(slot: UInt8?) -> [UInt8] {
+        guard let slot else {
+            return Array(repeating: 0, count: 8)
+        }
+        // Bit zero selects by slot; the remaining six bytes are the optional
+        // MAC selector and stay clear when a slot was supplied.
+        return [1, slot, 0, 0, 0, 0, 0, 0]
     }
 
     private static func encodeServer(
@@ -400,8 +457,21 @@ extension DSUProtocol {
             guard payload.count >= 8 else {
                 throw DSUDecodingError.truncatedPayload
             }
-            let registersBySlot = payload[0] & 0x01 != 0
-            return .controllerData(slot: registersBySlot ? payload[1] : nil)
+            return .controllerData(slot: selectedSlot(from: payload))
+        case .motorInfo:
+            guard payload.count >= 8 else {
+                throw DSUDecodingError.truncatedPayload
+            }
+            return .motorInfo(slot: selectedSlot(from: payload))
+        case .rumble:
+            guard payload.count >= 10 else {
+                throw DSUDecodingError.truncatedPayload
+            }
+            return .rumble(
+                slot: selectedSlot(from: payload),
+                motor: payload[8],
+                intensity: payload[9]
+            )
         }
     }
 
@@ -454,7 +524,24 @@ extension DSUProtocol {
             return .controllerInfo(slotDescriptor(payload))
         case .controllerData:
             return .controllerData(try padState(payload))
+        case .motorInfo:
+            guard payload.count >= 12 else {
+                throw DSUDecodingError.truncatedPayload
+            }
+            return .motorInfo(
+                DSUMotorInfo(
+                    descriptor: slotDescriptor(payload),
+                    motorCount: payload[11]
+                )
+            )
+        case .rumble:
+            // Rumble is a client-to-server command and has no server reply.
+            throw DSUDecodingError.unsupportedMessage(message.rawValue)
         }
+    }
+
+    private static func selectedSlot(from payload: [UInt8]) -> UInt8? {
+        payload[0] & 0x01 != 0 ? payload[1] : nil
     }
 
     private static func slotDescriptor(_ payload: [UInt8]) -> DSUSlotDescriptor {

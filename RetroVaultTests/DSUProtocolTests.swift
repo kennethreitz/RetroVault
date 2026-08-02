@@ -49,6 +49,43 @@ struct DSUProtocolTests {
         DSUProtocol.padDataRequest(clientID: 3)
       ) == .controllerData(slot: nil)
     )
+    #expect(
+      try DSUProtocol.decodeClientRequest(
+        DSUProtocol.motorInfoRequest(slot: 2, clientID: 4)
+      ) == .motorInfo(slot: 2)
+    )
+    #expect(
+      try DSUProtocol.decodeClientRequest(
+        DSUProtocol.rumbleRequest(
+          slot: 3,
+          motor: 1,
+          intensity: 0xA5,
+          clientID: 5
+        )
+      ) == .rumble(slot: 3, motor: 1, intensity: 0xA5)
+    )
+  }
+
+  @Test("Publishes motor capabilities through the DSU extension")
+  func encodesMotorInfo() throws {
+    let descriptor = DSUSlotDescriptor(
+      slot: 1,
+      isRegistered: true,
+      connectionType: 2,
+      macAddress: 0x11_22_33_44_55_66,
+      battery: 5
+    )
+    let packet = DSUProtocol.motorInfoResponse(
+      descriptor: descriptor,
+      motorCount: 2,
+      serverID: 7
+    )
+    guard case let .motorInfo(info) = try DSUProtocol.decode(packet) else {
+      Issue.record("Expected motor info.")
+      return
+    }
+    #expect(info.descriptor == descriptor)
+    #expect(info.motorCount == 2)
   }
 
   @Test("Publishes a complete controller packet Cemu can decode")
@@ -137,6 +174,51 @@ struct DSUProtocolTests {
     #expect(pad.buttons.contains(.right))
     #expect(pad.buttons.contains(.b))
     #expect(pad.leftStick == DSUStick(x: 220, y: 90))
+  }
+
+  @Test("Relays strong and weak motor output over a real DSU connection")
+  func relaysRumble() async throws {
+    let state = DSUPadState(
+      descriptor: DSUSlotDescriptor(slot: 0, isRegistered: true),
+      isConnected: true
+    )
+    let capture = DSURumbleCapture()
+    let relay = CemuDSURelay(
+      rumbleHandler: { slot, strong, weak in
+        capture.record(slot: slot, strong: strong, weak: weak)
+        return true
+      },
+      padProvider: { slot in
+        RoutedDSUPad(
+          state: state,
+          layout: .nintendo,
+          source: .network(remoteSlot: slot)
+        )
+      }
+    )
+    let port = try await Task.detached {
+      try relay.start()
+    }.value
+    let client = DSUClient(
+      configuration: DSUConfiguration(host: "127.0.0.1", port: port)
+    )
+    client.start()
+    defer {
+      client.stop()
+      relay.stop()
+    }
+
+    for _ in 0..<100 where client.currentPads().isEmpty {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(client.setRumble(slot: 0, strong: 0x8080, weak: 0x4040))
+
+    var effect: DSURumbleCapture.Effect?
+    for _ in 0..<100 where effect?.weak != 0x4040 {
+      try await Task.sleep(for: .milliseconds(10))
+      effect = capture.latest
+    }
+    #expect(effect == .init(slot: 0, strong: 0x8080, weak: 0x4040))
   }
 
   @Test("Relays multiple controller slots over one DSU server")
@@ -350,9 +432,9 @@ struct DSUProtocolTests {
   @Test("Ignores a message type it does not implement")
   func rejectsUnknownMessage() {
     var fixture = DSUPacketFixture()
-    fixture.messageType = 0x0011_0001
+    fixture.messageType = 0x00FF_FFFE
 
-    #expect(throws: DSUDecodingError.unsupportedMessage(0x0011_0001)) {
+    #expect(throws: DSUDecodingError.unsupportedMessage(0x00FF_FFFE)) {
       try DSUProtocol.decode(fixture.data())
     }
   }
@@ -392,6 +474,29 @@ struct DSUProtocolTests {
     #expect(descriptor.slot == 3)
     #expect(descriptor.isRegistered)
     #expect(descriptor.battery == 5)
+  }
+}
+
+private final class DSURumbleCapture: @unchecked Sendable {
+  struct Effect: Equatable, Sendable {
+    let slot: UInt8
+    let strong: UInt16
+    let weak: UInt16
+  }
+
+  private let lock = NSLock()
+  private var stored: Effect?
+
+  var latest: Effect? {
+    lock.lock()
+    defer { lock.unlock() }
+    return stored
+  }
+
+  func record(slot: UInt8, strong: UInt16, weak: UInt16) {
+    lock.lock()
+    stored = Effect(slot: slot, strong: strong, weak: weak)
+    lock.unlock()
   }
 }
 

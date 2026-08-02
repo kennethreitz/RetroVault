@@ -660,6 +660,11 @@ final class LibretroInputState: @unchecked Sendable {
         var rightAnalogY: Int16
     }
 
+    private struct RumbleState {
+        var strong: UInt16 = 0
+        var weak: UInt16 = 0
+    }
+
     private let lock = NSLock()
     private var keyboardButtons: UInt16 = 0
     private var pendingKeyboardPresses: UInt16 = 0
@@ -693,6 +698,10 @@ final class LibretroInputState: @unchecked Sendable {
     )
     private var exitRequested = false
     private var padSource: (any DSUPadReading)?
+    private var rumbleStates = Array(
+        repeating: RumbleState(),
+        count: LibretroInputPortRouting.controllerPortCount
+    )
     private var touchCalibration = DSUTouchCalibration()
     private var dsuPointer: LibretroDSUInput.Pointer?
     private var sensors = LibretroSensorValues()
@@ -703,13 +712,75 @@ final class LibretroInputState: @unchecked Sendable {
     /// Attaches RetroVault's unified DSU-shaped controller hub.
     func setPadSource(_ source: (any DSUPadReading)?) {
         lock.lock()
+        let previousSource = padSource
+        let activeRumbleSlots = rumbleStates.indices.filter {
+            rumbleStates[$0].strong != 0 || rumbleStates[$0].weak != 0
+        }
         padSource = source
         if source == nil {
             dsuPointer = nil
             sensors = LibretroSensorValues()
             touchCalibration = DSUTouchCalibration()
+            rumbleStates = Array(
+                repeating: RumbleState(),
+                count: LibretroInputPortRouting.controllerPortCount
+            )
         }
         lock.unlock()
+
+        for slot in activeRumbleSlots {
+            _ = previousSource?.setRumble(
+                slot: UInt8(slot),
+                strong: 0,
+                weak: 0
+            )
+        }
+    }
+
+    /// Implements Libretro's two-motor rumble callback for every player port.
+    @discardableResult
+    func setRumble(port: UInt32, effect: UInt32, strength: UInt16) -> Bool {
+        let index = Int(port)
+        guard rumbleStates.indices.contains(index), effect < 2 else {
+            return false
+        }
+
+        lock.lock()
+        if effect == 0 {
+            rumbleStates[index].strong = strength
+        } else {
+            rumbleStates[index].weak = strength
+        }
+        let state = rumbleStates[index]
+        let source = padSource
+        lock.unlock()
+
+        return source?.setRumble(
+            slot: UInt8(index),
+            strong: state.strong,
+            weak: state.weak
+        ) ?? false
+    }
+
+    func stopRumble() {
+        lock.lock()
+        let source = padSource
+        let activeSlots = rumbleStates.indices.filter {
+            rumbleStates[$0].strong != 0 || rumbleStates[$0].weak != 0
+        }
+        rumbleStates = Array(
+            repeating: RumbleState(),
+            count: LibretroInputPortRouting.controllerPortCount
+        )
+        lock.unlock()
+
+        for slot in activeSlots {
+            _ = source?.setRumble(
+                slot: UInt8(slot),
+                strong: 0,
+                weak: 0
+            )
+        }
     }
 
     func setMapsLeftAnalogToDPad(_ maps: Bool) {
@@ -1855,6 +1926,7 @@ private enum LibretroABI {
         case getVariableUpdate = 17
         case setSupportNoGame = 18
         case setFrameTimeCallback = 21
+        case getRumbleInterface = 23
         case getLogInterface = 27
         case getCoreAssetsDirectory = 30
         case getSaveDirectory = 31
@@ -1897,6 +1969,8 @@ private typealias RetroSetSensorStateCallback =
     @convention(c) (UInt32, UInt32, UInt32) -> Bool
 private typealias RetroSensorGetInputCallback =
     @convention(c) (UInt32, UInt32) -> Float
+private typealias RetroSetRumbleStateCallback =
+    @convention(c) (UInt32, UInt32, UInt16) -> Bool
 private typealias RetroHardwareContextCallback =
     @convention(c) () -> Void
 private typealias RetroHardwareFramebufferCallback =
@@ -1910,6 +1984,12 @@ private typealias RetroHardwareProcAddressCallback =
 private struct RetroSensorInterface {
     var setSensorState: RetroSetSensorStateCallback?
     var getSensorInput: RetroSensorGetInputCallback?
+}
+
+/// `struct retro_rumble_interface`, filled in for cores such as Dolphin and
+/// Gambatte when they ask the frontend for physical motor output.
+private struct RetroRumbleInterface {
+    var setRumbleState: RetroSetRumbleStateCallback?
 }
 
 private struct RetroHardwareRenderCallback {
@@ -1936,6 +2016,7 @@ private protocol LibretroCallbackTarget: AnyObject {
     func input(port: UInt32, device: UInt32, index: UInt32, id: UInt32) -> Int16
     func setSensorState(port: UInt32, action: UInt32, rate: UInt32) -> Bool
     func sensorInput(port: UInt32, id: UInt32) -> Float
+    func setRumbleState(port: UInt32, effect: UInt32, strength: UInt16) -> Bool
     func currentHardwareFramebuffer() -> UInt
     func hardwareProcAddress(_ name: UnsafePointer<CChar>?) -> RetroHardwareProc?
 }
@@ -2007,6 +2088,12 @@ private let libretroSetSensorStateCallback: RetroSetSensorStateCallback = { port
 private let libretroSensorInputCallback: RetroSensorGetInputCallback = { port, id in
     LibretroCallbackRouter.shared.currentTarget()?
         .sensorInput(port: port, id: id) ?? 0
+}
+
+private let libretroSetRumbleStateCallback: RetroSetRumbleStateCallback = {
+    port, effect, strength in
+    LibretroCallbackRouter.shared.currentTarget()?
+        .setRumbleState(port: port, effect: effect, strength: strength) ?? false
 }
 
 private let libretroHardwareFramebufferCallback: RetroHardwareFramebufferCallback = {
@@ -2860,6 +2947,17 @@ private final class LibretroEnvironment {
             return true
         case .setFrameTimeCallback:
             return true
+        case .getRumbleInterface:
+            guard let data else {
+                return false
+            }
+            data.storeBytes(
+                of: RetroRumbleInterface(
+                    setRumbleState: libretroSetRumbleStateCallback
+                ),
+                as: RetroRumbleInterface.self
+            )
+            return true
         case .getLogInterface:
             guard let data else {
                 return false
@@ -3457,6 +3555,18 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         port == 0 ? inputState.sensorValue(for: id) : 0
     }
 
+    func setRumbleState(
+        port: UInt32,
+        effect: UInt32,
+        strength: UInt16
+    ) -> Bool {
+        inputState.setRumble(
+            port: port,
+            effect: effect,
+            strength: strength
+        )
+    }
+
     func currentHardwareFramebuffer() -> UInt {
         environment?.currentHardwareFramebuffer() ?? 0
     }
@@ -3481,6 +3591,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         var rewindSnapshotInterval = 1.0 / 60.0
 
         defer {
+            inputState.stopRumble()
             if loaded, let core {
                 environment?.makeHardwareContextCurrent()
                 if persistSaveMemory(from: core) {

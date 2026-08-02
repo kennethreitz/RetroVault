@@ -82,6 +82,19 @@ protocol DSUPadReading: AnyObject, Sendable {
     /// Live controller states in stable player order. Callers run on the
     /// emulator thread once per frame, so this must never block on I/O.
     func currentPads() -> [RoutedDSUPad]
+
+    /// Routes Libretro's two motor amplitudes to the controller occupying a
+    /// published player slot. Implementations return false when no output
+    /// path exists for that slot.
+    @discardableResult
+    func setRumble(slot: UInt8, strong: UInt16, weak: UInt16) -> Bool
+}
+
+extension DSUPadReading {
+    @discardableResult
+    func setRumble(slot: UInt8, strong: UInt16, weak: UInt16) -> Bool {
+        false
+    }
 }
 
 /// Measures the gap between a DSU server sampling the controller and this
@@ -213,6 +226,8 @@ final class DSUClient: @unchecked Sendable {
     private let lock = NSLock()
     private var connection: NWConnection?
     private var renewalTimer: DispatchSourceTimer?
+    private var rumbleTimer: DispatchSourceTimer?
+    private var activeRumble: [UInt8: (strong: UInt8, weak: UInt8)] = [:]
     private var pads: [UInt8: DSUPadState] = [:]
     private var padTimestamps: [UInt8: UInt64] = [:]
     private var storedStatus: Status = .idle
@@ -229,6 +244,7 @@ final class DSUClient: @unchecked Sendable {
     deinit {
         connection?.cancel()
         renewalTimer?.cancel()
+        rumbleTimer?.cancel()
     }
 
     var status: Status {
@@ -281,14 +297,27 @@ final class DSUClient: @unchecked Sendable {
         isRunning = false
         let connection = self.connection
         let timer = renewalTimer
+        let rumbleTimer = rumbleTimer
+        let rumblingSlots = Array(activeRumble.keys)
         self.connection = nil
         renewalTimer = nil
+        self.rumbleTimer = nil
+        activeRumble.removeAll()
         pads.removeAll()
         padTimestamps.removeAll()
         storedStatus = .idle
         lock.unlock()
 
         timer?.cancel()
+        rumbleTimer?.cancel()
+        for slot in rumblingSlots {
+            sendRumble(
+                slot: slot,
+                strong: 0,
+                weak: 0,
+                over: connection
+            )
+        }
         connection?.cancel()
     }
 
@@ -303,6 +332,47 @@ final class DSUClient: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return livePadsLocked()
+    }
+
+    /// Sends both Libretro motors to an upstream DSU server.
+    ///
+    /// The unofficial extension uses byte intensities and expects an active
+    /// effect to be refreshed. A small timer owns that keepalive so cores only
+    /// have to report changes, which is what the Libretro API promises.
+    @discardableResult
+    func setRumble(slot: UInt8, strong: UInt16, weak: UInt16) -> Bool {
+        let byteStrong = UInt8(strong >> 8)
+        let byteWeak = UInt8(weak >> 8)
+
+        lock.lock()
+        guard isRunning, let connection else {
+            lock.unlock()
+            return false
+        }
+        if byteStrong == 0, byteWeak == 0 {
+            activeRumble.removeValue(forKey: slot)
+        } else {
+            activeRumble[slot] = (byteStrong, byteWeak)
+        }
+        let needsTimer = !activeRumble.isEmpty && rumbleTimer == nil
+        let shouldStopTimer = activeRumble.isEmpty
+        let timer = shouldStopTimer ? rumbleTimer : nil
+        if shouldStopTimer {
+            rumbleTimer = nil
+        }
+        lock.unlock()
+
+        sendRumble(
+            slot: slot,
+            strong: byteStrong,
+            weak: byteWeak,
+            over: connection
+        )
+        timer?.cancel()
+        if needsTimer {
+            startRumbleTimer()
+        }
+        return true
     }
 
     // MARK: - Connection
@@ -344,6 +414,73 @@ final class DSUClient: @unchecked Sendable {
         lock.unlock()
 
         timer.resume()
+    }
+
+    private func startRumbleTimer() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            guard self.rumbleTimer == nil, !self.activeRumble.isEmpty else {
+                self.lock.unlock()
+                return
+            }
+            let timer = DispatchSource.makeTimerSource(queue: self.queue)
+            self.rumbleTimer = timer
+            self.lock.unlock()
+
+            timer.schedule(
+                deadline: .now() + .milliseconds(100),
+                repeating: .milliseconds(100),
+                leeway: .milliseconds(10)
+            )
+            timer.setEventHandler { [weak self] in
+                self?.refreshRumble()
+            }
+            timer.activate()
+        }
+    }
+
+    private func refreshRumble() {
+        lock.lock()
+        let connection = self.connection
+        let effects = activeRumble
+        lock.unlock()
+
+        for (slot, effect) in effects {
+            sendRumble(
+                slot: slot,
+                strong: effect.strong,
+                weak: effect.weak,
+                over: connection
+            )
+        }
+    }
+
+    private func sendRumble(
+        slot: UInt8,
+        strong: UInt8,
+        weak: UInt8,
+        over connection: NWConnection?
+    ) {
+        guard let connection else { return }
+        connection.send(
+            content: DSUProtocol.rumbleRequest(
+                slot: slot,
+                motor: 0,
+                intensity: strong,
+                clientID: clientID
+            ),
+            completion: .idempotent
+        )
+        connection.send(
+            content: DSUProtocol.rumbleRequest(
+                slot: slot,
+                motor: 1,
+                intensity: weak,
+                clientID: clientID
+            ),
+            completion: .idempotent
+        )
     }
 
     private func sendSubscription() {
@@ -409,7 +546,7 @@ final class DSUClient: @unchecked Sendable {
         }
 
         switch message {
-        case .protocolVersion, .controllerInfo:
+        case .protocolVersion, .controllerInfo, .motorInfo:
             break
         case let .controllerData(pad):
             store(pad)

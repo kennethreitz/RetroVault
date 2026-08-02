@@ -14,6 +14,7 @@ final class CemuDSURelay: @unchecked Sendable {
     let connection: NWConnection
     var subscribedSlots: Set<UInt8> = []
     var subscribesToAllSlots = false
+    var rumblingSlots: Set<UInt8> = []
     var lastRequestNanoseconds = DispatchTime.now().uptimeNanoseconds
 
     init(connection: NWConnection) {
@@ -36,6 +37,7 @@ final class CemuDSURelay: @unchecked Sendable {
   private let startupLock = NSLock()
   private let startupSemaphore = DispatchSemaphore(value: 0)
   private let serverID = UInt32.random(in: 1...UInt32.max)
+  private let rumbleHandler: (@Sendable (UInt8, UInt16, UInt16) -> Bool)?
   private let padProvider: (@Sendable (UInt8) -> RoutedDSUPad?)?
 
   private var startupResult: Result<UInt16, Error>?
@@ -50,8 +52,21 @@ final class CemuDSURelay: @unchecked Sendable {
     repeating: nil,
     count: Int(DSUProtocol.slotCount)
   )
+  private var rumble = Array(
+    repeating: (strong: UInt8(0), weak: UInt8(0)),
+    count: Int(DSUProtocol.slotCount)
+  )
 
   init(padProvider: (@Sendable (UInt8) -> RoutedDSUPad?)? = nil) {
+    rumbleHandler = nil
+    self.padProvider = padProvider
+  }
+
+  init(
+    rumbleHandler: @escaping @Sendable (UInt8, UInt16, UInt16) -> Bool,
+    padProvider: (@Sendable (UInt8) -> RoutedDSUPad?)? = nil
+  ) {
+    self.rumbleHandler = rumbleHandler
     self.padProvider = padProvider
   }
 
@@ -88,6 +103,7 @@ final class CemuDSURelay: @unchecked Sendable {
 
   func stop() {
     queue.async { [self] in
+      stopAllRumble()
       timer?.cancel()
       timer = nil
       for client in clients.values {
@@ -199,6 +215,30 @@ final class CemuDSURelay: @unchecked Sendable {
             "Cemu subscribed to RetroVault controller input"
           )
         }
+      case .motorInfo(let requestedSlot):
+        let slot = requestedSlot ?? 0
+        let currentPad = controllerStates()[safe: Int(slot)] ?? nil
+        var descriptor = currentPad?.descriptor
+          ?? Self.disconnectedDescriptor(slot: slot)
+        descriptor.slot = slot
+        send(
+          DSUProtocol.motorInfoResponse(
+            descriptor: descriptor,
+            motorCount: currentPad?.isConnected == true ? 2 : 0,
+            serverID: serverID
+          ),
+          to: client
+        )
+      case let .rumble(requestedSlot, motor, intensity):
+        guard let slot = requestedSlot, slot < DSUProtocol.slotCount else {
+          break
+        }
+        client.rumblingSlots.insert(slot)
+        applyRumble(slot: slot, motor: motor, intensity: intensity)
+        let effect = rumble[Int(slot)]
+        if effect.strong == 0, effect.weak == 0 {
+          client.rumblingSlots.remove(slot)
+        }
       }
     } catch {
       RetroVaultLog.cemu.debug(
@@ -225,6 +265,8 @@ final class CemuDSURelay: @unchecked Sendable {
     let now = DispatchTime.now().uptimeNanoseconds
     for client in clients.values where client.wantsControllerData {
       guard now &- client.lastRequestNanoseconds < Self.subscriptionTimeoutNanoseconds else {
+        stopRumble(for: client.rumblingSlots)
+        client.rumblingSlots.removeAll()
         client.subscribesToAllSlots = false
         client.subscribedSlots.removeAll()
         continue
@@ -281,8 +323,51 @@ final class CemuDSURelay: @unchecked Sendable {
 
   private func remove(_ connection: NWConnection) {
     let key = ObjectIdentifier(connection)
-    clients.removeValue(forKey: key)
+    if let client = clients.removeValue(forKey: key) {
+      stopRumble(for: client.rumblingSlots)
+    }
     connection.cancel()
+  }
+
+  private func applyRumble(slot: UInt8, motor: UInt8, intensity: UInt8) {
+    let index = Int(slot)
+    guard rumble.indices.contains(index) else { return }
+    switch motor {
+    case 0:
+      rumble[index].strong = intensity
+    case 1:
+      rumble[index].weak = intensity
+    default:
+      return
+    }
+    let effect = rumble[index]
+    let strong = UInt16(effect.strong) * 257
+    let weak = UInt16(effect.weak) * 257
+    if let rumbleHandler {
+      _ = rumbleHandler(slot, strong, weak)
+    } else {
+      _ = DSUConnection.shared.setRumble(
+        slot: slot,
+        strong: strong,
+        weak: weak
+      )
+    }
+  }
+
+  private func stopRumble(for slots: Set<UInt8>) {
+    for slot in slots where slot < DSUProtocol.slotCount {
+      let index = Int(slot)
+      rumble[index] = (0, 0)
+      if let rumbleHandler {
+        _ = rumbleHandler(slot, 0, 0)
+      } else {
+        _ = DSUConnection.shared.setRumble(slot: slot, strong: 0, weak: 0)
+      }
+    }
+  }
+
+  private func stopAllRumble() {
+    stopRumble(for: Set(0..<DSUProtocol.slotCount))
   }
 
   private func controllerStates() -> [DSUPadState?] {

@@ -205,3 +205,62 @@ struct LibretroDSUInputTests {
     ).buttons
   }
 }
+
+@Suite("Libretro rumble routing")
+struct LibretroRumbleRoutingTests {
+  @Test("Combines strong and weak motors before routing them by player")
+  func combinesMotors() {
+    let source = TestRumblePadSource()
+    let input = LibretroInputState()
+    input.setPadSource(source)
+
+    #expect(input.setRumble(port: 1, effect: 0, strength: 0x8080))
+    #expect(input.setRumble(port: 1, effect: 1, strength: 0x4040))
+    #expect(
+      source.latest
+        == .init(slot: 1, strong: 0x8080, weak: 0x4040)
+    )
+
+    input.stopRumble()
+    #expect(source.latest == .init(slot: 1, strong: 0, weak: 0))
+  }
+
+  @Test("Rejects unsupported Libretro motor and player numbers")
+  func rejectsInvalidMotor() {
+    let source = TestRumblePadSource()
+    let input = LibretroInputState()
+    input.setPadSource(source)
+
+    #expect(!input.setRumble(port: 4, effect: 0, strength: 1))
+    #expect(!input.setRumble(port: 0, effect: 2, strength: 1))
+    #expect(source.latest == nil)
+  }
+}
+
+private final class TestRumblePadSource: DSUPadReading, @unchecked Sendable {
+  struct Effect: Equatable, Sendable {
+    let slot: UInt8
+    let strong: UInt16
+    let weak: UInt16
+  }
+
+  private let lock = NSLock()
+  private var stored: Effect?
+
+  var latest: Effect? {
+    lock.lock()
+    defer { lock.unlock() }
+    return stored
+  }
+
+  func currentPads() -> [RoutedDSUPad] {
+    []
+  }
+
+  func setRumble(slot: UInt8, strong: UInt16, weak: UInt16) -> Bool {
+    lock.lock()
+    stored = Effect(slot: slot, strong: strong, weak: weak)
+    lock.unlock()
+    return true
+  }
+}
