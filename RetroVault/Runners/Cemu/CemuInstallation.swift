@@ -75,7 +75,9 @@ struct CemuInstallation: Sendable {
   }
 
   func prepareRuntime(
-    dsuConfiguration: CemuDSUConfiguration?
+    dsuConfiguration: CemuDSUConfiguration?,
+    contentURL: URL,
+    mlcURL: URL
   ) throws -> CemuRuntime {
     let fileManager = FileManager.default
     try fileManager.createDirectory(
@@ -152,7 +154,15 @@ struct CemuInstallation: Sendable {
       at: portableDirectory,
       withIntermediateDirectories: true
     )
-    try prepareSettings(in: portableDirectory)
+    try fileManager.createDirectory(
+      at: mlcURL,
+      withIntermediateDirectories: true
+    )
+    try prepareSettings(
+      in: portableDirectory,
+      gameDirectory: contentURL.deletingLastPathComponent(),
+      mlcDirectory: mlcURL
+    )
     if let dsuConfiguration {
       try prepareControllerProfile(
         dsuConfiguration,
@@ -197,7 +207,11 @@ struct CemuInstallation: Sendable {
     }
   }
 
-  private func prepareSettings(in portableDirectory: URL) throws {
+  private func prepareSettings(
+    in portableDirectory: URL,
+    gameDirectory: URL,
+    mlcDirectory: URL
+  ) throws {
     let settingsURL = portableDirectory.appending(path: "settings.xml")
     // This is RetroVault's private Cemu runtime, so keep the small launcher
     // configuration deterministic. An incomplete settings file makes Cemu
@@ -209,6 +223,10 @@ struct CemuInstallation: Sendable {
         <macos_disclaimer>true</macos_disclaimer>
         <check_update>false</check_update>
         <receive_untested_updates>false</receive_untested_updates>
+        <mlc_path>\(xmlEscaped(mlcDirectory.path))</mlc_path>
+        <GamePaths>
+          <Entry>\(xmlEscaped(gameDirectory.path))</Entry>
+        </GamePaths>
         <fullscreen_menubar>false</fullscreen_menubar>
         <fullscreen>true</fullscreen>
         <disable_screensaver>true</disable_screensaver>
@@ -323,15 +341,25 @@ struct CemuRuntime: Hashable, Sendable {
   }
 
   /// Arguments for opening this exact private app bundle through
-  /// LaunchServices. Passing the bundle as the item to open avoids `open -a`,
-  /// which can resolve another registered Cemu installation with the same
-  /// bundle identifier.
-  func launcherArguments(logURL: URL) -> [String] {
+  /// LaunchServices and forwarding Cemu's quick-launch arguments. Passing the
+  /// bundle as the item to open avoids `open -a`, which can resolve another
+  /// registered Cemu installation with the same bundle identifier. Forwarding
+  /// the title after `--args` also works when LaunchServices bypasses the
+  /// bundle's request wrapper on macOS.
+  func launcherArguments(
+    logURL: URL,
+    contentURL: URL,
+    mlcURL: URL
+  ) -> [String] {
     [
       "-F", "-n", "-W",
       "--stdout", logURL.path,
       "--stderr", logURL.path,
       applicationURL.path,
+      "--args",
+      "--game", contentURL.path,
+      "--mlc", mlcURL.path,
+      "--fullscreen",
     ]
   }
 }

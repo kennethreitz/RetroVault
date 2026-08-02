@@ -101,7 +101,11 @@ private final class CemuPlayerCoordinator {
     status = .starting("Preparing Cemu…")
     do {
       let runtime = try await Task.detached(priority: .userInitiated) {
-        try installation.prepareRuntime(dsuConfiguration: dsuConfiguration)
+        try installation.prepareRuntime(
+          dsuConfiguration: dsuConfiguration,
+          contentURL: request.contentURL,
+          mlcURL: request.saveSync.localSaveURL
+        )
       }.value
       guard !Task.isCancelled else { return }
 
@@ -116,7 +120,11 @@ private final class CemuPlayerCoordinator {
       let launcherLogURL = runtime.portableDirectory.appending(
         path: "launcher.log"
       )
-      process.arguments = runtime.launcherArguments(logURL: launcherLogURL)
+      process.arguments = runtime.launcherArguments(
+        logURL: launcherLogURL,
+        contentURL: request.contentURL,
+        mlcURL: request.saveSync.localSaveURL
+      )
 
       _ = FileManager.default.createFile(
         atPath: launcherLogURL.path,
@@ -164,6 +172,11 @@ private final class CemuPlayerCoordinator {
           "The macOS launcher exited with status \(status)."
         )
       }
+
+      // The wrapper removes this itself when LaunchServices invokes it. When
+      // macOS launches the original executable directly, the forwarded CLI
+      // arguments above are authoritative and this request must not linger.
+      runtime.removeLaunchRequest()
 
       let application = NSRunningApplication.runningApplications(
         withBundleIdentifier: "info.cemu.Cemu"

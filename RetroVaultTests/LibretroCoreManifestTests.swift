@@ -1762,12 +1762,19 @@ struct CemuInstallationTests {
                 directoryHint: .isDirectory
             )
         )
+        let gameURL = directory.appending(path: "Games & More/Wind Waker.wua")
+        let mlcURL = directory.appending(
+            path: "Saves & Data/Wind Waker",
+            directoryHint: .isDirectory
+        )
         let runtime = try installation.prepareRuntime(
             dsuConfiguration: CemuDSUConfiguration(
                 host: "127.0.0.1",
                 port: 26_760,
                 slot: 0
-            )
+            ),
+            contentURL: gameURL,
+            mlcURL: mlcURL
         )
 
         #expect(FileManager.default.isExecutableFile(atPath: runtime.executableURL.path))
@@ -1777,6 +1784,8 @@ struct CemuInstallationTests {
         )
         #expect(settings.contains("<macos_disclaimer>true</macos_disclaimer>"))
         #expect(settings.contains("<api>1</api>"))
+        #expect(settings.contains("<mlc_path>\(directory.path)/Saves &amp; Data/Wind Waker</mlc_path>"))
+        #expect(settings.contains("<Entry>\(directory.path)/Games &amp; More</Entry>"))
 
         let profile = try String(
             contentsOf: runtime.portableDirectory
@@ -1787,11 +1796,6 @@ struct CemuInstallationTests {
         #expect(profile.contains("<ip>127.0.0.1</ip>"))
         #expect(profile.contains("<port>26760</port>"))
 
-        let gameURL = directory.appending(path: "Games/Wind Waker.wua")
-        let mlcURL = directory.appending(
-            path: "Saves/Wind Waker",
-            directoryHint: .isDirectory
-        )
         try runtime.writeLaunchRequest(contentURL: gameURL, mlcURL: mlcURL)
         let launchRequest = try String(
             contentsOf: runtime.launchRequestURL,
@@ -1804,9 +1808,19 @@ struct CemuInstallationTests {
         let launcherLogURL = runtime.portableDirectory.appending(
             path: "launcher.log"
         )
-        let launcherArguments = runtime.launcherArguments(logURL: launcherLogURL)
+        let launcherArguments = runtime.launcherArguments(
+            logURL: launcherLogURL,
+            contentURL: gameURL,
+            mlcURL: mlcURL
+        )
         #expect(!launcherArguments.contains("-a"))
-        #expect(launcherArguments.last == runtime.applicationURL.path)
         #expect(launcherArguments.contains(launcherLogURL.path))
+        #expect(launcherArguments.contains(runtime.applicationURL.path))
+        #expect(launcherArguments.contains("--args"))
+        #expect(launcherArguments.contains("--game"))
+        #expect(launcherArguments.contains(gameURL.path))
+        #expect(launcherArguments.contains("--mlc"))
+        #expect(launcherArguments.contains(mlcURL.path))
+        #expect(launcherArguments.last == "--fullscreen")
     }
 }
