@@ -537,6 +537,19 @@ private struct LibretroMetalView: NSViewRepresentable {
 
 private final class LibretroMTKView: MTKView, MTKViewDelegate {
     private static let cursorIdleInterval: TimeInterval = 1.5
+    private static let transparentCursor = NSCursor(
+        image: NSImage(
+            size: NSSize(width: 1, height: 1),
+            flipped: false
+        ) { _ in true },
+        hotSpot: .zero
+    )
+
+    private enum CursorHidingMode {
+        case visible
+        case window
+        case display
+    }
 
     private let videoBuffer: LibretroVideoBuffer
     private let input: LibretroInputState
@@ -557,7 +570,7 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
     private var pointerTrackingArea: NSTrackingArea?
     private var cursorHideTask: Task<Void, Never>?
     private var isPointerInside = false
-    private var cursorIsHiddenByThisView = false
+    private var cursorHidingMode = CursorHidingMode.visible
     private var observedWindow: NSWindow?
 
     init(
@@ -638,8 +651,10 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
     isolated deinit {
         cursorHideTask?.cancel()
         NotificationCenter.default.removeObserver(self)
-        if cursorIsHiddenByThisView {
+        if cursorHidingMode == .display {
             NSCursor.unhide()
+        } else if cursorHidingMode == .window {
+            NSCursor.arrow.set()
         }
     }
 
@@ -651,6 +666,13 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if cursorHidingMode == .window {
+            addCursorRect(bounds, cursor: Self.transparentCursor)
+        }
     }
 
     override func updateTrackingAreas() {
@@ -832,21 +854,45 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
         input.readsPointer && !input.readsKeyboard
     }
 
-    /// Owns one balanced AppKit cursor hide while this game view needs it.
+    /// Hides the cursor only over this game view in a normal window.
     ///
-    /// A transparent cursor rect depends on a later mouse movement before
-    /// AppKit applies it. That loses when SwiftUI swaps Big Picture for the
-    /// player underneath a pointer that is already stationary. A paired
-    /// `hide()` / `unhide()` changes visibility immediately instead.
+    /// `NSCursor.hide()` is display-wide, so using it for a windowed player
+    /// also hides the pointer over every other app and display. Windowed play
+    /// instead owns a transparent cursor rect and sets it immediately for the
+    /// stationary-pointer case. Fullscreen retains the balanced AppKit hide.
     private func setCursorHidden(_ hidden: Bool) {
-        guard hidden != cursorIsHiddenByThisView else {
+        let targetMode: CursorHidingMode
+        if !hidden {
+            targetMode = .visible
+        } else if window?.styleMask.contains(.fullScreen) == true {
+            targetMode = .display
+        } else {
+            targetMode = .window
+        }
+
+        guard targetMode != cursorHidingMode else {
             return
         }
-        cursorIsHiddenByThisView = hidden
-        if hidden {
-            NSCursor.hide()
-        } else {
+
+        let previousMode = cursorHidingMode
+        if previousMode == .display {
             NSCursor.unhide()
+        }
+
+        cursorHidingMode = targetMode
+        window?.invalidateCursorRects(for: self)
+
+        switch targetMode {
+        case .visible:
+            if previousMode == .window {
+                NSCursor.arrow.set()
+            }
+        case .window:
+            if isPointerInside, window?.isKeyWindow == true {
+                Self.transparentCursor.set()
+            }
+        case .display:
+            NSCursor.hide()
         }
     }
 
@@ -899,6 +945,18 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
             name: NSWindow.willCloseNotification,
             object: window
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playerWindowFullScreenDidChange(_:)),
+            name: NSWindow.didEnterFullScreenNotification,
+            object: window
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playerWindowFullScreenDidChange(_:)),
+            name: NSWindow.didExitFullScreenNotification,
+            object: window
+        )
     }
 
     private func stopObservingWindow() {
@@ -927,6 +985,11 @@ private final class LibretroMTKView: MTKView, MTKViewDelegate {
     @objc
     private func playerWindowWillClose(_ notification: Notification) {
         restoreCursor()
+    }
+
+    @objc
+    private func playerWindowFullScreenDidChange(_ notification: Notification) {
+        setCursorHidden(cursorHidingMode != .visible)
     }
 
     func draw(in view: MTKView) {
