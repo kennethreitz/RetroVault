@@ -276,6 +276,19 @@ struct CemuInstallation: Sendable {
         <Graphic>
           <api>1</api>
         </Graphic>
+        <Audio>
+          <api>0</api>
+          <delay>2</delay>
+          <TVChannels>1</TVChannels>
+          <PadChannels>1</PadChannels>
+          <InputChannels>0</InputChannels>
+          <TVVolume>50</TVVolume>
+          <PadVolume>0</PadVolume>
+          <InputVolume>50</InputVolume>
+          <TVDevice>default</TVDevice>
+          <PadDevice></PadDevice>
+          <InputDevice></InputDevice>
+        </Audio>
       \(dsuSettings)
       </content>
       """

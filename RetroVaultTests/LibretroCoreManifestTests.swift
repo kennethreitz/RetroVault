@@ -1863,6 +1863,9 @@ struct CemuInstallationTests {
         #expect(settings.contains("<mlc_path>\(directory.path)/Saves &amp; Data/Wind Waker</mlc_path>"))
         #expect(settings.contains("<Entry>\(directory.path)/Games &amp; More</Entry>"))
         #expect(settings.contains("<DSUC host=\"127.0.0.1\" port=\"26760\"/>"))
+        #expect(settings.contains("<Audio>"))
+        #expect(settings.contains("<TVDevice>default</TVDevice>"))
+        #expect(settings.contains("<TVVolume>50</TVVolume>"))
 
         let profile = try String(
             contentsOf: runtime.userDataDirectory
