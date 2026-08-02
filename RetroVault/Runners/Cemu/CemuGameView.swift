@@ -107,8 +107,9 @@ private final class CemuPlayerCoordinator {
 
       let process = Process()
       // A sandboxed app cannot execute Cemu's writable copy from Application
-      // Support directly. Use macOS's system launcher so Cemu runs with its
-      // own signing context, while --args still delivers the selected title.
+      // Support directly. LaunchServices starts the signed bundle, whose
+      // bundled launcher consumes the atomic request below before execing the
+      // original Cemu binary with its quick-launch arguments.
       process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
       process.currentDirectoryURL =
         runtime.applicationURL.deletingLastPathComponent()
@@ -120,10 +121,6 @@ private final class CemuPlayerCoordinator {
         "-a", runtime.applicationURL.path,
         "--stdout", launcherLogURL.path,
         "--stderr", launcherLogURL.path,
-        "--args",
-        "-g", request.contentURL.path,
-        "-m", request.saveSync.localSaveURL.path,
-        "-f",
       ]
 
       _ = FileManager.default.createFile(
@@ -134,6 +131,10 @@ private final class CemuPlayerCoordinator {
       try launcherLogHandle.truncate(atOffset: 0)
       process.standardOutput = launcherLogHandle
       process.standardError = launcherLogHandle
+      try runtime.writeLaunchRequest(
+        contentURL: request.contentURL,
+        mlcURL: request.saveSync.localSaveURL
+      )
 
       RetroVaultLog.cemu.notice(
         "Launching Cemu for game \(request.gameID, privacy: .public) with content \(request.contentURL.path, privacy: .public)"
@@ -147,6 +148,7 @@ private final class CemuPlayerCoordinator {
       do {
         try process.run()
       } catch {
+        runtime.removeLaunchRequest()
         try? launcherLogHandle.close()
         throw CemuError.launchFailed(error.localizedDescription)
       }
@@ -159,6 +161,7 @@ private final class CemuPlayerCoordinator {
       try? await Task.sleep(for: .milliseconds(350))
       guard process.isRunning else {
         let status = process.terminationStatus
+        runtime.removeLaunchRequest()
         runningProcess = nil
         try? launcherLogHandle.close()
         self.launcherLogHandle = nil

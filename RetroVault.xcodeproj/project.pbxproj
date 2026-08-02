@@ -604,6 +604,7 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"$(SRCROOT)/Scripts/cemu-launcher.sh",
 				"$(SRCROOT)/Scripts/embed-cemu-companion.sh",
 			);
 			name = "Embed Cemu Companion";

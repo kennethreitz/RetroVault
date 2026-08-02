@@ -10,6 +10,7 @@ import Foundation
 struct CemuInstallation: Sendable {
   static let systemName = "Wii U"
   static let supportedFileExtensions = ["wua", "wux", "wud", "rpx"]
+  private static let runtimeRevision = "launcher-1"
 
   let sourceApplicationURL: URL
   let applicationSupportURL: URL
@@ -90,7 +91,7 @@ struct CemuInstallation: Sendable {
       path: "Cemu.app",
       directoryHint: .isDirectory
     )
-    let sourceVersion = applicationVersion(at: sourceApplicationURL)
+    let sourceVersion = "\(applicationVersion(at: sourceApplicationURL))-\(Self.runtimeRevision)"
     let versionMarkerURL = runtimeDirectory.appending(path: "source-version.txt")
     let installedVersion = try? String(
       contentsOf: versionMarkerURL,
@@ -298,6 +299,28 @@ struct CemuRuntime: Hashable, Sendable {
   let executableURL: URL
   let portableDirectory: URL
   let logURL: URL
+
+  var launchRequestURL: URL {
+    portableDirectory.appending(path: "retrovault-launch.txt")
+  }
+
+  /// Atomically records the title and private MLC paths consumed by the
+  /// bundled Cemu launcher on its next invocation.
+  func writeLaunchRequest(contentURL: URL, mlcURL: URL) throws {
+    let paths = [contentURL.path, mlcURL.path]
+    guard paths.allSatisfy({ !$0.contains("\n") && !$0.contains("\r") }) else {
+      throw CemuError.invalidLaunchPath
+    }
+    try (paths.joined(separator: "\n") + "\n").write(
+      to: launchRequestURL,
+      atomically: true,
+      encoding: .utf8
+    )
+  }
+
+  func removeLaunchRequest() {
+    try? FileManager.default.removeItem(at: launchRequestURL)
+  }
 }
 
 struct CemuDSUConfiguration: Hashable, Sendable {
@@ -316,6 +339,7 @@ struct CemuRunRequest: Hashable, Sendable {
 enum CemuError: LocalizedError {
   case unavailable
   case invalidInstallation
+  case invalidLaunchPath
   case launchFailed(String)
 
   var errorDescription: String? {
@@ -324,6 +348,8 @@ enum CemuError: LocalizedError {
       "Cemu is not bundled in this RetroVault build."
     case .invalidInstallation:
       "RetroVault could not prepare its private Cemu installation."
+    case .invalidLaunchPath:
+      "The selected Wii U game or save path cannot be passed to Cemu."
     case .launchFailed(let reason):
       "Cemu could not be launched: \(reason)"
     }

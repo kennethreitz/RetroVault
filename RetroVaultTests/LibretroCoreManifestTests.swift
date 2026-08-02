@@ -1786,5 +1786,19 @@ struct CemuInstallationTests {
         #expect(profile.contains("RetroVault DSU Controller"))
         #expect(profile.contains("<ip>127.0.0.1</ip>"))
         #expect(profile.contains("<port>26760</port>"))
+
+        let gameURL = directory.appending(path: "Games/Wind Waker.wua")
+        let mlcURL = directory.appending(
+            path: "Saves/Wind Waker",
+            directoryHint: .isDirectory
+        )
+        try runtime.writeLaunchRequest(contentURL: gameURL, mlcURL: mlcURL)
+        let launchRequest = try String(
+            contentsOf: runtime.launchRequestURL,
+            encoding: .utf8
+        )
+        #expect(launchRequest == "\(gameURL.path)\n\(mlcURL.path)\n")
+        runtime.removeLaunchRequest()
+        #expect(!FileManager.default.fileExists(atPath: runtime.launchRequestURL.path))
     }
 }
