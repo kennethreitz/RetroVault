@@ -38,6 +38,10 @@ being a list of every commit.
 - Cemu now honors RetroVault's shared Native, 2x, and 4x internal-resolution
   setting through cached official community graphics packs, while retaining a
   native fallback for Wii U titles without a compatible resolution preset.
+- RetroVault now embeds the stable Vulkan Cemu companion beside the native
+  Metal companion and selects it only for titles with known Metal rendering
+  regressions. Super Mario 3D World uses Vulkan while other Wii U games keep
+  the faster Metal path.
 
 ### Fixed
 

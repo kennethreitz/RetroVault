@@ -1999,6 +1999,34 @@ struct CemuInstallationTests {
         #expect(metalSettings.contains("<api>2</api>"))
     }
 
+    @Test("Falls back to Vulkan only for known Metal compatibility issues")
+    func selectsPerTitleRendererCompatibilityFallback() {
+        let metalApplication = URL(fileURLWithPath: "/CemuMetal.app")
+        let vulkanApplication = URL(fileURLWithPath: "/CemuVulkan.app")
+
+        #expect(CemuCompatibilityOverrides.requiresVulkan(
+            forGameTitle: "Super Mario 3D World"
+        ))
+        #expect(!CemuCompatibilityOverrides.requiresVulkan(
+            forGameTitle: "Mario Kart 8"
+        ))
+        #expect(CemuInstallation.preferredApplicationURL(
+            forGameTitle: "Super Mario 3D World",
+            primaryApplicationURL: metalApplication,
+            vulkanFallbackApplicationURL: vulkanApplication
+        ) == vulkanApplication)
+        #expect(CemuInstallation.preferredApplicationURL(
+            forGameTitle: "The Legend of Zelda: The Wind Waker HD",
+            primaryApplicationURL: metalApplication,
+            vulkanFallbackApplicationURL: vulkanApplication
+        ) == metalApplication)
+        #expect(CemuInstallation.preferredApplicationURL(
+            forGameTitle: "Super Mario 3D World",
+            primaryApplicationURL: metalApplication,
+            vulkanFallbackApplicationURL: nil
+        ) == metalApplication)
+    }
+
     @Test("Maps the shared internal-resolution setting to Cemu graphics packs")
     func mapsInternalResolutionToGraphicPacks() throws {
         let directory = FileManager.default.temporaryDirectory

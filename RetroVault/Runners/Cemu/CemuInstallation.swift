@@ -27,9 +27,24 @@ struct CemuInstallation: Sendable {
   }
 
   static var available: CemuInstallation? {
-    guard let sourceApplicationURL else {
+    available(forGameTitle: nil)
+  }
+
+  /// Selects the bundled Cemu companion appropriate for a specific game.
+  ///
+  /// Native Metal remains the default renderer. A small compatibility list
+  /// can route titles with known Metal rendering regressions through the
+  /// separately bundled stable Vulkan companion without weakening other
+  /// games that benefit from Metal.
+  static func available(forGameTitle title: String?) -> CemuInstallation? {
+    guard let primaryApplicationURL = sourceApplicationURL else {
       return nil
     }
+    let sourceApplicationURL = preferredApplicationURL(
+      forGameTitle: title,
+      primaryApplicationURL: primaryApplicationURL,
+      vulkanFallbackApplicationURL: vulkanFallbackApplicationURL
+    )
     return CemuInstallation(
       sourceApplicationURL: sourceApplicationURL,
       applicationSupportURL: defaultApplicationSupportURL,
@@ -55,6 +70,29 @@ struct CemuInstallation: Sendable {
         .appending(path: "Cemu.app", directoryHint: .isDirectory)
     )
     return candidates.first(where: isUsableApplication(at:))
+  }
+
+  private static var vulkanFallbackApplicationURL: URL? {
+    guard let plugInsURL = Bundle.main.builtInPlugInsURL else {
+      return nil
+    }
+    let candidate = plugInsURL.appending(path: "CemuVulkan.app")
+    return isUsableApplication(at: candidate) ? candidate : nil
+  }
+
+  static func preferredApplicationURL(
+    forGameTitle title: String?,
+    primaryApplicationURL: URL,
+    vulkanFallbackApplicationURL: URL?
+  ) -> URL {
+    guard
+      let title,
+      CemuCompatibilityOverrides.requiresVulkan(forGameTitle: title),
+      let vulkanFallbackApplicationURL
+    else {
+      return primaryApplicationURL
+    }
+    return vulkanFallbackApplicationURL
   }
 
   private static var defaultApplicationSupportURL: URL {
@@ -976,6 +1014,19 @@ private enum CemuGraphicPackError: LocalizedError {
     case .unsafeEntry(let path):
       "Cemu's graphics-pack archive contains an unsafe entry: \(path)"
     }
+  }
+}
+
+enum CemuCompatibilityOverrides {
+  private static let vulkanFallbackTitles = [
+    "super mario 3d world"
+  ]
+
+  static func requiresVulkan(forGameTitle title: String) -> Bool {
+    let normalizedTitle = title
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+    return vulkanFallbackTitles.contains(normalizedTitle)
   }
 }
 

@@ -30,8 +30,6 @@ plugins_directory="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/PlugIns"
 resources_directory="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Cemu"
 destination_application="$plugins_directory/Cemu.app"
 mkdir -p "$plugins_directory" "$resources_directory"
-rm -rf "$destination_application"
-ditto "$source_application" "$destination_application"
 cp "$artifact_directory/COPYING-Cemu.txt" \
   "$resources_directory/COPYING-Cemu.txt"
 
@@ -40,20 +38,41 @@ cp "$artifact_directory/COPYING-Cemu.txt" \
 # Application Support copy directly. Keep the original Cemu binary alongside
 # a tiny bundle launcher. The launcher reads RetroVault's atomic request file,
 # then execs the original binary with Cemu's normal quick-launch arguments.
-mv "$destination_application/Contents/MacOS/Cemu" \
-  "$destination_application/Contents/MacOS/Cemu.real"
-cp "$SRCROOT/Scripts/cemu-launcher.sh" \
-  "$destination_application/Contents/MacOS/Cemu"
-chmod 755 \
-  "$destination_application/Contents/MacOS/Cemu" \
-  "$destination_application/Contents/MacOS/Cemu.real"
-
 signing_identity="-"
 if [ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" ] \
   && [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
   signing_identity="$EXPANDED_CODE_SIGN_IDENTITY"
 fi
 
-codesign --force --deep --sign "$signing_identity" --timestamp=none \
-  "$destination_application"
+embed_companion() {
+  embed_source_application="$1"
+  embed_destination_application="$2"
+  rm -rf "$embed_destination_application"
+  ditto "$embed_source_application" "$embed_destination_application"
+  mv "$embed_destination_application/Contents/MacOS/Cemu" \
+    "$embed_destination_application/Contents/MacOS/Cemu.real"
+  cp "$SRCROOT/Scripts/cemu-launcher.sh" \
+    "$embed_destination_application/Contents/MacOS/Cemu"
+  chmod 755 \
+    "$embed_destination_application/Contents/MacOS/Cemu" \
+    "$embed_destination_application/Contents/MacOS/Cemu.real"
+  codesign --force --deep --sign "$signing_identity" --timestamp=none \
+    "$embed_destination_application"
+}
+
+embed_companion "$source_application" "$destination_application"
 echo "Embedded Cemu companion in $destination_application"
+
+vulkan_fallback_application="$plugins_directory/CemuVulkan.app"
+if [ "$artifact_directory" = "$metal_artifact_directory" ] \
+  && [ -x "$stable_artifact_directory/Cemu.app/Contents/MacOS/Cemu" ]; then
+  embed_companion \
+    "$stable_artifact_directory/Cemu.app" \
+    "$vulkan_fallback_application"
+  cp "$stable_artifact_directory/COPYING-Cemu.txt" \
+    "$resources_directory/COPYING-Cemu-Vulkan.txt"
+  echo "Embedded stable Cemu Vulkan fallback in $vulkan_fallback_application"
+else
+  rm -rf "$vulkan_fallback_application"
+  rm -f "$resources_directory/COPYING-Cemu-Vulkan.txt"
+fi

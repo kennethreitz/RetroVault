@@ -98,9 +98,27 @@ private final class CemuPlayerCoordinator {
     guard runningProcess == nil, runningApplication == nil else {
       return
     }
-    guard let installation = CemuInstallation.available else {
+    guard
+      let installation = CemuInstallation.available(
+        forGameTitle: request.title
+      )
+    else {
       status = .failed(CemuError.unavailable.localizedDescription)
       return
+    }
+
+    if CemuCompatibilityOverrides.requiresVulkan(
+      forGameTitle: request.title
+    ) {
+      if installation.rendererName == "Vulkan" {
+        RetroVaultLog.cemu.notice(
+          "Using the stable Vulkan compatibility fallback for \(request.title, privacy: .public)"
+        )
+      } else {
+        RetroVaultLog.cemu.error(
+          "The Vulkan compatibility fallback for \(request.title, privacy: .public) is not bundled; continuing with Metal"
+        )
+      }
     }
 
     status = .starting("Preparing Cemu…")
