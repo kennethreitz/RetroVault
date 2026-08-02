@@ -835,6 +835,14 @@ struct LibretroCoreManifestTests {
                 playerOrigin: nil
             ) == .stopSession
         )
+        #expect(
+            GameplayEscapeAction.resolve(isFullScreen: true)
+                == .leaveFullScreen
+        )
+        #expect(
+            GameplayEscapeAction.resolve(isFullScreen: false)
+                == .closeGame
+        )
     }
 
     @Test("Smart CRT curves television systems and keeps newer systems flat")

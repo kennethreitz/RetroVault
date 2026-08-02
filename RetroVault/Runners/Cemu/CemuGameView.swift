@@ -84,6 +84,7 @@ private final class CemuPlayerCoordinator {
   private var launcherLogHandle: FileHandle?
   private var controllerRelay: CemuDSURelay?
   private var monitorTask: Task<Void, Never>?
+  private var expectsEscapeToLeaveFullScreen = false
   private var isFinishing = false
 
   func start(
@@ -197,6 +198,7 @@ private final class CemuPlayerCoordinator {
         withBundleIdentifier: "info.cemu.Cemu"
       ).first { !existingCemuProcessIDs.contains($0.processIdentifier) }
       runningApplication = application
+      expectsEscapeToLeaveFullScreen = launchPresentation == .fullScreen
       application?.activate(options: [.activateAllWindows])
       process.terminationHandler = { [weak self] _ in
         Task { @MainActor [weak self] in
@@ -213,6 +215,7 @@ private final class CemuPlayerCoordinator {
       )
       monitorTask = Task { @MainActor [weak self] in
         var wasExitChordPressed = false
+        var wasEscapeKeyPressed = Self.isEscapeKeyPressed
         while !Task.isCancelled {
           let isPressed = Self.isExitChordPressed
           if isPressed, !wasExitChordPressed {
@@ -221,10 +224,17 @@ private final class CemuPlayerCoordinator {
             }
           }
           wasExitChordPressed = isPressed
+
+          let isEscapeKeyPressed = Self.isEscapeKeyPressed
+          if isEscapeKeyPressed, !wasEscapeKeyPressed {
+            self?.handleEscapeKey()
+          }
+          wasEscapeKeyPressed = isEscapeKeyPressed
           try? await Task.sleep(for: .milliseconds(24))
         }
       }
     } catch {
+      expectsEscapeToLeaveFullScreen = false
       controllerRelay?.stop()
       controllerRelay = nil
       RetroVaultLog.cemu.error(
@@ -235,6 +245,7 @@ private final class CemuPlayerCoordinator {
   }
 
   func stop() {
+    expectsEscapeToLeaveFullScreen = false
     monitorTask?.cancel()
     monitorTask = nil
     runningProcess?.terminationHandler = nil
@@ -252,6 +263,7 @@ private final class CemuPlayerCoordinator {
   ) async {
     guard !isFinishing else { return }
     isFinishing = true
+    expectsEscapeToLeaveFullScreen = false
     monitorTask?.cancel()
     monitorTask = nil
     runningProcess?.terminationHandler = nil
@@ -278,11 +290,43 @@ private final class CemuPlayerCoordinator {
     onFinished()
   }
 
+  private func handleEscapeKey() {
+    guard runningApplication?.isActive == true else { return }
+
+    switch GameplayEscapeAction.resolve(
+      isFullScreen: expectsEscapeToLeaveFullScreen
+    ) {
+    case .leaveFullScreen:
+      // Cemu receives this key as well and performs the actual transition.
+      expectsEscapeToLeaveFullScreen = false
+    case .closeGame:
+      if runningApplication?.terminate() != true {
+        runningProcess?.terminate()
+      }
+    }
+  }
+
   private static var isExitChordPressed: Bool {
     if let pad = DSUConnection.shared.currentPad() {
       return pad.state.buttons.contains(.share)
         && pad.state.buttons.contains(.options)
     }
     return false
+  }
+
+  private static var isEscapeKeyPressed: Bool {
+    CGEventSource.keyState(
+      .combinedSessionState,
+      key: CGKeyCode(53)
+    )
+  }
+}
+
+enum GameplayEscapeAction: Equatable, Sendable {
+  case leaveFullScreen
+  case closeGame
+
+  static func resolve(isFullScreen: Bool) -> Self {
+    isFullScreen ? .leaveFullScreen : .closeGame
   }
 }

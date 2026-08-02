@@ -9,6 +9,7 @@ struct Vita3KGameView: View {
   let onCloseRequested: () -> Void
 
   @State private var coordinator = Vita3KPlayerCoordinator()
+  @State private var playerWindow: NSWindow?
   @AppStorage(LibretroVideoPreferences.filterKey)
   private var videoFilter = LibretroVideoPreferences.defaultFilter
 
@@ -52,13 +53,54 @@ struct Vita3KGameView: View {
         }
       }
     }
+    .background {
+      Vita3KWindowAccessor { window in
+        playerWindow = window
+      }
+      .frame(width: 0, height: 0)
+    }
     .task(id: request) {
       await coordinator.start(request: request)
     }
     .onDisappear {
       coordinator.stop()
     }
-    .onExitCommand(perform: onCloseRequested)
+    .onExitCommand {
+      switch GameplayEscapeAction.resolve(
+        isFullScreen: playerWindow?.styleMask.contains(.fullScreen) == true
+      ) {
+      case .leaveFullScreen:
+        playerWindow?.toggleFullScreen(nil)
+      case .closeGame:
+        onCloseRequested()
+      }
+    }
+  }
+}
+
+private struct Vita3KWindowAccessor: NSViewRepresentable {
+  let didMoveToWindow: @MainActor (NSWindow?) -> Void
+
+  func makeNSView(context: Context) -> Vita3KWindowObservationView {
+    let view = Vita3KWindowObservationView()
+    view.didMoveToWindow = didMoveToWindow
+    return view
+  }
+
+  func updateNSView(
+    _ nsView: Vita3KWindowObservationView,
+    context: Context
+  ) {
+    nsView.didMoveToWindow = didMoveToWindow
+  }
+}
+
+private final class Vita3KWindowObservationView: NSView {
+  var didMoveToWindow: (@MainActor (NSWindow?) -> Void)?
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    didMoveToWindow?(window)
   }
 }
 
