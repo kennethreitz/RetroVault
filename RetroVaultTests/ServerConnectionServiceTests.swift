@@ -1845,6 +1845,151 @@ struct LibraryTests {
             ) == changedData
         )
     }
+
+    @Test("Keeps a Cannoli Cemu save portable after desktop play")
+    func preservesCannoliCemuSaveFormat() async throws {
+        let token = try ClientToken(
+            rawValue: "rmm_" + String(repeating: "e", count: 64)
+        )
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let portableDirectory = directory.appending(
+            path: "CannoliCemu",
+            directoryHint: .isDirectory
+        )
+        let portableDataURL = portableDirectory.appending(
+            path: "save/user/80000001/cking.sav"
+        )
+        try FileManager.default.createDirectory(
+            at: portableDataURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let remoteSaveData = Data("cannoli-wind-waker".utf8)
+        try remoteSaveData.write(to: portableDataURL)
+        let markerData = Data(
+            """
+            format=1
+            emulator=CEMU
+            title_id=0005000010143500
+            """.utf8
+        )
+        try markerData.write(
+            to: portableDirectory.appending(
+                path: "cannoli-standalone-save.txt"
+            )
+        )
+        let remoteBundle = try #require(
+            try SaveBundleArchive().data(from: portableDirectory)
+        )
+
+        let api = SaveSyncMockRomMClient(
+            token: token,
+            availableSaves: [602: remoteBundle]
+        )
+        let service = RomMLibraryService(
+            api: api,
+            credentialStore: credentials,
+            saveDirectory: directory.appending(
+                path: "Managed",
+                directoryHint: .isDirectory
+            )
+        )
+        let serverURL = try ServerURL("https://romm.example.com")
+        let session = ServerSession(
+            serverURL: serverURL,
+            username: "kenneth"
+        )
+        let save = GameSaveDataItem(
+            id: 602,
+            kind: .save,
+            fileName: "Wind Waker HD.cemu.zip",
+            fileExtension: "zip",
+            filePath: "saves/Wii U",
+            fullPath: "saves/Wii U/Wind Waker HD.cemu.zip",
+            downloadURL: serverURL.resourceURL(
+                for: "/api/saves/602/content"
+            ),
+            fileSizeBytes: Int64(remoteBundle.count),
+            isMissingFromFileSystem: false,
+            createdAt: Date(timeIntervalSince1970: 2_000),
+            updatedAt: Date(timeIntervalSince1970: 2_000),
+            emulator: "Cemu",
+            slot: "autosave",
+            contentHash: "remote-602",
+            isPublic: false,
+            screenshotURL: nil
+        )
+        let game = mockGameDetails(
+            id: 42_001,
+            fileName: "The Legend of Zelda - The Wind Waker HD (USA).wua",
+            systemName: "Wii U",
+            saves: [save]
+        )
+
+        let prepared = try await service.prepareCartridgeSaveForPlay(
+            game,
+            in: session,
+            emulator: "Cemu",
+            coreID: "cemu"
+        )
+        let configuration = try #require(prepared)
+        #expect(configuration.cemuPortableSaveOrigin?.titleID
+            == "0005000010143500")
+        #expect(
+            try CemuInstallation.prepareRestoredSaveData(
+                in: configuration.localSaveURL
+            )
+        )
+        #expect(
+            try await service.syncCartridgeSaveAfterPlay(configuration)
+                == .unchanged
+        )
+
+        let desktopDataURL = configuration.localSaveURL.appending(
+            path: "usr/save/00050000/10143500/user/80000001/cking.sav"
+        )
+        let changedData = Data("changed-by-desktop-cemu".utf8)
+        try changedData.write(to: desktopDataURL, options: .atomic)
+        #expect(
+            try await service.syncCartridgeSaveAfterPlay(configuration)
+                == .uploaded
+        )
+
+        let uploadedBundle = try #require(await api.uploadedSaves.first)
+        let uploadedURL = directory.appending(path: "UploadedCannoliCemu.zip")
+        try uploadedBundle.write(to: uploadedURL)
+        let restoredDirectory = directory.appending(
+            path: "RestoredCannoliCemu",
+            directoryHint: .isDirectory
+        )
+        try SaveBundleArchive().restore(
+            from: uploadedURL,
+            to: restoredDirectory
+        )
+        #expect(
+            try Data(
+                contentsOf: restoredDirectory.appending(
+                    path: "cannoli-standalone-save.txt"
+                )
+            ) == markerData
+        )
+        #expect(
+            try Data(
+                contentsOf: restoredDirectory.appending(
+                    path: "save/user/80000001/cking.sav"
+                )
+            ) == changedData
+        )
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: restoredDirectory.appending(path: "usr").path
+            )
+        )
+    }
 }
 
 private actor SaveSyncMockRomMClient: RomMClient {

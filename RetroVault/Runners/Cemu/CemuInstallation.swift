@@ -158,30 +158,8 @@ struct CemuInstallation: Sendable {
   @discardableResult
   static func prepareRestoredSaveData(in mlcURL: URL) throws -> Bool {
     let fileManager = FileManager.default
-    let markerURL = mlcURL.appending(path: "cannoli-standalone-save.txt")
-    guard fileManager.fileExists(atPath: markerURL.path) else {
+    guard let origin = try portableSaveOrigin(in: mlcURL) else {
       return false
-    }
-
-    let marker = try String(contentsOf: markerURL, encoding: .utf8)
-    var fields: [String: String] = [:]
-    for line in marker.split(whereSeparator: { $0.isNewline }) {
-      let components = line.split(separator: "=", maxSplits: 1)
-      guard components.count == 2 else { continue }
-      fields[String(components[0])] = String(components[1])
-    }
-    let titleID = fields["title_id"]?
-      .replacingOccurrences(of: "-", with: "")
-      .lowercased()
-    guard
-      fields["emulator"]?.uppercased() == "CEMU",
-      let titleID,
-      titleID.count == 16,
-      titleID.allSatisfy(\.isHexDigit)
-    else {
-      throw CemuError.invalidSaveBundle(
-        "The RomM Cemu save bundle has no valid Wii U title ID."
-      )
     }
 
     let sourceURL = mlcURL.appending(
@@ -201,15 +179,11 @@ struct CemuInstallation: Sendable {
       )
     }
 
-    let highTitleID = String(titleID.prefix(8))
-    let lowTitleID = String(titleID.suffix(8))
-    let destinationParentURL = mlcURL
-      .appending(path: "usr/save", directoryHint: .isDirectory)
-      .appending(path: highTitleID, directoryHint: .isDirectory)
-    let destinationURL = destinationParentURL.appending(
-      path: lowTitleID,
-      directoryHint: .isDirectory
+    let destinationURL = nativeSaveURL(
+      in: mlcURL,
+      titleID: origin.titleID
     )
+    let destinationParentURL = destinationURL.deletingLastPathComponent()
     try fileManager.createDirectory(
       at: destinationParentURL,
       withIntermediateDirectories: true
@@ -238,8 +212,126 @@ struct CemuInstallation: Sendable {
     }
 
     try fileManager.removeItem(at: sourceURL)
-    try fileManager.removeItem(at: markerURL)
+    try fileManager.removeItem(
+      at: mlcURL.appending(path: "cannoli-standalone-save.txt")
+    )
     return true
+  }
+
+  /// Identifies Cannoli's portable Cemu representation without changing it.
+  static func portableSaveOrigin(
+    in mlcURL: URL
+  ) throws -> CemuPortableSaveOrigin? {
+    let markerURL = mlcURL.appending(path: "cannoli-standalone-save.txt")
+    guard FileManager.default.fileExists(atPath: markerURL.path) else {
+      return nil
+    }
+
+    let markerData = try Data(contentsOf: markerURL)
+    guard let marker = String(data: markerData, encoding: .utf8) else {
+      throw CemuError.invalidSaveBundle(
+        "The RomM Cemu save marker is not valid UTF-8."
+      )
+    }
+    var fields: [String: String] = [:]
+    for line in marker.split(whereSeparator: { $0.isNewline }) {
+      let components = line.split(separator: "=", maxSplits: 1)
+      guard components.count == 2 else { continue }
+      fields[String(components[0])] = String(components[1])
+    }
+    let titleID = fields["title_id"]?
+      .replacingOccurrences(of: "-", with: "")
+      .lowercased()
+    guard
+      fields["emulator"]?.uppercased() == "CEMU",
+      let titleID,
+      titleID.count == 16,
+      titleID.allSatisfy(\.isHexDigit)
+    else {
+      throw CemuError.invalidSaveBundle(
+        "The RomM Cemu save bundle has no valid Wii U title ID."
+      )
+    }
+    return CemuPortableSaveOrigin(
+      titleID: titleID,
+      markerData: markerData
+    )
+  }
+
+  /// Presents the current desktop Cemu save using the layout imported from
+  /// RomM, then removes the temporary projection after `body` returns.
+  ///
+  /// Native MLC bundles are passed through unchanged. Cannoli bundles retain
+  /// their exact marker bytes and expose only the per-title `save/` tree.
+  static func withPreservedSaveBundle<T>(
+    in mlcURL: URL,
+    origin: CemuPortableSaveOrigin?,
+    _ body: (URL) throws -> T
+  ) throws -> T {
+    guard let origin else {
+      return try body(mlcURL)
+    }
+
+    let fileManager = FileManager.default
+    let portableSourceURL = mlcURL.appending(
+      path: "save",
+      directoryHint: .isDirectory
+    )
+    let nativeSourceURL = nativeSaveURL(
+      in: mlcURL,
+      titleID: origin.titleID
+    )
+    let sourceURL = fileManager.fileExists(atPath: portableSourceURL.path)
+      ? portableSourceURL
+      : nativeSourceURL
+    var sourceIsDirectory: ObjCBool = false
+    guard
+      fileManager.fileExists(
+        atPath: sourceURL.path,
+        isDirectory: &sourceIsDirectory
+      ),
+      sourceIsDirectory.boolValue
+    else {
+      throw CemuError.invalidSaveBundle(
+        "Cemu's save data for Wii U title \(origin.titleID) is missing."
+      )
+    }
+
+    let stagingURL = fileManager.temporaryDirectory.appending(
+      path: "RetroVault-CemuSave-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+    try fileManager.createDirectory(
+      at: stagingURL,
+      withIntermediateDirectories: true
+    )
+    defer { try? fileManager.removeItem(at: stagingURL) }
+
+    try origin.markerData.write(
+      to: stagingURL.appending(path: "cannoli-standalone-save.txt"),
+      options: .atomic
+    )
+    try fileManager.copyItem(
+      at: sourceURL,
+      to: stagingURL.appending(path: "save", directoryHint: .isDirectory)
+    )
+    return try body(stagingURL)
+  }
+
+  private static func nativeSaveURL(
+    in mlcURL: URL,
+    titleID: String
+  ) -> URL {
+    mlcURL
+      .appending(path: "usr/save", directoryHint: .isDirectory)
+      .appending(
+        path: String(titleID.prefix(8)),
+        directoryHint: .isDirectory
+      )
+      .appending(
+        path: String(titleID.suffix(8)),
+        directoryHint: .isDirectory
+      )
   }
 
   private func prepareSettings(

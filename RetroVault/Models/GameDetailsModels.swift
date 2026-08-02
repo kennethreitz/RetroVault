@@ -260,6 +260,7 @@ struct CartridgeSaveSyncConfiguration: Codable, Hashable, Sendable {
   let slot: String
   let storage: Storage?
   let remoteSaveUpdatedAt: Date?
+  let cemuPortableSaveOrigin: CemuPortableSaveOrigin?
 
   init(
     serverURL: ServerURL,
@@ -269,7 +270,8 @@ struct CartridgeSaveSyncConfiguration: Codable, Hashable, Sendable {
     emulator: String,
     slot: String,
     storage: Storage?,
-    remoteSaveUpdatedAt: Date? = nil
+    remoteSaveUpdatedAt: Date? = nil,
+    cemuPortableSaveOrigin: CemuPortableSaveOrigin? = nil
   ) {
     self.serverURL = serverURL
     self.gameID = gameID
@@ -279,6 +281,7 @@ struct CartridgeSaveSyncConfiguration: Codable, Hashable, Sendable {
     self.slot = slot
     self.storage = storage
     self.remoteSaveUpdatedAt = remoteSaveUpdatedAt
+    self.cemuPortableSaveOrigin = cemuPortableSaveOrigin
   }
 
   var effectiveStorage: Storage {
@@ -294,9 +297,36 @@ struct CartridgeSaveSyncConfiguration: Codable, Hashable, Sendable {
       emulator: emulator,
       slot: slot,
       storage: storage,
-      remoteSaveUpdatedAt: updatedAt
+      remoteSaveUpdatedAt: updatedAt,
+      cemuPortableSaveOrigin: cemuPortableSaveOrigin
     )
   }
+
+  func withCemuPortableSaveOrigin(
+    _ origin: CemuPortableSaveOrigin?
+  ) -> Self {
+    Self(
+      serverURL: serverURL,
+      gameID: gameID,
+      localSaveURL: localSaveURL,
+      uploadFileName: uploadFileName,
+      emulator: emulator,
+      slot: slot,
+      storage: storage,
+      remoteSaveUpdatedAt: remoteSaveUpdatedAt,
+      cemuPortableSaveOrigin: origin
+    )
+  }
+}
+
+/// The exact portable Cemu layout imported from a Cannoli-managed RomM save.
+///
+/// Desktop Cemu edits this title inside its MLC tree. Retaining the original
+/// marker lets RetroVault upload the changed save in the representation its
+/// originating client already understands.
+struct CemuPortableSaveOrigin: Codable, Hashable, Sendable {
+  let titleID: String
+  let markerData: Data
 }
 
 /// Result of reconciling a locally persisted cartridge save with RomM.

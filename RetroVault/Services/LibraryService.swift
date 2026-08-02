@@ -1959,7 +1959,8 @@ actor RomMLibraryService: LibraryServing {
       // quick state. The stored sync baseline may describe RetroVault's own
       // upload from the previous exit, which belongs to the same session as
       // that quick state and must not prevent Resume.
-      remoteSaveUpdatedAt: nil
+      remoteSaveUpdatedAt: nil,
+      cemuPortableSaveOrigin: metadata?.cemuPortableSaveOrigin
     )
     let localHash = saveContentHash(for: configuration)
 
@@ -2084,6 +2085,7 @@ actor RomMLibraryService: LibraryServing {
           continue
         }
 
+        var importedConfiguration = configuration
         let importedHash: String
         switch configuration.effectiveStorage {
         case .saveRAM:
@@ -2096,6 +2098,12 @@ actor RomMLibraryService: LibraryServing {
             from: download.temporaryFileURL,
             to: localSaveURL
           )
+          if coreID.lowercased().contains("cemu") {
+            importedConfiguration = configuration
+              .withCemuPortableSaveOrigin(
+                try CemuInstallation.portableSaveOrigin(in: localSaveURL)
+              )
+          }
           guard
             let directoryHash = try SaveBundleArchive().contentHash(
               of: localSaveURL
@@ -2110,7 +2118,9 @@ actor RomMLibraryService: LibraryServing {
             localContentHash: importedHash,
             remoteSaveID: save.id,
             remoteContentHash: save.contentHash,
-            remoteUpdatedAt: save.updatedAt
+            remoteUpdatedAt: save.updatedAt,
+            cemuPortableSaveOrigin:
+              importedConfiguration.cemuPortableSaveOrigin
           ),
           for: localSaveURL
         )
@@ -2118,7 +2128,7 @@ actor RomMLibraryService: LibraryServing {
         RetroVaultLog.libretro.notice(
           "Imported RomM cartridge save \(save.id, privacy: .public) for game \(game.id, privacy: .public)"
         )
-        return configuration.withRemoteSaveUpdatedAt(save.updatedAt)
+        return importedConfiguration.withRemoteSaveUpdatedAt(save.updatedAt)
       } catch RomMAPIError.notFound {
         RetroVaultLog.libretro.info(
           "RomM save \(save.id, privacy: .public) is missing; trying the previous revision"
@@ -2157,13 +2167,17 @@ actor RomMLibraryService: LibraryServing {
           .joined()
       case .directoryBundle:
         let archive = SaveBundleArchive()
-        guard
-          let hash = try archive.contentHash(
-            of: configuration.localSaveURL
-          ),
-          let bundleData = try archive.data(
-            from: configuration.localSaveURL
+        let payload = try withDirectoryBundleSource(
+          for: configuration
+        ) { directoryURL in
+          (
+            try archive.contentHash(of: directoryURL),
+            try archive.data(from: directoryURL)
           )
+        }
+        guard
+          let hash = payload.0,
+          let bundleData = payload.1
         else {
           return .unchanged
         }
@@ -2215,7 +2229,8 @@ actor RomMLibraryService: LibraryServing {
           localContentHash: localHash,
           remoteSaveID: uploadedSave.id,
           remoteContentHash: uploadedSave.contentHash,
-          remoteUpdatedAt: uploadedSave.updatedAt
+          remoteUpdatedAt: uploadedSave.updatedAt,
+          cemuPortableSaveOrigin: configuration.cemuPortableSaveOrigin
         ),
         for: configuration.localSaveURL
       )
@@ -2301,17 +2316,19 @@ actor RomMLibraryService: LibraryServing {
       guard inventory.sizeBytes > 0 else {
         return nil
       }
+      let metadata = loadSaveSyncMetadata(for: localSaveURL)
       let configuration = CartridgeSaveSyncConfiguration(
         serverURL: session.serverURL,
         gameID: gameID,
         localSaveURL: localSaveURL,
         uploadFileName: "",
-        emulator: "RetroVault",
+        emulator:
+          localSaveURL.lastPathComponent == "Cemu" ? "Cemu" : "RetroVault",
         slot: "autosave",
-        storage: storage
+        storage: storage,
+        cemuPortableSaveOrigin: metadata?.cemuPortableSaveOrigin
       )
       let localHash = saveContentHash(for: configuration)
-      let metadata = loadSaveSyncMetadata(for: localSaveURL)
       return LocalSaveRecord(
         gameID: gameID,
         storage: storage,
@@ -2676,10 +2693,21 @@ actor RomMLibraryService: LibraryServing {
         .map { String(format: "%02x", $0) }
         .joined()
     case .directoryBundle:
-      return try? SaveBundleArchive().contentHash(
-        of: configuration.localSaveURL
-      )
+      return try? withDirectoryBundleSource(for: configuration) {
+        try SaveBundleArchive().contentHash(of: $0)
+      }
     }
+  }
+
+  private func withDirectoryBundleSource<T>(
+    for configuration: CartridgeSaveSyncConfiguration,
+    _ body: (URL) throws -> T
+  ) throws -> T {
+    try CemuInstallation.withPreservedSaveBundle(
+      in: configuration.localSaveURL,
+      origin: configuration.cemuPortableSaveOrigin,
+      body
+    )
   }
 
   private func localSaveInventory(
@@ -3271,6 +3299,7 @@ private struct CartridgeSaveSyncMetadata: Codable {
   let remoteSaveID: Int
   let remoteContentHash: String?
   let remoteUpdatedAt: Date?
+  let cemuPortableSaveOrigin: CemuPortableSaveOrigin?
 }
 
 private struct SaveSyncFailureMetadata: Codable {

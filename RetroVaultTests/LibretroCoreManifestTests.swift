@@ -1750,15 +1750,19 @@ struct CemuInstallationTests {
         try restoredData.write(
             to: portableSaveURL.appending(path: "cking.sav")
         )
-        try """
+        let marker = """
             format=1
             emulator=CEMU
             title_id=0005000010143500
-            """.write(
+            """
+        try marker.write(
                 to: directory.appending(path: "cannoli-standalone-save.txt"),
                 atomically: true,
                 encoding: .utf8
             )
+        let origin = try #require(
+            try CemuInstallation.portableSaveOrigin(in: directory)
+        )
 
         let staleSaveURL = directory.appending(
             path: "usr/save/00050000/10143500/user/80000001",
@@ -1790,6 +1794,31 @@ struct CemuInstallationTests {
             )
         )
         #expect(try !CemuInstallation.prepareRestoredSaveData(in: directory))
+
+        let changedData = Data("changed-on-desktop".utf8)
+        try changedData.write(to: desktopSaveURL, options: .atomic)
+        try CemuInstallation.withPreservedSaveBundle(
+            in: directory,
+            origin: origin
+        ) { portableDirectory in
+            let preservedMarker = try Data(
+                contentsOf: portableDirectory.appending(
+                    path: "cannoli-standalone-save.txt"
+                )
+            )
+            let preservedSave = try Data(
+                contentsOf: portableDirectory.appending(
+                    path: "save/user/80000001/cking.sav"
+                )
+            )
+            #expect(preservedMarker == Data(marker.utf8))
+            #expect(preservedSave == changedData)
+            #expect(
+                !FileManager.default.fileExists(
+                    atPath: portableDirectory.appending(path: "usr").path
+                )
+            )
+        }
     }
 
     @Test("Prepares private Cemu data and direct quick-launch arguments")
