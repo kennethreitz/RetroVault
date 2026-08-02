@@ -17,3 +17,32 @@ index 3041f63..b465fa8 100644
 +++ b/src/Cafe/HW/Latte/Core/LatteShader.cpp
 @@ -17,0 +18 @@
 +#include "util/containers/robin_hood.h"
+diff --git a/src/gui/wxgui/MainWindow.cpp b/src/gui/wxgui/MainWindow.cpp
+index 6847e65..9ce6bdb 100644
+--- a/src/gui/wxgui/MainWindow.cpp
++++ b/src/gui/wxgui/MainWindow.cpp
+@@ -172,0 +173 @@ wxBEGIN_EVENT_TABLE(MainWindow, wxFrame)
++EVT_FULLSCREEN(MainWindow::OnFullScreenChanged)
+@@ -1480,0 +1482,13 @@ void MainWindow::OnKeyDown(wxKeyEvent& event)
++
++void MainWindow::OnFullScreenChanged(wxFullScreenEvent& event)
++{
++    const bool state = event.IsFullScreen();
++    g_window_info.is_fullscreen = state;
++    if (m_fullscreenMenuItem)
++        m_fullscreenMenuItem->Check(state);
++    if (state)
++        m_menu_visible = false;
++    else
++        SetMenuVisible(true);
++    event.Skip();
++}
+@@ -2238 +2252 @@ void MainWindow::RecreateMenu()
+-	m_fullscreenMenuItem = optionsMenu->AppendCheckItem(MAINFRAME_MENU_ID_OPTIONS_FULLSCREEN, _("&Fullscreen"));
++	m_fullscreenMenuItem = optionsMenu->AppendCheckItem(MAINFRAME_MENU_ID_OPTIONS_FULLSCREEN, _("&Fullscreen\tCtrl-F"));
+diff --git a/src/gui/wxgui/MainWindow.h b/src/gui/wxgui/MainWindow.h
+index c1535bb..4de8d4e 100644
+--- a/src/gui/wxgui/MainWindow.h
++++ b/src/gui/wxgui/MainWindow.h
+@@ -128,0 +129 @@ private:
++	void OnFullScreenChanged(wxFullScreenEvent& event);
