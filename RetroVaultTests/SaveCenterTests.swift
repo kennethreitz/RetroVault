@@ -36,10 +36,53 @@ struct SaveCenterTests {
 
     let items = SaveCenterCatalog.items(games: games, localRecords: records)
 
-    #expect(items.map(\.id) == [1, 2, 3])
-    #expect(items[0].status == .synchronized)
-    #expect(items[1].status == .uploadPending)
+    #expect(items.map(\.id) == [2, 1, 3])
+    #expect(items[0].status == .uploadPending)
+    #expect(items[1].status == .synchronized)
     #expect(items[2].status == .remoteOnly)
+  }
+
+  @Test("Orders local saves newest first ahead of remote-only saves")
+  func ordersLocalSavesByModificationDate() throws {
+    let games = [
+      game(id: 1, name: "Newest", hasSave: true),
+      game(id: 2, name: "Remote", hasSave: true),
+      game(id: 3, name: "Undated", hasSave: true),
+      game(id: 4, name: "Older", hasSave: true),
+    ]
+    let records = [
+      LocalSaveRecord(
+        gameID: 1,
+        storage: .saveRAM,
+        sizeBytes: 32_768,
+        modifiedAt: Date(timeIntervalSince1970: 300),
+        lastSynchronizedAt: Date(timeIntervalSince1970: 300),
+        needsUpload: false,
+        failureMessage: nil
+      ),
+      LocalSaveRecord(
+        gameID: 3,
+        storage: .saveRAM,
+        sizeBytes: 32_768,
+        modifiedAt: nil,
+        lastSynchronizedAt: nil,
+        needsUpload: false,
+        failureMessage: nil
+      ),
+      LocalSaveRecord(
+        gameID: 4,
+        storage: .saveRAM,
+        sizeBytes: 32_768,
+        modifiedAt: Date(timeIntervalSince1970: 100),
+        lastSynchronizedAt: Date(timeIntervalSince1970: 100),
+        needsUpload: false,
+        failureMessage: nil
+      ),
+    ]
+
+    let items = SaveCenterCatalog.items(games: games, localRecords: records)
+
+    #expect(items.map(\.id) == [1, 4, 3, 2])
   }
 
   @Test("Prioritizes retryable failures")

@@ -112,6 +112,25 @@ enum SaveCenterCatalog {
     _ lhs: SaveCenterItem,
     _ rhs: SaveCenterItem
   ) -> Bool {
+    let leftIsLocal = lhs.localRecord != nil
+    let rightIsLocal = rhs.localRecord != nil
+    if leftIsLocal != rightIsLocal {
+      return leftIsLocal
+    }
+
+    if leftIsLocal {
+      switch (lhs.localRecord?.modifiedAt, rhs.localRecord?.modifiedAt) {
+      case let (leftDate?, rightDate?) where leftDate != rightDate:
+        return leftDate > rightDate
+      case (_?, nil):
+        return true
+      case (nil, _?):
+        return false
+      default:
+        break
+      }
+    }
+
     let leftPriority = priority(of: lhs.status)
     let rightPriority = priority(of: rhs.status)
     if leftPriority != rightPriority {
