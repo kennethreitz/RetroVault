@@ -1,9 +1,20 @@
 import AppKit
+@preconcurrency import GameController
 import SwiftUI
 
 @MainActor
 private final class RetroVaultApplicationDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Hosted emulators become the foreground application while RetroVault
+        // continues publishing native controllers through its DSU relay.
+        // macOS otherwise stops delivering GameController input as soon as
+        // Cemu takes focus, which leaves relay-backed player slots connected
+        // but frozen.
+        GCController.shouldMonitorBackgroundEvents = true
+        RetroVaultLog.application.debug(
+            "Enabled background controller monitoring for hosted emulators."
+        )
+
         DSUConnection.shared.apply(layout: DSUPreferences.layout())
         DSUConnection.shared.apply(DSUPreferences.activeConfiguration())
 
