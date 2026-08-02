@@ -116,12 +116,7 @@ private final class CemuPlayerCoordinator {
       let launcherLogURL = runtime.portableDirectory.appending(
         path: "launcher.log"
       )
-      process.arguments = [
-        "-F", "-n", "-W",
-        "-a", runtime.applicationURL.path,
-        "--stdout", launcherLogURL.path,
-        "--stderr", launcherLogURL.path,
-      ]
+      process.arguments = runtime.launcherArguments(logURL: launcherLogURL)
 
       _ = FileManager.default.createFile(
         atPath: launcherLogURL.path,

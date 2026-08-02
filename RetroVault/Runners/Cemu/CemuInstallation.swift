@@ -321,6 +321,19 @@ struct CemuRuntime: Hashable, Sendable {
   func removeLaunchRequest() {
     try? FileManager.default.removeItem(at: launchRequestURL)
   }
+
+  /// Arguments for opening this exact private app bundle through
+  /// LaunchServices. Passing the bundle as the item to open avoids `open -a`,
+  /// which can resolve another registered Cemu installation with the same
+  /// bundle identifier.
+  func launcherArguments(logURL: URL) -> [String] {
+    [
+      "-F", "-n", "-W",
+      "--stdout", logURL.path,
+      "--stderr", logURL.path,
+      applicationURL.path,
+    ]
+  }
 }
 
 struct CemuDSUConfiguration: Hashable, Sendable {

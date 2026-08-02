@@ -1800,5 +1800,13 @@ struct CemuInstallationTests {
         #expect(launchRequest == "\(gameURL.path)\n\(mlcURL.path)\n")
         runtime.removeLaunchRequest()
         #expect(!FileManager.default.fileExists(atPath: runtime.launchRequestURL.path))
+
+        let launcherLogURL = runtime.portableDirectory.appending(
+            path: "launcher.log"
+        )
+        let launcherArguments = runtime.launcherArguments(logURL: launcherLogURL)
+        #expect(!launcherArguments.contains("-a"))
+        #expect(launcherArguments.last == runtime.applicationURL.path)
+        #expect(launcherArguments.contains(launcherLogURL.path))
     }
 }
