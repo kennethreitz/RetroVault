@@ -1,5 +1,4 @@
 @preconcurrency import AppKit
-@preconcurrency import GameController
 import Observation
 import SwiftUI
 
@@ -116,7 +115,11 @@ private final class CemuPlayerCoordinator {
         )
       }
       let effectiveDSUConfiguration = relayPort.map {
-        CemuDSUConfiguration(host: "127.0.0.1", port: $0, slot: 0)
+        CemuDSUConfiguration(
+          host: "127.0.0.1",
+          port: $0,
+          playerCount: Int(DSUProtocol.slotCount)
+        )
       } ?? dsuConfiguration
       let runtime = try await Task.detached(priority: .userInitiated) {
         try installation.prepareRuntime(
@@ -272,15 +275,9 @@ private final class CemuPlayerCoordinator {
 
   private static var isExitChordPressed: Bool {
     if let pad = DSUConnection.shared.currentPad() {
-      return pad.buttons.contains(.share) && pad.buttons.contains(.options)
+      return pad.state.buttons.contains(.share)
+        && pad.state.buttons.contains(.options)
     }
-    guard
-      let controller = GCController.current ?? GCController.controllers().first,
-      let gamepad = controller.extendedGamepad
-    else {
-      return false
-    }
-    return gamepad.buttonMenu.isPressed
-      && gamepad.buttonOptions?.isPressed == true
+    return false
   }
 }

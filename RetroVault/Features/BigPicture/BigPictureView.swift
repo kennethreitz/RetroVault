@@ -92,8 +92,6 @@ struct BigPictureView: View {
   private var dsuHost = DSUProtocol.defaultHost
   @AppStorage(DSUPreferences.portKey)
   private var dsuPort = Int(DSUProtocol.defaultPort)
-  @AppStorage(DSUPreferences.slotKey)
-  private var dsuSlot = 0
   @AppStorage(DSUPreferences.layoutKey)
   private var dsuLayout = DSUPreferences.defaultLayout.rawValue
 
@@ -1355,7 +1353,7 @@ struct BigPictureView: View {
       "DISCONNECT"
     case .videoFilter, .internalResolution, .wiiController,
       .mapsLeftAnalogToDPad, .fastForward, .rewind, .gamesFullScreen,
-      .experimentalCores, .dsuEnabled, .dsuSlot, .dsuLayout,
+      .experimentalCores, .dsuEnabled, .dsuLayout,
       .bigPictureFullScreen:
       "CHANGE"
     }
@@ -1447,11 +1445,6 @@ struct BigPictureView: View {
         .dsuEndpoint,
         title: "DSU Server",
         detail: "\(dsuHost):\(dsuPort)"
-      ),
-      settingRow(
-        .dsuSlot,
-        title: "DSU Controller Slot",
-        detail: String(dsuSlot + 1)
       ),
       settingRow(
         .dsuLayout,
@@ -2587,10 +2580,6 @@ struct BigPictureView: View {
         message: DSUConnection.shared.status.summary,
         systemImage: "gamecontroller"
       )
-    case .dsuSlot:
-      dsuSlot = (dsuSlot + 1) % Int(DSUProtocol.slotCount)
-      applyDSUConfiguration()
-      refreshSettingsRowsPreservingSelection()
     case .dsuLayout:
       let layout = ControllerFaceButtonLayout(rawValue: dsuLayout)
         ?? DSUPreferences.defaultLayout
@@ -2638,8 +2627,7 @@ struct BigPictureView: View {
     DSUConnection.shared.apply(
       DSUConfiguration(
         host: dsuHost,
-        port: UInt16(clamping: dsuPort),
-        slot: UInt8(clamping: dsuSlot)
+        port: UInt16(clamping: dsuPort)
       ).normalized
     )
   }
@@ -3255,7 +3243,7 @@ struct BigPictureView: View {
     return CemuDSUConfiguration(
       host: dsuHost,
       port: UInt16(clamping: dsuPort),
-      slot: max(0, dsuSlot)
+      playerCount: Int(DSUProtocol.slotCount)
     )
   }
 }
@@ -3400,7 +3388,6 @@ private enum BigPictureSetting: Hashable, Sendable {
   case experimentalCores
   case dsuEnabled
   case dsuEndpoint
-  case dsuSlot
   case dsuLayout
   case dsuStatus
   case bigPictureFullScreen
@@ -3792,11 +3779,14 @@ struct BigPictureControllerState: Equatable, Sendable {
 
   static var current: Self {
     let controllers = GCController.controllers()
-    var state = Self(isConnected: !controllers.isEmpty)
+    let routedPads = DSUConnection.shared.currentPads()
+    var state = Self(isConnected: !routedPads.isEmpty)
     var hasLocalPrompts = false
 
-    if let controller = GCController.current ?? controllers.first,
-       let gamepad = controller.extendedGamepad
+    if
+      routedPads.first?.source == .gameController,
+      let controller = GCController.current ?? controllers.first,
+      let gamepad = controller.extendedGamepad
     {
       hasLocalPrompts = true
       let layout = ControllerFaceButtonLayout.resolve(
@@ -3839,75 +3829,15 @@ struct BigPictureControllerState: Equatable, Sendable {
       )
     }
 
-    for controller in controllers {
-      if let gamepad = controller.extendedGamepad {
-        let faceButtons = Self.extendedFaceButtonActions(
-          buttonAPressed: gamepad.buttonA.isPressed,
-          buttonBPressed: gamepad.buttonB.isPressed,
-          layout: ControllerFaceButtonLayout.resolve(
-            vendorName: controller.vendorName,
-            productCategory: controller.productCategory
-          )
-        )
-        let auxiliaryButtons = Self.extendedAuxiliaryButtonActions(
-          optionsPressed: gamepad.buttonOptions?.isPressed == true,
-          menuPressed: gamepad.buttonMenu.isPressed,
-          homePressed: gamepad.buttonHome?.isPressed == true
-        )
-        state.up =
-          state.up
-          || gamepad.dpad.up.isPressed
-          || gamepad.leftThumbstick.yAxis.value > 0.72
-        state.down =
-          state.down
-          || gamepad.dpad.down.isPressed
-          || gamepad.leftThumbstick.yAxis.value < -0.72
-        state.left =
-          state.left
-          || gamepad.dpad.left.isPressed
-          || gamepad.leftThumbstick.xAxis.value < -0.72
-        state.right =
-          state.right
-          || gamepad.dpad.right.isPressed
-          || gamepad.leftThumbstick.xAxis.value > 0.72
-        state.activate = state.activate || faceButtons.activate
-        state.opensGameOptions =
-          state.opensGameOptions || auxiliaryButtons.opensGameOptions
-        state.playsFromBeginning =
-          state.playsFromBeginning || gamepad.buttonX.isPressed
-        state.cyclesSort =
-          state.cyclesSort || gamepad.buttonY.isPressed
-        state.showsSyncStatus =
-          state.showsSyncStatus
-          || auxiliaryButtons.showsSyncStatus
-        state.opensBigPicture =
-          state.opensBigPicture
-          || auxiliaryButtons.opensBigPicture
-        state.back =
-          state.back
-          || faceButtons.back
-        state.pageUp =
-          state.pageUp || gamepad.leftShoulder.isPressed
-        state.pageDown =
-          state.pageDown || gamepad.rightShoulder.isPressed
-      } else if let gamepad = controller.microGamepad {
-        state.up = state.up || gamepad.dpad.up.isPressed
-        state.down = state.down || gamepad.dpad.down.isPressed
-        state.left = state.left || gamepad.dpad.left.isPressed
-        state.right = state.right || gamepad.dpad.right.isPressed
-        state.activate = state.activate || gamepad.buttonA.isPressed
-        state.back = state.back || gamepad.buttonX.isPressed
+    if let firstPad = routedPads.first {
+      // A network pad names the on-screen prompts only when no local
+      // controller is there to provide localized button symbols.
+      if !hasLocalPrompts {
+        state.applyPrompts(for: firstPad.layout)
       }
     }
-
-    if let pad = DSUConnection.shared.currentPad() {
-      let layout = DSUConnection.shared.padLayout
-      // A DSU pad names the on-screen prompts only when no local controller
-      // is there to name them first.
-      if !hasLocalPrompts {
-        state.applyPrompts(for: layout)
-      }
-      state.merge(pad, layout: layout)
+    for pad in routedPads {
+      state.merge(pad.state, layout: pad.layout)
     }
 
     return state

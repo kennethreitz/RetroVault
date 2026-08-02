@@ -104,15 +104,20 @@ struct DSUProtocolTests {
       buttons: [.right, .b],
       leftStick: DSUStick(x: 220, y: 90)
     )
-    let relay = CemuDSURelay { state }
+    let relay = CemuDSURelay { slot in
+      RoutedDSUPad(
+        state: state,
+        layout: .nintendo,
+        source: .network(remoteSlot: slot)
+      )
+    }
     let port = try await Task.detached {
       try relay.start()
     }.value
     let client = DSUClient(
       configuration: DSUConfiguration(
         host: "127.0.0.1",
-        port: port,
-        slot: 0
+        port: port
       )
     )
     client.start()
@@ -124,7 +129,7 @@ struct DSUProtocolTests {
     var received: DSUPadState?
     for _ in 0..<100 where received == nil {
       try await Task.sleep(for: .milliseconds(10))
-      received = client.currentPad()
+      received = client.currentPads().first
     }
 
     let pad = try #require(received)
@@ -132,6 +137,105 @@ struct DSUProtocolTests {
     #expect(pad.buttons.contains(.right))
     #expect(pad.buttons.contains(.b))
     #expect(pad.leftStick == DSUStick(x: 220, y: 90))
+  }
+
+  @Test("Relays multiple controller slots over one DSU server")
+  func relaysMultipleControllerSlots() async throws {
+    let first = DSUPadState(
+      descriptor: DSUSlotDescriptor(slot: 0, isRegistered: true),
+      isConnected: true,
+      buttons: [.a]
+    )
+    let second = DSUPadState(
+      descriptor: DSUSlotDescriptor(slot: 1, isRegistered: true),
+      isConnected: true,
+      buttons: [.b],
+      rightStick: DSUStick(x: 40, y: 210)
+    )
+    let relay = CemuDSURelay { slot in
+      switch slot {
+      case 0:
+        RoutedDSUPad(
+          state: first,
+          layout: .nintendo,
+          source: .network(remoteSlot: slot)
+        )
+      case 1:
+        RoutedDSUPad(
+          state: second,
+          layout: .nintendo,
+          source: .network(remoteSlot: slot)
+        )
+      default: nil
+      }
+    }
+    let port = try await Task.detached {
+      try relay.start()
+    }.value
+    let client = DSUClient(
+      configuration: DSUConfiguration(
+        host: "127.0.0.1",
+        port: port
+      )
+    )
+    client.start()
+    defer {
+      client.stop()
+      relay.stop()
+    }
+
+    var received: [DSUPadState] = []
+    for _ in 0..<100 where received.count < 2 {
+      try await Task.sleep(for: .milliseconds(10))
+      received = client.currentPads()
+    }
+
+    let firstPad = try #require(received.first(where: { $0.slot == 0 }))
+    let secondPad = try #require(received.first(where: { $0.slot == 1 }))
+    #expect(firstPad.slot == 0)
+    #expect(firstPad.buttons.contains(.a))
+    #expect(secondPad.slot == 1)
+    #expect(secondPad.buttons.contains(.b))
+    #expect(secondPad.rightStick == DSUStick(x: 40, y: 210))
+  }
+
+  @Test("Normalizes standard-layout face buttons for Cemu")
+  func normalizesStandardFaceButtons() async throws {
+    let state = DSUPadState(
+      descriptor: DSUSlotDescriptor(slot: 0, isRegistered: true),
+      isConnected: true,
+      buttons: [.b, .y]
+    )
+    let relay = CemuDSURelay { slot in
+      RoutedDSUPad(
+        state: state,
+        layout: .standard,
+        source: .network(remoteSlot: slot)
+      )
+    }
+    let port = try await Task.detached {
+      try relay.start()
+    }.value
+    let client = DSUClient(
+      configuration: DSUConfiguration(host: "127.0.0.1", port: port)
+    )
+    client.start()
+    defer {
+      client.stop()
+      relay.stop()
+    }
+
+    var received: DSUPadState?
+    for _ in 0..<100 where received == nil {
+      try await Task.sleep(for: .milliseconds(10))
+      received = client.currentPads().first
+    }
+
+    let pad = try #require(received)
+    #expect(pad.buttons.contains(.a))
+    #expect(pad.buttons.contains(.x))
+    #expect(!pad.buttons.contains(.b))
+    #expect(!pad.buttons.contains(.y))
   }
 
   @Test("Carries a checksum over the whole datagram")

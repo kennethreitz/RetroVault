@@ -35,8 +35,6 @@ struct SettingsView: View {
     private var dsuHost = DSUProtocol.defaultHost
     @AppStorage(DSUPreferences.portKey)
     private var dsuPort = Int(DSUProtocol.defaultPort)
-    @AppStorage(DSUPreferences.slotKey)
-    private var dsuSlot = 0
     @AppStorage(DSUPreferences.layoutKey)
     private var dsuLayout = DSUPreferences.defaultLayout.rawValue
     @State private var showsPurgeConfirmation = false
@@ -260,13 +258,6 @@ struct SettingsView: View {
                 )
                 .disabled(!usesDSUController)
 
-                Picker("Controller", selection: $dsuSlot) {
-                    ForEach(0..<Int(DSUProtocol.slotCount), id: \.self) { slot in
-                        Text("Slot \(slot + 1)").tag(slot)
-                    }
-                }
-                .disabled(!usesDSUController)
-
                 Picker("Button Layout", selection: $dsuLayout) {
                     Text("Standard").tag(ControllerFaceButtonLayout.standard.rawValue)
                     Text("Nintendo").tag(ControllerFaceButtonLayout.nintendo.rawValue)
@@ -279,9 +270,9 @@ struct SettingsView: View {
                     """
                     DSU, also called the cemuhook protocol, carries a pad's \
                     buttons, sticks, touchpad, and motion over the local \
-                    network. RetroVault reads one slot and merges it with any \
-                    controller attached to this Mac, in Big Picture and in the \
-                    player. Cores that ask for motion receive the pad's \
+                    network. RetroVault reads every live slot and merges them \
+                    with controllers attached to this Mac in stable player \
+                    order. Cores that ask for motion receive the pad's \
                     gyroscope and accelerometer. A DSU packet carries no \
                     controller identity, so choose Nintendo if the server is \
                     publishing a Switch pad and its face buttons read swapped.
@@ -341,7 +332,6 @@ struct SettingsView: View {
         .onChange(of: usesDSUController) { applyDSUConfiguration() }
         .onChange(of: dsuHost) { applyDSUConfiguration() }
         .onChange(of: dsuPort) { applyDSUConfiguration() }
-        .onChange(of: dsuSlot) { applyDSUConfiguration() }
         .onChange(of: dsuLayout) {
             // Reading the same packets differently needs no new socket.
             DSUConnection.shared.apply(
@@ -391,8 +381,7 @@ struct SettingsView: View {
             DSUConnection.shared.apply(
                 DSUConfiguration(
                     host: dsuHost,
-                    port: UInt16(clamping: dsuPort),
-                    slot: UInt8(clamping: dsuSlot)
+                    port: UInt16(clamping: dsuPort)
                 ).normalized
             )
         }

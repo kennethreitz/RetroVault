@@ -53,11 +53,12 @@ server library. **Download** keeps a managed copy for offline play;
 - Runs reviewed systems through 24 bundled ARM64 Libretro cores.
 - Presents software and OpenGL core output through Metal, with native,
   upscaled, and CRT video modes.
-- Supports windowed and fullscreen play, macOS Game Mode, two controllers,
+- Supports windowed and fullscreen play, macOS Game Mode, four controllers,
   quick-state resume, rewind, fast-forward, and automatic state creation on
   exit where the core supports them.
-- Accepts native macOS controllers and DSU/Cemuhook-compatible controller
-  servers, including the Switch 2 Pro Controller through
+- Automatically combines every live DSU/Cemuhook slot with native macOS
+  controllers in one stable four-player roster, including the Switch 2 Pro
+  Controller through
   [Kenneth Reitz's switch2bridge-macos fork](https://github.com/kennethreitz/switch2bridge-macos).
 - Refreshes cartridge or memory-card saves before launch and uploads changed
   save data to RomM after play. Quick states remain local.

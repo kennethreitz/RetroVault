@@ -1,5 +1,4 @@
 @preconcurrency import AppKit
-@preconcurrency import GameController
 import SwiftUI
 import QuartzCore
 import CoreImage
@@ -228,25 +227,13 @@ enum Vita3KControllerInput {
 
   @MainActor
   static func currentState() -> Vita3KControllerState {
-    if let state = DSUConnection.shared.currentPad() {
+    if let pad = DSUConnection.shared.currentPad() {
       return makeState(
-        snapshot: snapshot(from: state),
-        layout: DSUConnection.shared.padLayout
+        snapshot: snapshot(from: pad.state),
+        layout: pad.layout
       )
     }
-    guard
-      let controller = GCController.current ?? GCController.controllers().first,
-      let gamepad = controller.extendedGamepad
-    else {
-      return Vita3KControllerState()
-    }
-    return makeState(
-      snapshot: snapshot(from: gamepad),
-      layout: ControllerFaceButtonLayout.resolve(
-        vendorName: controller.vendorName,
-        productCategory: controller.productCategory
-      )
-    )
+    return Vita3KControllerState()
   }
 
   static func makeState(
@@ -321,33 +308,6 @@ enum Vita3KControllerInput {
       leftY: left.y,
       rightX: right.x,
       rightY: right.y
-    )
-  }
-
-  private static func snapshot(
-    from gamepad: GCExtendedGamepad
-  ) -> Vita3KControllerSnapshot {
-    Vita3KControllerSnapshot(
-      up: gamepad.dpad.up.isPressed,
-      right: gamepad.dpad.right.isPressed,
-      down: gamepad.dpad.down.isPressed,
-      left: gamepad.dpad.left.isPressed,
-      buttonA: gamepad.buttonA.isPressed,
-      buttonB: gamepad.buttonB.isPressed,
-      buttonX: gamepad.buttonX.isPressed,
-      buttonY: gamepad.buttonY.isPressed,
-      leftShoulder: gamepad.leftShoulder.isPressed,
-      rightShoulder: gamepad.rightShoulder.isPressed,
-      leftTrigger: gamepad.leftTrigger.isPressed,
-      rightTrigger: gamepad.rightTrigger.isPressed,
-      select: gamepad.buttonOptions?.isPressed == true,
-      start: gamepad.buttonMenu.isPressed,
-      leftStick: gamepad.leftThumbstickButton?.isPressed == true,
-      rightStick: gamepad.rightThumbstickButton?.isPressed == true,
-      leftX: gamepad.leftThumbstick.xAxis.value,
-      leftY: -gamepad.leftThumbstick.yAxis.value,
-      rightX: gamepad.rightThumbstick.xAxis.value,
-      rightY: -gamepad.rightThumbstick.yAxis.value
     )
   }
 

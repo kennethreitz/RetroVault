@@ -1,21 +1,22 @@
 import Foundation
 import Network
 
-/// Where RetroVault should look for a DSU server, and which of its four slots
-/// should drive the running game.
+/// Where RetroVault should look for a DSU server.
+///
+/// Every live slot is consumed automatically and keeps its player number, so
+/// users do not need to choose a slot in advance.
 struct DSUConfiguration: Equatable, Sendable {
     var host: String = DSUProtocol.defaultHost
     var port: UInt16 = DSUProtocol.defaultPort
-    var slot: UInt8 = 0
 
     /// A configuration is only usable once a host survives trimming; the
     /// settings field is free text.
     var normalized: Self? {
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedHost.isEmpty, port > 0, slot < DSUProtocol.slotCount else {
+        guard !trimmedHost.isEmpty, port > 0 else {
             return nil
         }
-        return Self(host: trimmedHost, port: port, slot: slot)
+        return Self(host: trimmedHost, port: port)
     }
 }
 
@@ -23,7 +24,6 @@ enum DSUPreferences {
     static let isEnabledKey = "dsu.client.enabled.v1"
     static let hostKey = "dsu.client.host.v1"
     static let portKey = "dsu.client.port.v1"
-    static let slotKey = "dsu.client.slot.v1"
     static let layoutKey = "dsu.client.layout.v1"
     /// Diagnostic only, and off unless set by hand:
     /// `defaults write org.kennethreitz.RetroVault dsu.client.latency.v1 -bool true`
@@ -62,24 +62,26 @@ enum DSUPreferences {
         if let port = UInt16(exactly: defaults.integer(forKey: portKey)), port > 0 {
             configuration.port = port
         }
-        if let slot = UInt8(exactly: defaults.integer(forKey: slotKey)),
-            slot < DSUProtocol.slotCount
-        {
-            configuration.slot = slot
-        }
         return configuration
     }
 }
 
-/// The read side of a DSU connection, as the emulator thread sees it.
-protocol DSUPadReading: AnyObject, Sendable {
-    /// The most recent state for the configured slot, or `nil` when the server
-    /// has gone quiet. Callers run on the emulator thread once per frame, so
-    /// this must never block on I/O.
-    func currentPad() -> DSUPadState?
+struct RoutedDSUPad: Equatable, Sendable {
+    enum Source: Equatable, Sendable {
+        case network(remoteSlot: UInt8)
+        case gameController
+    }
 
-    /// How to read the pad's face buttons, since the protocol does not say.
-    var padLayout: ControllerFaceButtonLayout { get }
+    var state: DSUPadState
+    var layout: ControllerFaceButtonLayout
+    var source: Source
+}
+
+/// The read side of RetroVault's unified controller connection.
+protocol DSUPadReading: AnyObject, Sendable {
+    /// Live controller states in stable player order. Callers run on the
+    /// emulator thread once per frame, so this must never block on I/O.
+    func currentPads() -> [RoutedDSUPad]
 }
 
 /// Measures the gap between a DSU server sampling the controller and this
@@ -171,23 +173,25 @@ final class DSUClient: @unchecked Sendable {
         case connecting
         /// Connected, but the server has not sent pad data for the slot yet.
         case waiting
-        case receiving(slot: UInt8, hasMotion: Bool)
+        case receiving(slots: [UInt8], hasMotion: Bool)
         case failed(String)
 
         var summary: String {
             switch self {
             case .idle:
-                "Not connected."
+                return "Not connected."
             case .connecting:
-                "Connecting…"
+                return "Connecting…"
             case .waiting:
-                "Connected, waiting for a controller."
-            case let .receiving(slot, hasMotion):
-                hasMotion
-                    ? "Receiving slot \(slot), including motion."
-                    : "Receiving slot \(slot). No motion reported."
+                return "Connected, waiting for a controller."
+            case let .receiving(slots, hasMotion):
+                let noun = slots.count == 1 ? "controller" : "controllers"
+                let slotList = slots.map { String(Int($0) + 1) }.joined(separator: ", ")
+                return hasMotion
+                    ? "Receiving \(slots.count) \(noun) (slots \(slotList)), including motion."
+                    : "Receiving \(slots.count) \(noun) (slots \(slotList))."
             case let .failed(message):
-                message
+                return message
             }
         }
     }
@@ -233,7 +237,7 @@ final class DSUClient: @unchecked Sendable {
 
         // A stale snapshot should read as "waiting" rather than claim a pad
         // that stopped reporting.
-        if case .receiving = storedStatus, !isFresh(slot: configuration.slot) {
+        if case .receiving = storedStatus, livePadsLocked().isEmpty {
             return .waiting
         }
         return storedStatus
@@ -263,12 +267,7 @@ final class DSUClient: @unchecked Sendable {
         lock.unlock()
 
         RetroVaultLog.network.notice(
-            """
-            Connecting to DSU server \
-            \(self.configuration.host, privacy: .public):\
-            \(self.configuration.port, privacy: .public) \
-            slot \(self.configuration.slot, privacy: .public)
-            """
+            "Connecting to DSU server \(self.configuration.host, privacy: .public):\(self.configuration.port, privacy: .public)"
         )
         connection.start(queue: queue)
     }
@@ -293,24 +292,17 @@ final class DSUClient: @unchecked Sendable {
         connection?.cancel()
     }
 
-    func currentPad() -> DSUPadState? {
+    func currentPads() -> [DSUPadState] {
         lock.lock()
         defer { lock.unlock() }
-
-        guard isFresh(slot: configuration.slot), let pad = pads[configuration.slot] else {
-            return nil
-        }
-        return pad.isConnected ? pad : nil
+        return livePadsLocked()
     }
 
     /// Every slot that has reported recently, for the settings connection test.
     func liveSlots() -> [DSUPadState] {
         lock.lock()
         defer { lock.unlock() }
-
-        return pads.values
-            .filter { $0.isConnected && isFresh(slot: $0.slot) }
-            .sorted { $0.slot < $1.slot }
+        return livePadsLocked()
     }
 
     // MARK: - Connection
@@ -435,22 +427,23 @@ final class DSUClient: @unchecked Sendable {
         padTimestamps[pad.slot] = arrival
         var announcement: String?
         var latencyReport: String?
-        if pad.slot == configuration.slot {
-            if isMeasuringLatency {
-                latencyReport = latency.record(
-                    stampedMicroseconds: pad.motion.timestamp,
-                    arrivalNanoseconds: arrival
-                )
-            }
-            let status: Status =
-                pad.isConnected
-                ? .receiving(slot: pad.slot, hasMotion: pad.reportsMotion)
-                : .waiting
-            if storedStatus != status {
-                announcement = status.summary
-            }
-            storedStatus = status
+        if isMeasuringLatency {
+            latencyReport = latency.record(
+                stampedMicroseconds: pad.motion.timestamp,
+                arrivalNanoseconds: arrival
+            )
         }
+        let livePads = livePadsLocked()
+        let status: Status = livePads.isEmpty
+            ? .waiting
+            : .receiving(
+                slots: livePads.map(\.slot),
+                hasMotion: livePads.contains(where: \.reportsMotion)
+            )
+        if storedStatus != status {
+            announcement = status.summary
+        }
+        storedStatus = status
         lock.unlock()
 
         if let announcement {
@@ -477,6 +470,12 @@ final class DSUClient: @unchecked Sendable {
         if case let .failed(message) = status {
             RetroVaultLog.network.error("\(message, privacy: .public)")
         }
+    }
+
+    private func livePadsLocked() -> [DSUPadState] {
+        pads.values
+            .filter { $0.isConnected && isFresh(slot: $0.slot) }
+            .sorted { $0.slot < $1.slot }
     }
 
     /// Requires `lock` to be held.

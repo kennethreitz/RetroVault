@@ -1,12 +1,11 @@
-@preconcurrency import GameController
 import Foundation
 import Network
 
-/// Publishes RetroVault's active controller as a local DSU pad for Cemu.
+/// Publishes RetroVault's active controllers as local DSU pads for Cemu.
 ///
-/// Cemu only needs to understand one stable Wii U Pro Controller profile.
-/// RetroVault can then feed that profile from either its configured DSU bridge
-/// or a controller macOS exposes through GameController.
+/// Cemu receives four stable Wii U Pro Controller slots. Network DSU pads keep
+/// their published player numbers, and controllers exposed through
+/// GameController fill the vacant slots.
 final class CemuDSURelay: @unchecked Sendable {
   private static let packetInterval = DispatchTimeInterval.nanoseconds(8_333_333)
   private static let subscriptionTimeoutNanoseconds: UInt64 = 5_000_000_000
@@ -22,7 +21,11 @@ final class CemuDSURelay: @unchecked Sendable {
     }
 
     var wantsControllerData: Bool {
-      subscribesToAllSlots || subscribedSlots.contains(0)
+      subscribesToAllSlots || !subscribedSlots.isEmpty
+    }
+
+    func wantsControllerData(for slot: UInt8) -> Bool {
+      subscribesToAllSlots || subscribedSlots.contains(slot)
     }
   }
 
@@ -33,17 +36,22 @@ final class CemuDSURelay: @unchecked Sendable {
   private let startupLock = NSLock()
   private let startupSemaphore = DispatchSemaphore(value: 0)
   private let serverID = UInt32.random(in: 1...UInt32.max)
-  private let padProvider: (@Sendable () -> DSUPadState?)?
+  private let padProvider: (@Sendable (UInt8) -> RoutedDSUPad?)?
 
   private var startupResult: Result<UInt16, Error>?
   private var listener: NWListener?
   private var clients: [ObjectIdentifier: Client] = [:]
   private var timer: DispatchSourceTimer?
-  private var packetNumber: UInt32 = 0
-  private var selectedNativeController: GCController?
-  private var lastPublishedConnectionState: Bool?
+  private var packetNumbers = Array(
+    repeating: UInt32(0),
+    count: Int(DSUProtocol.slotCount)
+  )
+  private var lastPublishedConnectionStates = Array<Bool?>(
+    repeating: nil,
+    count: Int(DSUProtocol.slotCount)
+  )
 
-  init(padProvider: (@Sendable () -> DSUPadState?)? = nil) {
+  init(padProvider: (@Sendable (UInt8) -> RoutedDSUPad?)? = nil) {
     self.padProvider = padProvider
   }
 
@@ -88,7 +96,6 @@ final class CemuDSURelay: @unchecked Sendable {
       clients.removeAll()
       listener?.cancel()
       listener = nil
-      selectedNativeController = nil
     }
   }
 
@@ -164,9 +171,10 @@ final class CemuDSURelay: @unchecked Sendable {
       case .protocolVersion:
         send(DSUProtocol.protocolVersionResponse(serverID: serverID), to: client)
       case .controllerInfo(let slots):
-        let currentPad = controllerState()
+        let currentPads = controllerStates()
         for slot in slots {
-          let isActive = slot == 0 && currentPad?.isConnected == true
+          let currentPad = currentPads[safe: Int(slot)] ?? nil
+          let isActive = currentPad?.isConnected == true
           var descriptor = isActive
             ? currentPad?.descriptor ?? Self.disconnectedDescriptor(slot: slot)
             : Self.disconnectedDescriptor(slot: slot)
@@ -227,30 +235,38 @@ final class CemuDSURelay: @unchecked Sendable {
 
   private func publishControllerData(to client: Client) {
     guard client.wantsControllerData else { return }
-    var state = controllerState() ?? Self.disconnectedState
-    packetNumber &+= 1
-    state.packetNumber = packetNumber
-    state.descriptor.slot = 0
-    state.descriptor.isRegistered = state.isConnected
+    let states = controllerStates()
+    for rawSlot in 0..<DSUProtocol.slotCount {
+      guard client.wantsControllerData(for: rawSlot) else { continue }
+      let slot = Int(rawSlot)
+      var state = states[slot] ?? Self.disconnectedState(for: rawSlot)
+      packetNumbers[slot] &+= 1
+      state.packetNumber = packetNumbers[slot]
+      state.descriptor.slot = rawSlot
+      state.descriptor.isRegistered = state.isConnected
 
-    if lastPublishedConnectionState != state.isConnected {
-      lastPublishedConnectionState = state.isConnected
-      let source = state.isConnected
-        ? (DSUConnection.shared.currentPad() != nil ? "DSU" : "GameController")
-        : "none"
-      RetroVaultLog.cemu.notice(
-        "Cemu controller relay source: \(source, privacy: .public)"
+      if lastPublishedConnectionStates[slot] != state.isConnected {
+        lastPublishedConnectionStates[slot] = state.isConnected
+        let source: String
+        if !state.isConnected {
+          source = "none"
+        } else {
+          source = "controller hub"
+        }
+        RetroVaultLog.cemu.notice(
+          "Cemu controller relay player \(slot + 1, privacy: .public) source: \(source, privacy: .public)"
+        )
+      }
+
+      send(
+        DSUProtocol.controllerDataResponse(
+          state: state,
+          publishedSlot: rawSlot,
+          serverID: serverID
+        ),
+        to: client
       )
     }
-
-    send(
-      DSUProtocol.controllerDataResponse(
-        state: state,
-        publishedSlot: 0,
-        serverID: serverID
-      ),
-      to: client
-    )
   }
 
   private func send(_ data: Data, to client: Client) {
@@ -269,103 +285,61 @@ final class CemuDSURelay: @unchecked Sendable {
     connection.cancel()
   }
 
-  private func controllerState() -> DSUPadState? {
+  private func controllerStates() -> [DSUPadState?] {
+    var states = Array<DSUPadState?>(
+      repeating: nil,
+      count: Int(DSUProtocol.slotCount)
+    )
+    let routedPads: [RoutedDSUPad]
     if let padProvider {
-      return padProvider()
+      routedPads = (0..<DSUProtocol.slotCount).compactMap(padProvider)
+    } else {
+      routedPads = DSUConnection.shared.currentPads()
     }
-    if let pad = DSUConnection.shared.currentPad(), pad.isConnected {
-      return pad
-    }
-
-    let connectedControllers = GCController.controllers()
-    if let selectedController = selectedNativeController,
-      !connectedControllers.contains(where: { $0 === selectedController })
-    {
-      selectedNativeController = nil
-    }
-    if selectedNativeController == nil {
-      selectedNativeController = GCController.current
-        ?? connectedControllers.first { $0.extendedGamepad != nil }
-    }
-    guard let controller = selectedNativeController else {
-      return nil
-    }
-    return Self.nativeState(from: controller)
-  }
-
-  private static func nativeState(from controller: GCController) -> DSUPadState? {
-    guard let gamepad = controller.extendedGamepad else { return nil }
-    let layout = ControllerFaceButtonLayout.resolve(
-      vendorName: controller.vendorName,
-      productCategory: controller.productCategory
-    )
-    var buttons: DSUButtons = []
-    buttons.set(.up, when: gamepad.dpad.up.isPressed)
-    buttons.set(.down, when: gamepad.dpad.down.isPressed)
-    buttons.set(.left, when: gamepad.dpad.left.isPressed)
-    buttons.set(.right, when: gamepad.dpad.right.isPressed)
-    buttons.set(.l1, when: gamepad.leftShoulder.isPressed)
-    buttons.set(.r1, when: gamepad.rightShoulder.isPressed)
-    buttons.set(.l2, when: gamepad.leftTrigger.isPressed)
-    buttons.set(.r2, when: gamepad.rightTrigger.isPressed)
-    buttons.set(.share, when: gamepad.buttonOptions?.isPressed == true)
-    buttons.set(.options, when: gamepad.buttonMenu.isPressed)
-    buttons.set(.leftStick, when: gamepad.leftThumbstickButton?.isPressed == true)
-    buttons.set(.rightStick, when: gamepad.rightThumbstickButton?.isPressed == true)
-
-    switch layout {
-    case .standard:
-      buttons.set(.a, when: gamepad.buttonA.isPressed)
-      buttons.set(.b, when: gamepad.buttonB.isPressed)
-      buttons.set(.x, when: gamepad.buttonX.isPressed)
-      buttons.set(.y, when: gamepad.buttonY.isPressed)
-    case .nintendo:
-      buttons.set(.b, when: gamepad.buttonA.isPressed)
-      buttons.set(.a, when: gamepad.buttonB.isPressed)
-      buttons.set(.y, when: gamepad.buttonX.isPressed)
-      buttons.set(.x, when: gamepad.buttonY.isPressed)
-    }
-
-    return DSUPadState(
-      descriptor: DSUSlotDescriptor(
-        slot: 0,
-        isRegistered: true,
-        // The DSU descriptor's so-called model byte is the DualShock model,
-        // not a promise that motion samples are present. Cemu expects a DS4.
-        gyroModel: .full,
-        connectionType: 2,
-        macAddress: 0x52_56_43_45_4D_55,
-        battery: 5
-      ),
-      isConnected: true,
-      buttons: buttons,
-      isHomePressed: gamepad.buttonHome?.isPressed == true,
-      leftStick: DSUStick(
-        x: axisByte(gamepad.leftThumbstick.xAxis.value),
-        y: axisByte(gamepad.leftThumbstick.yAxis.value)
-      ),
-      rightStick: DSUStick(
-        x: axisByte(gamepad.rightThumbstick.xAxis.value),
-        y: axisByte(gamepad.rightThumbstick.yAxis.value)
+    for routedPad in routedPads {
+      var state = routedPad.state
+      state.buttons = Self.cemuButtons(
+        state.buttons,
+        layout: routedPad.layout
       )
-    )
+      let slot = Int(state.slot)
+      guard states.indices.contains(slot) else { continue }
+      states[slot] = state
+    }
+    return states
   }
 
-  private static func axisByte(_ value: Float) -> UInt8 {
-    let clamped = min(max(value, -1), 1)
-    if clamped >= 0 {
-      return UInt8(clamping: 128 + Int((clamped * 127).rounded()))
-    }
-    return UInt8(clamping: 128 + Int((clamped * 128).rounded()))
+  private static func cemuButtons(
+    _ buttons: DSUButtons,
+    layout: ControllerFaceButtonLayout
+  ) -> DSUButtons {
+    // Cemu's profile is semantic Nintendo layout: A and X are the Nintendo
+    // labels, not the south and west physical positions. Nintendo controllers
+    // already publish those labels directly; standard-layout controllers need
+    // their face buttons swapped so physical positions remain conventional.
+    guard layout == .standard else { return buttons }
+    var normalized = buttons
+    normalized.subtract([.a, .b, .x, .y])
+    if buttons.contains(.a) { normalized.insert(.b) }
+    if buttons.contains(.b) { normalized.insert(.a) }
+    if buttons.contains(.x) { normalized.insert(.y) }
+    if buttons.contains(.y) { normalized.insert(.x) }
+    return normalized
   }
 
   private static func disconnectedDescriptor(slot: UInt8) -> DSUSlotDescriptor {
     DSUSlotDescriptor(slot: slot)
   }
 
-  private static let disconnectedState = DSUPadState(
-    descriptor: disconnectedDescriptor(slot: 0)
-  )
+  private static func disconnectedState(for slot: UInt8) -> DSUPadState {
+    DSUPadState(descriptor: disconnectedDescriptor(slot: slot))
+  }
+}
+
+private extension Array {
+  subscript(safe index: Index) -> Element? {
+    indices.contains(index) ? self[index] : nil
+  }
 }
 
 private enum CemuDSURelayError: LocalizedError {
@@ -381,14 +355,6 @@ private enum CemuDSURelayError: LocalizedError {
       "RetroVault's Cemu controller relay did not receive a UDP port."
     case .cancelled:
       "RetroVault's Cemu controller relay was cancelled."
-    }
-  }
-}
-
-private extension DSUButtons {
-  mutating func set(_ button: DSUButtons, when condition: Bool) {
-    if condition {
-      insert(button)
     }
   }
 }

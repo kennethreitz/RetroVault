@@ -129,12 +129,13 @@ struct CemuInstallation: Sendable {
       dsuConfiguration: dsuConfiguration
     )
     if let dsuConfiguration {
-      try prepareControllerProfile(
+      removeManagedControllerProfiles(in: cemuUserDataURL)
+      try prepareControllerProfiles(
         dsuConfiguration,
         in: cemuUserDataURL
       )
     } else {
-      removeManagedControllerProfile(in: cemuUserDataURL)
+      removeManagedControllerProfiles(in: cemuUserDataURL)
     }
 
     return CemuRuntime(
@@ -391,7 +392,7 @@ struct CemuInstallation: Sendable {
     )
   }
 
-  private func prepareControllerProfile(
+  private func prepareControllerProfiles(
     _ configuration: CemuDSUConfiguration,
     in portableDirectory: URL
   ) throws {
@@ -403,51 +404,61 @@ struct CemuInstallation: Sendable {
       at: profilesDirectory,
       withIntermediateDirectories: true
     )
-    let profileURL = profilesDirectory.appending(path: "controller0.xml")
     let mappingEntries = CemuDSUMapping.proController.map {
       """
               <entry><mapping>\($0.emulated)</mapping><button>\($0.physical)</button></entry>
       """
     }
     .joined(separator: "\n")
-    let profile = """
-      <?xml version="1.0" encoding="UTF-8"?>
-      <emulated_controller>
-        <type>Wii U Pro Controller</type>
-        <controller>
-          <api>DSUController</api>
-          <uuid>\(configuration.slot)</uuid>
-          <display_name>RetroVault DSU Controller</display_name>
-          <motion>false</motion>
-          <axis><deadzone>0.15</deadzone><range>1</range></axis>
-          <rotation><deadzone>0.15</deadzone><range>1</range></rotation>
-          <trigger><deadzone>0.1</deadzone><range>1</range></trigger>
-          <ip>\(xmlEscaped(configuration.host))</ip>
-          <port>\(configuration.port)</port>
-          <mappings>
-      \(mappingEntries)
-          </mappings>
-        </controller>
-      </emulated_controller>
-      """
-    try profile.write(
-      to: profileURL,
-      atomically: true,
-      encoding: .utf8
-    )
+    for playerIndex in 0..<configuration.playerCount {
+      let profileURL = profilesDirectory.appending(
+        path: "controller\(playerIndex).xml"
+      )
+      let profile = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <emulated_controller>
+          <type>Wii U Pro Controller</type>
+          <controller>
+            <api>DSUController</api>
+            <uuid>\(playerIndex)</uuid>
+            <display_name>RetroVault DSU Controller \(playerIndex + 1)</display_name>
+            <motion>false</motion>
+            <axis><deadzone>0.15</deadzone><range>1</range></axis>
+            <rotation><deadzone>0.15</deadzone><range>1</range></rotation>
+            <trigger><deadzone>0.1</deadzone><range>1</range></trigger>
+            <ip>\(xmlEscaped(configuration.host))</ip>
+            <port>\(configuration.port)</port>
+            <mappings>
+        \(mappingEntries)
+            </mappings>
+          </controller>
+        </emulated_controller>
+        """
+      try profile.write(
+        to: profileURL,
+        atomically: true,
+        encoding: .utf8
+      )
+    }
   }
 
-  private func removeManagedControllerProfile(in portableDirectory: URL) {
-    let profileURL = portableDirectory
-      .appending(path: "controllerProfiles", directoryHint: .isDirectory)
-      .appending(path: "controller0.xml")
-    guard
-      let contents = try? String(contentsOf: profileURL, encoding: .utf8),
-      contents.contains("RetroVault DSU Controller")
-    else {
-      return
+  private func removeManagedControllerProfiles(in portableDirectory: URL) {
+    let profilesDirectory = portableDirectory.appending(
+      path: "controllerProfiles",
+      directoryHint: .isDirectory
+    )
+    for playerIndex in 0..<Int(DSUProtocol.slotCount) {
+      let profileURL = profilesDirectory.appending(
+        path: "controller\(playerIndex).xml"
+      )
+      guard
+        let contents = try? String(contentsOf: profileURL, encoding: .utf8),
+        contents.contains("RetroVault DSU Controller")
+      else {
+        continue
+      }
+      try? FileManager.default.removeItem(at: profileURL)
     }
-    try? FileManager.default.removeItem(at: profileURL)
   }
 
   private func xmlEscaped(_ value: String) -> String {
@@ -490,7 +501,20 @@ struct CemuRuntime: Hashable, Sendable {
 struct CemuDSUConfiguration: Hashable, Sendable {
   let host: String
   let port: UInt16
-  let slot: Int
+  let playerCount: Int
+
+  init(
+    host: String,
+    port: UInt16,
+    playerCount: Int = 1
+  ) {
+    self.host = host
+    self.port = port
+    self.playerCount = min(
+      max(playerCount, 1),
+      Int(DSUProtocol.slotCount)
+    )
+  }
 }
 
 struct CemuRunRequest: Hashable, Sendable {

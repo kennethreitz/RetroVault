@@ -5,6 +5,23 @@ This changelog records notable user-facing and architectural changes by the
 date they landed on the main branch. It is intentionally curated rather than
 being a list of every commit.
 
+## 2026-08-02
+
+### Added
+
+- Added one automatic controller roster shared by Big Picture, Libretro,
+  Vita3K, and the hosted Cemu runner. Every live external DSU slot keeps its
+  player number, while native macOS controllers fill vacant slots; runners
+  that support multiplayer can consume up to four players.
+- Added four managed Wii U Pro Controller profiles backed by RetroVault's
+  localhost DSU relay for multiplayer Cemu titles.
+
+### Changed
+
+- Removed the manual DSU slot preference. RetroVault now discovers every live
+  slot and converts direct controllers into the same internal DSU-shaped input
+  stream.
+
 ## 2026-08-01
 
 ### Added

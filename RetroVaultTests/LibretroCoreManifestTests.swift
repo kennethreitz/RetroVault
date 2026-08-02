@@ -1875,7 +1875,7 @@ struct CemuInstallationTests {
             dsuConfiguration: CemuDSUConfiguration(
                 host: "127.0.0.1",
                 port: 26_760,
-                slot: 0
+                playerCount: 4
             ),
             contentURL: gameURL,
             mlcURL: mlcURL
@@ -1909,6 +1909,17 @@ struct CemuInstallationTests {
         #expect(profile.contains("<port>26760</port>"))
         #expect(profile.contains("<entry><mapping>12</mapping><button>4</button></entry>"))
         #expect(profile.contains("<entry><mapping>25</mapping><button>40</button></entry>"))
+        for playerIndex in 0..<4 {
+            let playerProfile = try String(
+                contentsOf: runtime.userDataDirectory.appending(
+                    path: "controllerProfiles/controller\(playerIndex).xml"
+                ),
+                encoding: .utf8
+            )
+            #expect(playerProfile.contains("RetroVault DSU Controller \(playerIndex + 1)"))
+            #expect(playerProfile.contains("<uuid>\(playerIndex)</uuid>"))
+            #expect(playerProfile.contains("<type>Wii U Pro Controller</type>"))
+        }
 
         let launchArguments = runtime.launchArguments(
             contentURL: gameURL,

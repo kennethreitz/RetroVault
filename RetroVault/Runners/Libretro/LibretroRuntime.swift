@@ -3,7 +3,6 @@
 import CryptoKit
 import Darwin
 import Foundation
-@preconcurrency import GameController
 import Observation
 import OpenGL
 import OpenGL.GL3
@@ -693,10 +692,6 @@ final class LibretroInputState: @unchecked Sendable {
         count: LibretroInputPortRouting.controllerPortCount
     )
     private var exitRequested = false
-    private var assignedLocalControllers = Array<GCController?>(
-        repeating: nil,
-        count: LibretroInputPortRouting.controllerPortCount
-    )
     private var padSource: (any DSUPadReading)?
     private var touchCalibration = DSUTouchCalibration()
     private var dsuPointer: LibretroDSUInput.Pointer?
@@ -705,8 +700,7 @@ final class LibretroInputState: @unchecked Sendable {
     private var readsGyroscope = false
     private var mapsLeftAnalogToDPad = false
 
-    /// Attaches an optional network pad, currently a DSU ("cemuhook") server,
-    /// whose state is merged with the locally attached controller.
+    /// Attaches RetroVault's unified DSU-shaped controller hub.
     func setPadSource(_ source: (any DSUPadReading)?) {
         lock.lock()
         padSource = source
@@ -897,43 +891,30 @@ final class LibretroInputState: @unchecked Sendable {
         lock.lock()
         let padSource = self.padSource
         lock.unlock()
-        // Read the network pad outside our own lock so a busy DSU server can
-        // never stall the emulator thread behind it.
-        let dsuState = padSource?.currentPad()
-        let local = stableLocalControllers().compactMap {
-            LibretroGamepadInput(controller: $0)
-        }
+        // Read the controller snapshots outside our own lock so a busy DSU
+        // server can never stall the emulator thread behind it.
+        let controllerPads = padSource?.currentPads() ?? []
 
         lock.lock()
         defer { lock.unlock() }
-
-        let remote = dsuState.map {
-            LibretroDSUInput.pad(
-                from: $0,
-                layout: padSource?.padLayout ?? .standard,
-                calibration: &touchCalibration
-            )
-        }
 
         var routedPads = Array<ResolvedPad?>(
             repeating: nil,
             count: LibretroInputPortRouting.controllerPortCount
         )
-        if let remote {
-            // DSU is the explicitly configured network pad, so it owns player
-            // one whenever it is live. The first ordinary macOS controller is
-            // then player two rather than being merged into the same port.
-            routedPads[0] = resolvedPad(remote)
-        }
-        // Without a live DSU pad, ordinary controllers naturally occupy
-        // player one and player two. With DSU, the first local pad begins at
-        // player two.
-        let localPorts = LibretroInputPortRouting.localPorts(
-            hasDSU: remote != nil,
-            controllerCount: local.count
-        )
-        for (pad, port) in zip(local, localPorts) {
+        var playerOneDSUPad: LibretroDSUInput.Pad?
+        for routedPad in controllerPads {
+            let port = Int(routedPad.state.slot)
+            guard routedPads.indices.contains(port) else { continue }
+            let pad = LibretroDSUInput.pad(
+                from: routedPad.state,
+                layout: routedPad.layout,
+                calibration: &touchCalibration
+            )
             routedPads[port] = resolvedPad(pad)
+            if port == 0 {
+                playerOneDSUPad = pad
+            }
         }
 
         for port in 0..<LibretroInputPortRouting.controllerPortCount {
@@ -1023,59 +1004,9 @@ final class LibretroInputState: @unchecked Sendable {
             enablesRewind: enablesRewind,
             enablesFastForward: enablesFastForward
         )
-        dsuPointer = remote?.pointer
-        sensors = remote?.sensors ?? LibretroSensorValues()
+        dsuPointer = playerOneDSUPad?.pointer
+        sensors = playerOneDSUPad?.sensors ?? LibretroSensorValues()
         pendingKeyboardPresses = 0
-    }
-
-    /// Keeps physical controllers assigned to a player while they remain
-    /// connected. `GCController.current` follows recent activity and would
-    /// otherwise swap players whenever player two pressed a button.
-    private func stableLocalControllers() -> [GCController] {
-        let connected = GCController.controllers()
-        for port in assignedLocalControllers.indices {
-            guard let assigned = assignedLocalControllers[port] else {
-                continue
-            }
-            if !connected.contains(where: { $0 === assigned }) {
-                assignedLocalControllers[port] = nil
-            }
-        }
-
-        var unassigned = connected.filter { controller in
-            !assignedLocalControllers.contains {
-                $0 === controller
-            }
-        }
-        if
-            assignedLocalControllers[0] == nil,
-            let current = GCController.current,
-            let index = unassigned.firstIndex(where: { $0 === current })
-        {
-            assignedLocalControllers[0] = unassigned.remove(at: index)
-        }
-        for port in assignedLocalControllers.indices
-        where assignedLocalControllers[port] == nil {
-            guard !unassigned.isEmpty else {
-                break
-            }
-            assignedLocalControllers[port] = unassigned.removeFirst()
-        }
-        return assignedLocalControllers.compactMap { $0 }
-    }
-
-    private func resolvedPad(_ pad: LibretroGamepadInput) -> ResolvedPad {
-        ResolvedPad(
-            buttons: pad.buttons,
-            isSelectPressed: pad.isSelectPressed,
-            isStartPressed: pad.isStartPressed,
-            isLeftStickPressed: pad.isLeftStickPressed,
-            isRightStickPressed: pad.isRightStickPressed,
-            leftAnalogX: analogAxis(pad.leftStickX),
-            leftAnalogY: analogAxis(pad.leftStickY),
-            rightAnalogX: analogAxis(pad.rightStickX),
-            rightAnalogY: analogAxis(pad.rightStickY)
-        )
     }
 
     private func resolvedPad(_ pad: LibretroDSUInput.Pad) -> ResolvedPad {
@@ -1335,11 +1266,6 @@ final class LibretroInputState: @unchecked Sendable {
         }
     }
 
-    private func analogAxis(_ value: Float) -> Int16 {
-        let clamped = min(max(value, -1), 1)
-        return Int16(clamping: Int(clamped * Float(Int16.max)))
-    }
-
     private func digitalAxis(negative: Bool, positive: Bool) -> Int16 {
         switch (negative, positive) {
         case (true, false):
@@ -1368,56 +1294,6 @@ private enum LibretroMouseButton {
         default:
             nil
         }
-    }
-}
-
-/// A single frame of state read from a locally attached controller, captured
-/// before the input lock is taken so the GameController framework is never
-/// queried while the emulator thread holds it.
-private struct LibretroGamepadInput {
-    var buttons: UInt16 = 0
-    var isSelectPressed = false
-    var isStartPressed = false
-    var isLeftStickPressed = false
-    var isRightStickPressed = false
-    var leftStickX: Float = 0
-    var leftStickY: Float = 0
-    var rightStickX: Float = 0
-    var rightStickY: Float = 0
-
-    init?(controller: GCController) {
-        guard let gamepad = controller.extendedGamepad else {
-            return nil
-        }
-
-        buttons.set(.up, when: gamepad.dpad.up.isPressed)
-        buttons.set(.down, when: gamepad.dpad.down.isPressed)
-        buttons.set(.left, when: gamepad.dpad.left.isPressed)
-        buttons.set(.right, when: gamepad.dpad.right.isPressed)
-        buttons |= LibretroInputState.faceButtonMask(
-            buttonAPressed: gamepad.buttonA.isPressed,
-            buttonBPressed: gamepad.buttonB.isPressed,
-            buttonXPressed: gamepad.buttonX.isPressed,
-            buttonYPressed: gamepad.buttonY.isPressed,
-            layout: ControllerFaceButtonLayout.resolve(
-                vendorName: controller.vendorName,
-                productCategory: controller.productCategory
-            )
-        )
-        buttons.set(.l, when: gamepad.leftShoulder.isPressed)
-        buttons.set(.r, when: gamepad.rightShoulder.isPressed)
-        buttons.set(.l2, when: gamepad.leftTrigger.isPressed)
-        buttons.set(.r2, when: gamepad.rightTrigger.isPressed)
-
-        isSelectPressed = gamepad.buttonOptions?.isPressed == true
-        isStartPressed = gamepad.buttonMenu.isPressed
-        isLeftStickPressed = gamepad.leftThumbstickButton?.isPressed == true
-        isRightStickPressed = gamepad.rightThumbstickButton?.isPressed == true
-
-        leftStickX = gamepad.leftThumbstick.xAxis.value
-        leftStickY = -gamepad.leftThumbstick.yAxis.value
-        rightStickX = gamepad.rightThumbstick.xAxis.value
-        rightStickY = -gamepad.rightThumbstick.yAxis.value
     }
 }
 
