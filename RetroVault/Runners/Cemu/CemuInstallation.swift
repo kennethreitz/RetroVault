@@ -120,7 +120,8 @@ struct CemuInstallation: Sendable {
     try prepareSettings(
       in: cemuUserDataURL,
       gameDirectory: contentURL.deletingLastPathComponent(),
-      mlcDirectory: mlcURL
+      mlcDirectory: mlcURL,
+      dsuConfiguration: dsuConfiguration
     )
     if let dsuConfiguration {
       try prepareControllerProfile(
@@ -143,13 +144,21 @@ struct CemuInstallation: Sendable {
   private func prepareSettings(
     in portableDirectory: URL,
     gameDirectory: URL,
-    mlcDirectory: URL
+    mlcDirectory: URL,
+    dsuConfiguration: CemuDSUConfiguration?
   ) throws {
     let settingsURL = portableDirectory.appending(path: "settings.xml")
     // This is RetroVault's private Cemu user-data directory, so keep the small
     // configuration deterministic. An incomplete settings file makes Cemu
     // fall back to OpenGL, which is unsupported on Apple silicon under
     // Rosetta; Vulkan is required for the MoltenVK renderer.
+    let dsuSettings = dsuConfiguration.map {
+      """
+          <Input>
+            <DSUC host="\(xmlEscaped($0.host))" port="\($0.port)"/>
+          </Input>
+      """
+    } ?? ""
     let settings = """
       <?xml version="1.0" encoding="UTF-8"?>
       <content>
@@ -166,6 +175,7 @@ struct CemuInstallation: Sendable {
         <Graphic>
           <api>1</api>
         </Graphic>
+      \(dsuSettings)
       </content>
       """
     try settings.write(
@@ -188,7 +198,7 @@ struct CemuInstallation: Sendable {
       withIntermediateDirectories: true
     )
     let profileURL = profilesDirectory.appending(path: "controller0.xml")
-    let mappingEntries = CemuDSUMapping.gamePad.map {
+    let mappingEntries = CemuDSUMapping.proController.map {
       """
               <entry><mapping>\($0.emulated)</mapping><button>\($0.physical)</button></entry>
       """
@@ -197,13 +207,12 @@ struct CemuInstallation: Sendable {
     let profile = """
       <?xml version="1.0" encoding="UTF-8"?>
       <emulated_controller>
-        <type>Wii U GamePad</type>
-        <toggle_display>0</toggle_display>
+        <type>Wii U Pro Controller</type>
         <controller>
           <api>DSUController</api>
           <uuid>\(configuration.slot)</uuid>
           <display_name>RetroVault DSU Controller</display_name>
-          <motion>true</motion>
+          <motion>false</motion>
           <axis><deadzone>0.15</deadzone><range>1</range></axis>
           <rotation><deadzone>0.15</deadzone><range>1</range></rotation>
           <trigger><deadzone>0.1</deadzone><range>1</range></trigger>
@@ -311,9 +320,10 @@ private enum CemuDSUMapping {
     let physical: Int
   }
 
-  /// Wii U GamePad mappings for the semantic DSU layout emitted by
-  /// Switch2Bridge and consumed elsewhere in RetroVault.
-  static let gamePad: [Entry] = [
+  /// Wii U Pro Controller mappings for the semantic DSU layout emitted by
+  /// Switch2Bridge. Cemu's Pro Controller mapping identifiers include an
+  /// unused Home entry at 11, so the D-pad and stick identifiers start at 12.
+  static let proController: [Entry] = [
     .init(emulated: 1, physical: 13), // A
     .init(emulated: 2, physical: 14), // B
     .init(emulated: 3, physical: 12), // X
@@ -324,19 +334,19 @@ private enum CemuDSUMapping {
     .init(emulated: 8, physical: 43), // ZR
     .init(emulated: 9, physical: 3), // Plus
     .init(emulated: 10, physical: 0), // Minus
-    .init(emulated: 11, physical: 4), // Up
-    .init(emulated: 12, physical: 6), // Down
-    .init(emulated: 13, physical: 7), // Left
-    .init(emulated: 14, physical: 5), // Right
-    .init(emulated: 15, physical: 1), // L3
-    .init(emulated: 16, physical: 2), // R3
-    .init(emulated: 17, physical: 39), // Left stick up
-    .init(emulated: 18, physical: 45), // Left stick down
-    .init(emulated: 19, physical: 44), // Left stick left
-    .init(emulated: 20, physical: 38), // Left stick right
-    .init(emulated: 21, physical: 41), // Right stick up
-    .init(emulated: 22, physical: 47), // Right stick down
-    .init(emulated: 23, physical: 46), // Right stick left
-    .init(emulated: 24, physical: 40), // Right stick right
+    .init(emulated: 12, physical: 4), // Up
+    .init(emulated: 13, physical: 6), // Down
+    .init(emulated: 14, physical: 7), // Left
+    .init(emulated: 15, physical: 5), // Right
+    .init(emulated: 16, physical: 1), // L3
+    .init(emulated: 17, physical: 2), // R3
+    .init(emulated: 18, physical: 39), // Left stick up
+    .init(emulated: 19, physical: 45), // Left stick down
+    .init(emulated: 20, physical: 44), // Left stick left
+    .init(emulated: 21, physical: 38), // Left stick right
+    .init(emulated: 22, physical: 41), // Right stick up
+    .init(emulated: 23, physical: 47), // Right stick down
+    .init(emulated: 24, physical: 46), // Right stick left
+    .init(emulated: 25, physical: 40), // Right stick right
   ]
 }

@@ -1802,6 +1802,7 @@ struct CemuInstallationTests {
         #expect(settings.contains("<api>1</api>"))
         #expect(settings.contains("<mlc_path>\(directory.path)/Saves &amp; Data/Wind Waker</mlc_path>"))
         #expect(settings.contains("<Entry>\(directory.path)/Games &amp; More</Entry>"))
+        #expect(settings.contains("<DSUC host=\"127.0.0.1\" port=\"26760\"/>"))
 
         let profile = try String(
             contentsOf: runtime.userDataDirectory
@@ -1809,8 +1810,12 @@ struct CemuInstallationTests {
             encoding: .utf8
         )
         #expect(profile.contains("RetroVault DSU Controller"))
+        #expect(profile.contains("<type>Wii U Pro Controller</type>"))
+        #expect(!profile.contains("Wii U GamePad"))
         #expect(profile.contains("<ip>127.0.0.1</ip>"))
         #expect(profile.contains("<port>26760</port>"))
+        #expect(profile.contains("<entry><mapping>12</mapping><button>4</button></entry>"))
+        #expect(profile.contains("<entry><mapping>25</mapping><button>40</button></entry>"))
 
         let launchArguments = runtime.launchArguments(
             contentURL: gameURL,
