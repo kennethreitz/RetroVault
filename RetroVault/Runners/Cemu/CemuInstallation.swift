@@ -426,6 +426,7 @@ struct CemuInstallation: Sendable {
             <uuid>\(playerIndex)</uuid>
             <display_name>RetroVault DSU Controller \(playerIndex + 1)</display_name>
             <motion>false</motion>
+            <rumble>1</rumble>
             <axis><deadzone>0.15</deadzone><range>1</range></axis>
             <rotation><deadzone>0.15</deadzone><range>1</range></rotation>
             <trigger><deadzone>0.1</deadzone><range>1</range></trigger>

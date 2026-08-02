@@ -15,6 +15,8 @@ being a list of every commit.
   that support multiplayer can consume up to four players.
 - Added four managed Wii U Pro Controller profiles backed by RetroVault's
   localhost DSU relay for multiplayer Cemu titles.
+- Added Wii U rumble through RetroVault's local DSU relay and a reproducible
+  patched Cemu companion build.
 
 ### Changed
 

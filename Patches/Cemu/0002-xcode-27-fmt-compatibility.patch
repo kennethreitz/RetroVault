@@ -1,0 +1,18 @@
+diff --git a/src/Common/precompiled.h b/src/Common/precompiled.h
+index bda75ce..1822959 100644
+--- a/src/Common/precompiled.h
++++ b/src/Common/precompiled.h
+@@ -5,6 +5,13 @@
+ #include "version.h"
+ #include "platform.h"
+ 
++// fmt 10's consteval format-string path is rejected by Apple Clang 21 even
++// for its own internal FMT_STRING uses. Keep compile-time checking disabled
++// until Cemu moves to a compatible fmt release.
++#if defined(__apple_build_version__) && __apple_build_version__ >= 21000000
++#define FMT_CONSTEVAL
++#endif
++
+ #define FMT_HEADER_ONLY
+ #define FMT_USE_GRISU 1
+ #include <fmt/core.h>

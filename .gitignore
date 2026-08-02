@@ -5,5 +5,6 @@ DerivedData/
 Build/
 .libretro-work/
 .vita3k-work/
+.cemu-work/
 xcuserdata/
 *.xcuserstate

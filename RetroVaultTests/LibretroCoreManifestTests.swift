@@ -1923,6 +1923,7 @@ struct CemuInstallationTests {
             encoding: .utf8
         )
         #expect(profile.contains("RetroVault DSU Controller"))
+        #expect(profile.contains("<rumble>1</rumble>"))
         #expect(profile.contains("<type>Wii U Pro Controller</type>"))
         #expect(!profile.contains("Wii U GamePad"))
         #expect(profile.contains("<ip>127.0.0.1</ip>"))
