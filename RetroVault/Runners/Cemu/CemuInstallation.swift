@@ -277,7 +277,7 @@ struct CemuInstallation: Sendable {
           <api>1</api>
         </Graphic>
         <Audio>
-          <api>0</api>
+          <api>3</api>
           <delay>2</delay>
           <TVChannels>1</TVChannels>
           <PadChannels>1</PadChannels>
