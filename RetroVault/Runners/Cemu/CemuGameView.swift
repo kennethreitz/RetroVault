@@ -81,6 +81,7 @@ private final class CemuPlayerCoordinator {
   private var runningApplication: NSRunningApplication?
   private var runningProcess: Process?
   private var launcherLogHandle: FileHandle?
+  private var controllerRelay: CemuDSURelay?
   private var monitorTask: Task<Void, Never>?
   private var isFinishing = false
 
@@ -100,9 +101,26 @@ private final class CemuPlayerCoordinator {
 
     status = .starting("Preparing Cemu…")
     do {
+      let relay = CemuDSURelay()
+      let relayPort: UInt16?
+      do {
+        relayPort = try await Task.detached(priority: .userInitiated) {
+          try relay.start()
+        }.value
+        controllerRelay = relay
+      } catch {
+        relay.stop()
+        relayPort = nil
+        RetroVaultLog.cemu.error(
+          "Could not start the controller relay; falling back to direct DSU input: \(error.localizedDescription, privacy: .public)"
+        )
+      }
+      let effectiveDSUConfiguration = relayPort.map {
+        CemuDSUConfiguration(host: "127.0.0.1", port: $0, slot: 0)
+      } ?? dsuConfiguration
       let runtime = try await Task.detached(priority: .userInitiated) {
         try installation.prepareRuntime(
-          dsuConfiguration: dsuConfiguration,
+          dsuConfiguration: effectiveDSUConfiguration,
           contentURL: request.contentURL,
           mlcURL: request.saveSync.localSaveURL
         )
@@ -199,6 +217,8 @@ private final class CemuPlayerCoordinator {
         }
       }
     } catch {
+      controllerRelay?.stop()
+      controllerRelay = nil
       RetroVaultLog.cemu.error(
         "Could not prepare or launch Cemu for game \(request.gameID, privacy: .public): \(error.localizedDescription, privacy: .public)"
       )
@@ -211,6 +231,8 @@ private final class CemuPlayerCoordinator {
     monitorTask = nil
     runningProcess?.terminationHandler = nil
     runningProcess = nil
+    controllerRelay?.stop()
+    controllerRelay = nil
     try? launcherLogHandle?.close()
     launcherLogHandle = nil
   }
@@ -227,6 +249,8 @@ private final class CemuPlayerCoordinator {
     runningProcess?.terminationHandler = nil
     runningProcess = nil
     runningApplication = nil
+    controllerRelay?.stop()
+    controllerRelay = nil
     try? launcherLogHandle?.close()
     launcherLogHandle = nil
     status = .synchronizing

@@ -2,10 +2,11 @@ import Foundation
 
 /// Wire format for the DSU controller protocol, better known as "cemuhook".
 ///
-/// RetroVault speaks the client half: it subscribes to a DSU server over UDP
-/// and reads pad, touchpad, and motion state for the slots that server
-/// publishes. Everything in this file is pure value manipulation so the codec
-/// stays testable without a socket.
+/// RetroVault normally speaks the client half: it subscribes to a DSU server
+/// over UDP and reads pad, touchpad, and motion state. Its Cemu integration
+/// also republishes that state through the server half so Cemu can use either
+/// a DSU bridge or an ordinary macOS controller. Everything in this file is
+/// pure value manipulation so the codec stays testable without a socket.
 ///
 /// Every field is little-endian. A datagram is a 16-byte header, a four-byte
 /// message type, and a message payload:
@@ -173,6 +174,14 @@ enum DSUMessage: Equatable, Sendable {
     case controllerData(DSUPadState)
 }
 
+/// The small request surface a DSU server receives from clients such as Cemu.
+enum DSUClientRequest: Equatable, Sendable {
+    case protocolVersion
+    case controllerInfo(slots: [UInt8])
+    /// `nil` means the client subscribed to every published slot.
+    case controllerData(slot: UInt8?)
+}
+
 // MARK: - Encoding
 
 extension DSUProtocol {
@@ -221,11 +230,181 @@ extension DSUProtocol {
         )
         return Data(bytes)
     }
+
+    static func protocolVersionResponse(serverID: UInt32) -> Data {
+        encodeServer(
+            message: .protocolVersion,
+            payload: littleEndianBytes(version) + [0, 0],
+            serverID: serverID
+        )
+    }
+
+    static func controllerInfoResponse(
+        descriptor: DSUSlotDescriptor,
+        isActive: Bool,
+        serverID: UInt32
+    ) -> Data {
+        encodeServer(
+            message: .controllerInfo,
+            payload: descriptorPayload(descriptor) + [isActive ? 1 : 0],
+            serverID: serverID
+        )
+    }
+
+    static func controllerDataResponse(
+        state: DSUPadState,
+        publishedSlot: UInt8,
+        serverID: UInt32
+    ) -> Data {
+        var descriptor = state.descriptor
+        descriptor.slot = publishedSlot
+        descriptor.isRegistered = state.isConnected
+
+        var payload = descriptorPayload(descriptor)
+        payload.append(state.isConnected ? 1 : 0)
+        payload.append(contentsOf: littleEndianBytes(state.packetNumber))
+        payload.append(UInt8(truncatingIfNeeded: state.buttons.rawValue))
+        payload.append(UInt8(truncatingIfNeeded: state.buttons.rawValue >> 8))
+        payload.append(state.isHomePressed ? 0xFF : 0)
+        payload.append(state.isTouchButtonPressed ? 0xFF : 0)
+        payload.append(contentsOf: [
+            state.leftStick.x,
+            state.leftStick.y,
+            state.rightStick.x,
+            state.rightStick.y,
+        ])
+
+        let analogButtons: [DSUButtons] = [
+            .left, .down, .right, .up,
+            .x, .a, .b, .y,
+            .r1, .l1, .r2, .l2,
+        ]
+        payload.append(
+            contentsOf: analogButtons.map { state.buttons.contains($0) ? 0xFF : 0 }
+        )
+
+        for index in 0..<2 {
+            let touch = index < state.touches.count ? state.touches[index] : DSUTouch()
+            payload.append(touch.isActive ? 1 : 0)
+            payload.append(touch.id)
+            payload.append(contentsOf: littleEndianBytes(touch.x))
+            payload.append(contentsOf: littleEndianBytes(touch.y))
+        }
+
+        payload.append(contentsOf: littleEndianBytes(state.motion.timestamp))
+        payload.append(contentsOf: littleEndianBytes(state.motion.accelerationX.bitPattern))
+        payload.append(contentsOf: littleEndianBytes(state.motion.accelerationY.bitPattern))
+        payload.append(contentsOf: littleEndianBytes(state.motion.accelerationZ.bitPattern))
+        payload.append(contentsOf: littleEndianBytes(state.motion.pitch.bitPattern))
+        payload.append(contentsOf: littleEndianBytes(state.motion.yaw.bitPattern))
+        payload.append(contentsOf: littleEndianBytes(state.motion.roll.bitPattern))
+
+        precondition(payload.count == 80)
+        return encodeServer(
+            message: .controllerData,
+            payload: payload,
+            serverID: serverID
+        )
+    }
+
+    private static func descriptorPayload(_ descriptor: DSUSlotDescriptor) -> [UInt8] {
+        var payload: [UInt8] = [
+            descriptor.slot,
+            descriptor.isRegistered ? 2 : 0,
+            descriptor.gyroModel.rawValue,
+            descriptor.connectionType,
+        ]
+        payload.append(
+            contentsOf: (0..<6).map {
+                UInt8(truncatingIfNeeded: descriptor.macAddress >> ($0 * 8))
+            }
+        )
+        payload.append(descriptor.battery)
+        return payload
+    }
+
+    private static func encodeServer(
+        message: DSUMessageType,
+        payload: [UInt8],
+        serverID: UInt32
+    ) -> Data {
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(headerLength + messageTypeLength + payload.count)
+        bytes.append(contentsOf: serverMagic)
+        bytes.append(contentsOf: littleEndianBytes(version))
+        bytes.append(
+            contentsOf: littleEndianBytes(
+                UInt16(messageTypeLength + payload.count)
+            )
+        )
+        bytes.append(contentsOf: [0, 0, 0, 0])
+        bytes.append(contentsOf: littleEndianBytes(serverID))
+        bytes.append(contentsOf: littleEndianBytes(message.rawValue))
+        bytes.append(contentsOf: payload)
+        bytes.replaceSubrange(
+            8..<12,
+            with: littleEndianBytes(DSUChecksum.crc32(bytes))
+        )
+        return Data(bytes)
+    }
 }
 
 // MARK: - Decoding
 
 extension DSUProtocol {
+    static func decodeClientRequest(_ datagram: Data) throws -> DSUClientRequest {
+        var bytes = [UInt8](datagram)
+        guard bytes.count >= headerLength + messageTypeLength else {
+            throw DSUDecodingError.tooShort
+        }
+        guard Array(bytes[0..<4]) == clientMagic else {
+            throw DSUDecodingError.unexpectedMagic
+        }
+
+        let reportedVersion = UInt16(bytes, at: 4)
+        guard reportedVersion <= version else {
+            throw DSUDecodingError.unsupportedVersion(reportedVersion)
+        }
+        let declaredLength = Int(UInt16(bytes, at: 6))
+        guard bytes.count >= headerLength + declaredLength else {
+            throw DSUDecodingError.truncatedPayload
+        }
+        bytes.removeLast(bytes.count - (headerLength + declaredLength))
+
+        let checksum = UInt32(bytes, at: 8)
+        for offset in 8..<12 {
+            bytes[offset] = 0
+        }
+        guard DSUChecksum.crc32(bytes) == checksum else {
+            throw DSUDecodingError.checksumMismatch
+        }
+
+        let rawMessage = UInt32(bytes, at: 16)
+        guard let message = DSUMessageType(rawValue: rawMessage) else {
+            throw DSUDecodingError.unsupportedMessage(rawMessage)
+        }
+        let payload = Array(bytes[(headerLength + messageTypeLength)...])
+        switch message {
+        case .protocolVersion:
+            return .protocolVersion
+        case .controllerInfo:
+            guard payload.count >= 4 else {
+                throw DSUDecodingError.truncatedPayload
+            }
+            let count = min(Int(UInt32(payload, at: 0)), 4)
+            guard payload.count >= 4 + count else {
+                throw DSUDecodingError.truncatedPayload
+            }
+            return .controllerInfo(slots: Array(payload[4..<(4 + count)]))
+        case .controllerData:
+            guard payload.count >= 8 else {
+                throw DSUDecodingError.truncatedPayload
+            }
+            let registersBySlot = payload[0] & 0x01 != 0
+            return .controllerData(slot: registersBySlot ? payload[1] : nil)
+        }
+    }
+
     static func decode(_ datagram: Data) throws -> DSUMessage {
         var bytes = [UInt8](datagram)
         guard bytes.count >= headerLength + messageTypeLength else {

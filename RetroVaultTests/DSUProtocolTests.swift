@@ -28,6 +28,112 @@ struct DSUProtocolTests {
     #expect(Array(bytes[20..<28]) == Array(repeating: 0, count: 8))
   }
 
+  @Test("Decodes the requests Cemu sends to a DSU server")
+  func decodesClientRequests() throws {
+    #expect(
+      try DSUProtocol.decodeClientRequest(
+        DSUProtocol.encode(
+          message: .protocolVersion,
+          payload: [],
+          clientID: 1
+        )
+      ) == .protocolVersion
+    )
+    #expect(
+      try DSUProtocol.decodeClientRequest(
+        DSUProtocol.controllerInfoRequest(clientID: 2)
+      ) == .controllerInfo(slots: [0, 1, 2, 3])
+    )
+    #expect(
+      try DSUProtocol.decodeClientRequest(
+        DSUProtocol.padDataRequest(clientID: 3)
+      ) == .controllerData(slot: nil)
+    )
+  }
+
+  @Test("Publishes a complete controller packet Cemu can decode")
+  func encodesServerControllerData() throws {
+    let state = DSUPadState(
+      descriptor: DSUSlotDescriptor(
+        slot: 2,
+        isRegistered: true,
+        gyroModel: .unavailable,
+        connectionType: 2,
+        macAddress: 0x11_22_33_44_55_66,
+        battery: 5
+      ),
+      isConnected: true,
+      packetNumber: 42,
+      buttons: [.up, .b, .r1],
+      leftStick: DSUStick(x: 0, y: 255),
+      rightStick: DSUStick(x: 200, y: 100)
+    )
+    let response = DSUProtocol.controllerDataResponse(
+      state: state,
+      publishedSlot: 0,
+      serverID: 0x1234_5678
+    )
+
+    #expect(response.count == 100)
+    guard case let .controllerData(decoded) = try DSUProtocol.decode(response) else {
+      Issue.record("Expected controller data.")
+      return
+    }
+    #expect(decoded.slot == 0)
+    #expect(decoded.isConnected)
+    #expect(decoded.packetNumber == 42)
+    #expect(decoded.buttons.contains(.up))
+    #expect(decoded.buttons.contains(.b))
+    #expect(decoded.buttons.contains(.r1))
+    #expect(decoded.leftStick == DSUStick(x: 0, y: 255))
+    #expect(decoded.rightStick == DSUStick(x: 200, y: 100))
+  }
+
+  @Test("Relays controller state over a real local DSU connection")
+  func relaysControllerState() async throws {
+    let state = DSUPadState(
+      descriptor: DSUSlotDescriptor(
+        slot: 0,
+        isRegistered: true,
+        gyroModel: .unavailable,
+        connectionType: 2,
+        macAddress: 0x11_22_33_44_55_66,
+        battery: 5
+      ),
+      isConnected: true,
+      buttons: [.right, .b],
+      leftStick: DSUStick(x: 220, y: 90)
+    )
+    let relay = CemuDSURelay { state }
+    let port = try await Task.detached {
+      try relay.start()
+    }.value
+    let client = DSUClient(
+      configuration: DSUConfiguration(
+        host: "127.0.0.1",
+        port: port,
+        slot: 0
+      )
+    )
+    client.start()
+    defer {
+      client.stop()
+      relay.stop()
+    }
+
+    var received: DSUPadState?
+    for _ in 0..<100 where received == nil {
+      try await Task.sleep(for: .milliseconds(10))
+      received = client.currentPad()
+    }
+
+    let pad = try #require(received)
+    #expect(pad.isConnected)
+    #expect(pad.buttons.contains(.right))
+    #expect(pad.buttons.contains(.b))
+    #expect(pad.leftStick == DSUStick(x: 220, y: 90))
+  }
+
   @Test("Carries a checksum over the whole datagram")
   func encodesChecksum() throws {
     var bytes = [UInt8](DSUProtocol.padDataRequest(clientID: 7))
