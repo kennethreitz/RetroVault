@@ -1147,50 +1147,9 @@ struct BigPictureView: View {
 
     return switch page {
     case .home:
-      [
-        BigPictureRow(
-          id: .home("recently-played"),
-          title: "Recently Played",
-          detail: catalog.recentlyPlayedGames.count.formatted(),
-          isFavorite: false,
-          action: .navigate(.games(.recentlyPlayed))
-        ),
-        BigPictureRow(
-          id: .home("recent"),
-          title: "Recently Added",
-          detail: catalog.recentlyAddedGames.count.formatted(),
-          isFavorite: false,
-          action: .navigate(.games(.recentlyAdded))
-        ),
-        BigPictureRow(
-          id: .home("downloaded"),
-          title: "Downloaded",
-          detail: catalog.downloadedGames.count.formatted(),
-          isFavorite: false,
-          action: .navigate(.downloaded)
-        ),
-        BigPictureRow(
-          id: .home("all-games"),
-          title: "All Games",
-          detail: catalog.allGames.count.formatted(),
-          isFavorite: false,
-          action: .navigate(.games(.all))
-        ),
-        BigPictureRow(
-          id: .home("favorites"),
-          title: "Favorites",
-          detail: catalog.favoriteGames.count.formatted(),
-          isFavorite: false,
-          action: .navigate(.games(.favorites))
-        ),
-        BigPictureRow(
-          id: .home("save-center"),
-          title: "Save Center",
-          detail: model.saveCenterItems.count.formatted(),
-          isFavorite: false,
-          action: .navigate(.saveCenter)
-        ),
-      ]
+      BigPictureHomeLibrarySection.displayOrder.map {
+        homeLibraryRow(for: $0, catalog: catalog)
+      }
         + (queuedSystemIDs.isEmpty
           ? []
           : [
@@ -1211,6 +1170,15 @@ struct BigPictureView: View {
             action: .navigate(.games(.system(system.id)))
           )
         }
+        + [
+          BigPictureRow(
+            id: .home("save-center"),
+            title: "Save Center",
+            detail: model.saveCenterItems.count.formatted(),
+            isFavorite: false,
+            action: .navigate(.saveCenter)
+          )
+        ]
 
     case .ignoredSystems:
       ignoredSystems.map { system in
@@ -1241,7 +1209,7 @@ struct BigPictureView: View {
       [
         BigPictureRow(
           id: .home("downloaded-all"),
-          title: "All Downloaded",
+          title: "All Downloaded Games",
           detail: catalog.downloadedGames.count.formatted(),
           isFavorite: false,
           action: .navigate(.games(.downloaded))
@@ -1285,6 +1253,54 @@ struct BigPictureView: View {
           action: .play(game)
         )
       }
+    }
+  }
+
+  private func homeLibraryRow(
+    for section: BigPictureHomeLibrarySection,
+    catalog: BigPictureCatalog
+  ) -> BigPictureRow {
+    switch section {
+    case .downloadedGames:
+      BigPictureRow(
+        id: .home("downloaded"),
+        title: section.title,
+        detail: catalog.downloadedGames.count.formatted(),
+        isFavorite: false,
+        action: .navigate(.downloaded)
+      )
+    case .recentlyPlayed:
+      BigPictureRow(
+        id: .home("recently-played"),
+        title: section.title,
+        detail: catalog.recentlyPlayedGames.count.formatted(),
+        isFavorite: false,
+        action: .navigate(.games(.recentlyPlayed))
+      )
+    case .favoriteGames:
+      BigPictureRow(
+        id: .home("favorites"),
+        title: section.title,
+        detail: catalog.favoriteGames.count.formatted(),
+        isFavorite: false,
+        action: .navigate(.games(.favorites))
+      )
+    case .recentlyAdded:
+      BigPictureRow(
+        id: .home("recent"),
+        title: section.title,
+        detail: catalog.recentlyAddedGames.count.formatted(),
+        isFavorite: false,
+        action: .navigate(.games(.recentlyAdded))
+      )
+    case .allGames:
+      BigPictureRow(
+        id: .home("all-games"),
+        title: section.title,
+        detail: catalog.allGames.count.formatted(),
+        isFavorite: false,
+        action: .navigate(.games(.all))
+      )
     }
   }
 
@@ -1787,7 +1803,7 @@ struct BigPictureView: View {
     case .saveCenter:
       "Save Center"
     case .downloaded:
-      "Downloaded"
+      BigPictureHomeLibrarySection.downloadedGames.title
     case .games(let scope):
       catalog.title(for: scope)
     }

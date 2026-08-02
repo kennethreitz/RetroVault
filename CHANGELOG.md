@@ -21,6 +21,9 @@ being a list of every commit.
 - Removed the manual DSU slot preference. RetroVault now discovers every live
   slot and converts direct controllers into the same internal DSU-shaped input
   stream.
+- Reordered the home library shortcuts around local play: Downloaded Games,
+  Recently Played, Favorite Games, Recently Added, and All Games. Save Center
+  now sits at the bottom of the home page after the systems list.
 
 ## 2026-08-01
 

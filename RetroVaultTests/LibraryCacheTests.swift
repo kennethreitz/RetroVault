@@ -297,6 +297,28 @@ struct LibraryKeyboardNavigationTests {
 
 @Suite("Big Picture catalog")
 struct BigPictureCatalogTests {
+  @Test("Orders and names the home library sections")
+  func ordersHomeLibrarySections() {
+    #expect(
+      BigPictureHomeLibrarySection.displayOrder == [
+        .downloadedGames,
+        .recentlyPlayed,
+        .favoriteGames,
+        .recentlyAdded,
+        .allGames,
+      ]
+    )
+    #expect(
+      BigPictureHomeLibrarySection.displayOrder.map(\.title) == [
+        "Downloaded Games",
+        "Recently Played",
+        "Favorite Games",
+        "Recently Added",
+        "All Games",
+      ]
+    )
+  }
+
   @Test("Shows initial and paged library synchronization in the footer")
   func presentsLibrarySynchronizationInFooter() {
     let initial = BigPictureSynchronizationFooterPresentation.make(
@@ -895,7 +917,8 @@ struct BigPictureCatalogTests {
     #expect(catalog.games(in: .collection(collectionID)).map(\.id) == [2, 1])
     #expect(catalog.favoriteGameIDs == [1])
     #expect(catalog.title(for: .all) == "All Games")
-    #expect(catalog.title(for: .favorites) == "Favorites")
+    #expect(catalog.title(for: .favorites) == "Favorite Games")
+    #expect(catalog.title(for: .downloaded) == "Downloaded Games")
     #expect(catalog.title(for: .collection(collectionID)) == "Mario")
   }
 

@@ -31,6 +31,37 @@ enum BigPictureCatalogPreparation: Equatable, Sendable {
   case full
 }
 
+enum BigPictureHomeLibrarySection: String, CaseIterable, Sendable {
+  case downloadedGames
+  case recentlyPlayed
+  case favoriteGames
+  case recentlyAdded
+  case allGames
+
+  static let displayOrder: [Self] = [
+    .downloadedGames,
+    .recentlyPlayed,
+    .favoriteGames,
+    .recentlyAdded,
+    .allGames,
+  ]
+
+  var title: String {
+    switch self {
+    case .downloadedGames:
+      "Downloaded Games"
+    case .recentlyPlayed:
+      "Recently Played"
+    case .favoriteGames:
+      "Favorite Games"
+    case .recentlyAdded:
+      "Recently Added"
+    case .allGames:
+      "All Games"
+    }
+  }
+}
+
 struct BigPictureCatalog: Sendable {
   static let empty = BigPictureCatalog(
     source: BigPictureLibrarySource(
@@ -235,15 +266,15 @@ struct BigPictureCatalog: Sendable {
   func title(for scope: BigPictureScope) -> String {
     switch scope {
     case .all:
-      "All Games"
+      BigPictureHomeLibrarySection.allGames.title
     case .recentlyAdded:
-      "Recently Added"
+      BigPictureHomeLibrarySection.recentlyAdded.title
     case .recentlyPlayed:
-      "Recently Played"
+      BigPictureHomeLibrarySection.recentlyPlayed.title
     case .favorites:
-      "Favorites"
+      BigPictureHomeLibrarySection.favoriteGames.title
     case .downloaded:
-      "Downloaded"
+      BigPictureHomeLibrarySection.downloadedGames.title
     case .system(let systemID), .downloadedSystem(let systemID):
       systems.first(where: { $0.id == systemID })?.name ?? "Games"
     case .collection(let collectionID):
