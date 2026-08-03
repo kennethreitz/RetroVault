@@ -17,14 +17,11 @@ fi
 
 git -C "$source_directory" fetch origin "$revision"
 git -C "$source_directory" checkout --detach "$revision"
+git -C "$source_directory" reset --hard "$revision"
 git -C "$source_directory" submodule update --init --recursive --depth 1
 
-if ! git -C "$source_directory" apply --unidiff-zero --reverse --check \
-  "$repository_root/Vita3K/Patches/retrovault-embedded.patch" >/dev/null 2>&1
-then
-  git -C "$source_directory" apply --unidiff-zero \
-    "$repository_root/Vita3K/Patches/retrovault-embedded.patch"
-fi
+git -C "$source_directory" apply --unidiff-zero \
+  "$repository_root/Vita3K/Patches/retrovault-embedded.patch"
 
 mkdir -p "$source_directory/vita3k/retrovault"
 cp "$repository_root/Vita3K/Bridge/bridge.cpp" \

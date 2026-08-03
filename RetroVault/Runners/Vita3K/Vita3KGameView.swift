@@ -243,16 +243,16 @@ private final class Vita3KPlayerCoordinator {
         }
         self?.eventPumpTask = nil
       }
-      runTask = Task.detached(priority: .userInitiated) { [weak self] in
+      runTask = Task.detached(priority: .userInitiated) { [self] in
         do {
           try bridge.run(
             in: surfaceView,
             pixelSize: pixelSize,
             titleID: titleID
           )
-          await self?.finishRun(errorMessage: nil)
+          await finishRun(errorMessage: nil)
         } catch {
-          await self?.finishRun(errorMessage: error.localizedDescription)
+          await finishRun(errorMessage: error.localizedDescription)
         }
       }
     } catch {
@@ -280,14 +280,16 @@ private final class Vita3KPlayerCoordinator {
 
   func stopAndPreserveLocalSave() {
     isClosing = true
-    preserveLocalSave()
     eventPumpTask?.cancel()
     eventPumpTask = nil
     _ = DSUConnection.shared.setRumble(slot: 0, strong: 0, weak: 0)
     bridge?.stop()
-    runTask?.cancel()
-    runTask = nil
-    bridge = nil
+    // The native runner owns Vita3K's teardown. Releasing the task or bridge
+    // here can destroy the engine while its guest threads are still exiting.
+    // `finishRun` captures and synchronizes the save after the runner returns.
+    if runTask == nil {
+      bridge = nil
+    }
   }
 
   private func finishRun(errorMessage: String?) async {
@@ -336,28 +338,6 @@ private final class Vita3KPlayerCoordinator {
     onFinished?()
   }
 
-  private func preserveLocalSave() {
-    guard
-      let titleID = activeTitleID,
-      let saveSync = activeRequest?.saveSync
-    else {
-      return
-    }
-    do {
-      if try Vita3KBridge.captureSaveData(
-        to: saveSync.localSaveURL,
-        titleID: titleID
-      ) {
-        RetroVaultLog.libretro.notice(
-          "Preserved Vita3K save data locally while closing game \(saveSync.gameID, privacy: .public)"
-        )
-      }
-    } catch {
-      RetroVaultLog.libretro.error(
-        "Could not preserve Vita3K save data locally for game \(saveSync.gameID, privacy: .public): \(error.localizedDescription, privacy: .public)"
-      )
-    }
-  }
 }
 
 /// A controller frame in the format consumed by Vita3K's virtual keyboard

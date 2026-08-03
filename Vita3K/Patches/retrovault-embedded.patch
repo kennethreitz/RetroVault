@@ -78,3 +78,34 @@ index 5d38f29c..e725a64f 100644
 +    if (state.rumble_handler && state.rumble_handler(port, pState->small, pState->large)) {
 +        return 0;
 +    }
+diff --git a/vita3k/kernel/include/kernel/state.h b/vita3k/kernel/include/kernel/state.h
+--- a/vita3k/kernel/include/kernel/state.h
++++ b/vita3k/kernel/include/kernel/state.h
+@@ -160,0 +161 @@ struct KernelState {
++    std::size_t active_host_threads = 0;
+diff --git a/vita3k/kernel/src/kernel.cpp b/vita3k/kernel/src/kernel.cpp
+--- a/vita3k/kernel/src/kernel.cpp
++++ b/vita3k/kernel/src/kernel.cpp
+@@ -64 +64 @@ static int SDLCALL thread_function(void *data) {
+-    const ThreadStatePtr thread = params.kernel->get_thread(params.thid);
++    ThreadStatePtr thread = params.kernel->get_thread(params.thid);
+@@ -81 +80,0 @@ static int SDLCALL thread_function(void *data) {
+-        params.kernel->thread_deleted_cond.notify_all();
+@@ -82,0 +82,10 @@ static int SDLCALL thread_function(void *data) {
++
++    // ThreadState owns guest-memory blocks. Keep process shutdown waiting
++    // until its destructor has released them, rather than merely until the
++    // thread disappears from the lookup table.
++    thread.reset();
++    {
++        std::lock_guard<std::mutex> lock(params.kernel->mutex);
++        --params.kernel->active_host_threads;
++        params.kernel->thread_deleted_cond.notify_all();
++    }
+@@ -156,0 +165 @@ ThreadStatePtr KernelState::create_thread(MemState &mem, const char *name, Ptr<const void> entry_point, int init_priority, SceInt32 affinity_mask, int stack_size, const SceKernelThreadOptParam *option) {
++        ++active_host_threads;
+@@ -198 +208,3 @@ void KernelState::process_exit() {
+-    thread_deleted_cond.wait(lock, [this] { return threads.empty(); });
++    thread_deleted_cond.wait(lock, [this] {
++        return threads.empty() && active_host_threads == 0;
++    });
