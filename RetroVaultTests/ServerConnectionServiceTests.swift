@@ -226,6 +226,31 @@ struct LibraryTests {
         #expect(state.leftY == -0.75)
     }
 
+    @Test("Vita Start and Select expose the clean-exit chord")
+    func vitaControllerExitChord() {
+        let state = Vita3KControllerInput.makeState(
+            snapshot: Vita3KControllerSnapshot(
+                select: true,
+                start: true
+            ),
+            layout: .standard
+        )
+        var chord = LibretroControllerExitChord()
+
+        #expect(state.isStartPressed)
+        #expect(state.isSelectPressed)
+        let firstChord = chord.update(
+            startPressed: state.isStartPressed,
+            selectPressed: state.isSelectPressed
+        )
+        let heldChord = chord.update(
+            startPressed: state.isStartPressed,
+            selectPressed: state.isSelectPressed
+        )
+        #expect(firstChord)
+        #expect(!heldChord)
+    }
+
     @Test("Persists RomM Favorites membership in the offline snapshot")
     func persistsFavoriteMembership() async throws {
         let token = try ClientToken(

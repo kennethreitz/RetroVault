@@ -209,9 +209,20 @@ private final class Vita3KPlayerCoordinator {
       eventPumpTask = Task { @MainActor [weak self] in
         var previousControllerState: Vita3KControllerState?
         var previousRumbleState = Vita3KRumbleState(packed: 0)
+        var exitChord = LibretroControllerExitChord()
         while !Task.isCancelled {
           bridge.pumpEvents()
           let controllerState = Vita3KControllerInput.currentState()
+          if exitChord.update(
+            startPressed: controllerState.isStartPressed,
+            selectPressed: controllerState.isSelectPressed
+          ) {
+            RetroVaultLog.libretro.notice(
+              "Start and Select pressed; requesting clean Vita3K exit"
+            )
+            self?.requestClose()
+            break
+          }
           if controllerState != previousControllerState {
             bridge.setController(controllerState)
             previousControllerState = controllerState
@@ -359,6 +370,14 @@ struct Vita3KControllerState: Equatable, Sendable {
   var leftY: Float = 0
   var rightX: Float = 0
   var rightY: Float = 0
+
+  var isSelectPressed: Bool {
+    buttons & 0x0000_0001 != 0
+  }
+
+  var isStartPressed: Bool {
+    buttons & 0x0000_0008 != 0
+  }
 }
 
 struct Vita3KControllerSnapshot: Equatable, Sendable {
