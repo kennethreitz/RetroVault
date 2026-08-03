@@ -120,6 +120,11 @@ struct SaveCenterTests {
         for: .synchronized
       ) == "Play"
     )
+    #expect(
+      !BigPictureSaveCenterPresentation.showsSecondaryPlayHint(
+        for: .synchronized
+      )
+    )
 
     let synchronizationStatuses: [SaveCenterStatus] = [
       .uploadPending,
@@ -134,6 +139,9 @@ struct SaveCenterTests {
       #expect(
         BigPictureSaveCenterPresentation.primaryActionTitle(for: status)
           == "Sync"
+      )
+      #expect(
+        BigPictureSaveCenterPresentation.showsSecondaryPlayHint(for: status)
       )
     }
   }

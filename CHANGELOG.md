@@ -37,6 +37,8 @@ being a list of every commit.
   continue launching Cemu fullscreen.
 - Removed the shared internal-resolution selector. Libretro cores and hosted
   emulators now use their own native/default rendering resolution.
+- Save Center no longer shows a redundant `X Play` hint when the selected save
+  is already synchronized and `A Play` is available.
 - RetroVault now embeds the stable Vulkan Cemu companion beside the native
   Metal companion and selects it only for titles with known Metal rendering
   regressions. Super Mario 3D World uses Vulkan while other Wii U games keep

@@ -568,15 +568,19 @@ struct BigPictureView: View {
             label: "SORT"
           )
         }
-        if selectedSaveCenterItem != nil {
-          actionHint(
-            key: controllerState.playFromBeginningButtonPrompt.label,
-            systemImage:
-              controllerState.playFromBeginningButtonPrompt.systemImage,
-            label: BigPictureGameLaunchPresentation.secondaryActionTitle(
-              isSaveCenter: true
-            ).uppercased()
-          )
+        if let selectedSaveCenterItem {
+          if BigPictureSaveCenterPresentation.showsSecondaryPlayHint(
+            for: selectedSaveCenterItem.status
+          ) {
+            actionHint(
+              key: controllerState.playFromBeginningButtonPrompt.label,
+              systemImage:
+                controllerState.playFromBeginningButtonPrompt.systemImage,
+              label: BigPictureGameLaunchPresentation.secondaryActionTitle(
+                isSaveCenter: true
+              ).uppercased()
+            )
+          }
         } else if page.isGameList || selectedSystem != nil {
           actionHint(
             key: controllerState.optionsButtonPrompt.label,
@@ -3594,6 +3598,12 @@ enum BigPictureSaveCenterPresentation {
     case .synchronize:
       "Sync"
     }
+  }
+
+  static func showsSecondaryPlayHint(
+    for status: SaveCenterStatus
+  ) -> Bool {
+    status != .synchronized
   }
 }
 
