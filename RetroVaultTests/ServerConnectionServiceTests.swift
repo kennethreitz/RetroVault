@@ -1731,6 +1731,175 @@ struct LibraryTests {
         #expect(await api.uploadedSaves.count == 1)
     }
 
+    @Test("Restores and synchronizes Cannoli Vita3K save bundles")
+    func synchronizesVita3KSaveDirectory() async throws {
+        let token = try ClientToken(
+            rawValue: "rmm_" + String(repeating: "e", count: 64)
+        )
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let titleID = "PCSE00052"
+        let markerData = Data(
+            "format=1\nemulator=VITA3K\ntitle_id=\(titleID)\n".utf8
+        )
+        let remoteDirectory = directory.appending(
+            path: "RemoteVita",
+            directoryHint: .isDirectory
+        )
+        let markerURL = remoteDirectory.appending(
+            path: "cannoli-standalone-save.txt"
+        )
+        let remoteDataURL = remoteDirectory.appending(
+            path: "save/Savegame_0.bin"
+        )
+        try FileManager.default.createDirectory(
+            at: remoteDataURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let remoteSaveData = Data("remote-rayman-save".utf8)
+        try markerData.write(to: markerURL)
+        try remoteSaveData.write(to: remoteDataURL)
+        let remoteBundle = try #require(
+            try SaveBundleArchive().data(from: remoteDirectory)
+        )
+
+        let api = SaveSyncMockRomMClient(
+            token: token,
+            availableSaves: [701: remoteBundle]
+        )
+        let service = RomMLibraryService(
+            api: api,
+            credentialStore: credentials,
+            saveDirectory: directory.appending(
+                path: "Managed",
+                directoryHint: .isDirectory
+            )
+        )
+        let serverURL = try ServerURL("https://romm.example.com")
+        let session = ServerSession(
+            serverURL: serverURL,
+            username: "kenneth"
+        )
+        let save = GameSaveDataItem(
+            id: 701,
+            kind: .save,
+            fileName: "Rayman Origins.vita3k.zip",
+            fileExtension: "zip",
+            filePath: "saves/PlayStation Vita",
+            fullPath: "saves/PlayStation Vita/Rayman Origins.vita3k.zip",
+            downloadURL: serverURL.resourceURL(
+                for: "/api/saves/701/content"
+            ),
+            fileSizeBytes: Int64(remoteBundle.count),
+            isMissingFromFileSystem: false,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            updatedAt: Date(timeIntervalSince1970: 1_000),
+            emulator: "Vita3K",
+            slot: "autosave",
+            contentHash: "remote-701",
+            isPublic: false,
+            screenshotURL: nil
+        )
+        let game = mockGameDetails(
+            id: 23_120,
+            fileName: "Rayman Origins.vpk",
+            systemName: "PlayStation Vita",
+            saves: [save]
+        )
+
+        let prepared = try await service.prepareCartridgeSaveForPlay(
+            game,
+            in: session,
+            emulator: "Vita3K",
+            coreID: "Vita3K"
+        )
+        let configuration = try #require(prepared)
+        #expect(configuration.effectiveStorage == .directoryBundle)
+        #expect(configuration.localSaveURL.lastPathComponent == "Vita3K")
+        #expect(configuration.uploadFileName == "Rayman Origins.vita3k.zip")
+        #expect(
+            try Data(
+                contentsOf: configuration.localSaveURL.appending(
+                    path: "cannoli-standalone-save.txt"
+                )
+            ) == markerData
+        )
+
+        let runtimeURL = directory.appending(
+            path: "VitaRuntime",
+            directoryHint: .isDirectory
+        )
+        let placeholderURL = runtimeURL.appending(
+            path: "vita/ux0/user/00/savedata/\(titleID)/placeholder.txt"
+        )
+        try FileManager.default.createDirectory(
+            at: placeholderURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: placeholderURL)
+        #expect(
+            try Vita3KBridge.prepareRestoredSaveData(
+                from: configuration.localSaveURL,
+                titleID: titleID,
+                vitaStorageURL: runtimeURL
+            )
+        )
+        let liveDataURL = placeholderURL.deletingLastPathComponent()
+            .appending(path: "Savegame_0.bin")
+        #expect(try Data(contentsOf: liveDataURL) == remoteSaveData)
+        #expect(!FileManager.default.fileExists(atPath: placeholderURL.path))
+
+        let changedData = Data("changed-by-retrovault".utf8)
+        try changedData.write(to: liveDataURL, options: .atomic)
+        #expect(
+            try Vita3KBridge.captureSaveData(
+                to: configuration.localSaveURL,
+                titleID: titleID,
+                vitaStorageURL: runtimeURL
+            )
+        )
+        #expect(
+            try await service.syncCartridgeSaveAfterPlay(configuration)
+                == .uploaded
+        )
+
+        let uploadedBundle = try #require(await api.uploadedSaves.first)
+        let uploadedURL = directory.appending(path: "UploadedVita.zip")
+        try uploadedBundle.write(to: uploadedURL)
+        let restoredDirectory = directory.appending(
+            path: "RestoredVita",
+            directoryHint: .isDirectory
+        )
+        try SaveBundleArchive().restore(
+            from: uploadedURL,
+            to: restoredDirectory
+        )
+        #expect(
+            try Data(
+                contentsOf: restoredDirectory.appending(
+                    path: "cannoli-standalone-save.txt"
+                )
+            ) == markerData
+        )
+        #expect(
+            try Data(
+                contentsOf: restoredDirectory.appending(
+                    path: "save/Savegame_0.bin"
+                )
+            ) == changedData
+        )
+        #expect(await api.uploadedFileNames == ["Rayman Origins.vita3k.zip"])
+
+        let records = await service.localSaveRecords(in: session)
+        #expect(records.contains { $0.gameID == game.id && !$0.needsUpload })
+    }
+
     @Test("Synchronizes Cemu's MLC save data as one ZIP bundle")
     func synchronizesCemuSaveDirectory() async throws {
         let token = try ClientToken(

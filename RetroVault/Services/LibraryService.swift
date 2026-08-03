@@ -1941,6 +1941,16 @@ actor RomMLibraryService: LibraryServing {
         withIntermediateDirectories: true
       )
     }
+    if coreID.lowercased().contains("vita3k") {
+      if try Vita3KBridge.stageExistingSaveIfNeeded(
+        gameID: game.id,
+        managedURL: localSaveURL
+      ) {
+        RetroVaultLog.libretro.notice(
+          "Recovered Vita3K save data for game \(game.id, privacy: .public) before checking RomM"
+        )
+      }
+    }
 
     let metadata = loadSaveSyncMetadata(for: localSaveURL)
     let configuration = CartridgeSaveSyncConfiguration(
@@ -2288,7 +2298,7 @@ actor RomMLibraryService: LibraryServing {
       }
 
       let saveRAMURL = gameDirectory.appending(path: "SaveRAM.srm")
-      let directoryBundleURLs = ["Cemu", "PPSSPP"].map {
+      let directoryBundleURLs = ["Cemu", "PPSSPP", "Vita3K"].map {
         gameDirectory.appending(path: $0, directoryHint: .isDirectory)
       }
       let storage: CartridgeSaveSyncConfiguration.Storage
@@ -2316,14 +2326,19 @@ actor RomMLibraryService: LibraryServing {
       guard inventory.sizeBytes > 0 else {
         return nil
       }
+      let emulator: String
+      switch localSaveURL.lastPathComponent {
+      case "Cemu": emulator = "Cemu"
+      case "Vita3K": emulator = "Vita3K"
+      default: emulator = "RetroVault"
+      }
       let metadata = loadSaveSyncMetadata(for: localSaveURL)
       let configuration = CartridgeSaveSyncConfiguration(
         serverURL: session.serverURL,
         gameID: gameID,
         localSaveURL: localSaveURL,
         uploadFileName: "",
-        emulator:
-          localSaveURL.lastPathComponent == "Cemu" ? "Cemu" : "RetroVault",
+        emulator: emulator,
         slot: "autosave",
         storage: storage,
         cemuPortableSaveOrigin: metadata?.cemuPortableSaveOrigin
@@ -2632,7 +2647,13 @@ actor RomMLibraryService: LibraryServing {
     case .saveRAM:
       ".srm"
     case .directoryBundle:
-      coreID.lowercased().contains("cemu") ? ".cemu.zip" : ".ppsspp.zip"
+      if coreID.lowercased().contains("cemu") {
+        ".cemu.zip"
+      } else if coreID.lowercased().contains("vita3k") {
+        ".vita3k.zip"
+      } else {
+        ".ppsspp.zip"
+      }
     }
     return safeFileName(
       "\(stem)\(suffix)",
@@ -2646,12 +2667,20 @@ actor RomMLibraryService: LibraryServing {
   ) -> CartridgeSaveSyncConfiguration.Storage {
     let normalized = coreID.lowercased()
     return normalized.contains("ppsspp") || normalized.contains("cemu")
+      || normalized.contains("vita3k")
       ? .directoryBundle
       : .saveRAM
   }
 
   private func saveDirectoryName(forCoreID coreID: String) -> String {
-    coreID.lowercased().contains("cemu") ? "Cemu" : "PPSSPP"
+    let normalized = coreID.lowercased()
+    if normalized.contains("cemu") {
+      return "Cemu"
+    }
+    if normalized.contains("vita3k") {
+      return "Vita3K"
+    }
+    return "PPSSPP"
   }
 
   private func remoteSaves(

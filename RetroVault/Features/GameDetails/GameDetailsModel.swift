@@ -364,6 +364,13 @@ final class GameDetailsModel {
         }
 
         do {
+            async let saveSync = service.prepareCartridgeSaveForPlay(
+                game,
+                in: session,
+                emulator: "Vita3K",
+                coreID: "Vita3K",
+                allowsRemoteAccess: synchronizesWithServer
+            )
             let firmwareResult: Result<[URL], Error>
             do {
                 firmwareResult = .success(
@@ -403,6 +410,7 @@ final class GameDetailsModel {
                     }
                 }
             )
+            let preparedSaveSync = try await saveSync
             isDownloaded = true
             isLocallyAvailable = true
             let firmwareURLs: [URL]
@@ -420,7 +428,8 @@ final class GameDetailsModel {
                 title: game.name,
                 archiveURL: archiveURL,
                 firmwareURLs: firmwareURLs,
-                firmwarePreparationError: firmwarePreparationError
+                firmwarePreparationError: firmwarePreparationError,
+                saveSync: preparedSaveSync
             )
         } catch is CancellationError {
             return nil

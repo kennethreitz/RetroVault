@@ -52,6 +52,7 @@ struct Vita3KRunRequest: Hashable, Sendable {
   let archiveURL: URL
   let firmwareURLs: [URL]
   let firmwarePreparationError: String?
+  let saveSync: CartridgeSaveSyncConfiguration?
 }
 
 enum Vita3KBridgeError: LocalizedError {
@@ -62,6 +63,7 @@ enum Vita3KBridgeError: LocalizedError {
   case firmwareInstallFailed(String)
   case archiveInstallFailed(String)
   case launchFailed(String)
+  case invalidSaveBundle(String)
 
   var errorDescription: String? {
     switch self {
@@ -75,7 +77,8 @@ enum Vita3KBridgeError: LocalizedError {
       "The main Vita firmware is required. Upload its .PUP package as system firmware in RomM, then try again."
     case .firmwareInstallFailed(let message):
       message
-    case .archiveInstallFailed(let message), .launchFailed(let message):
+    case .archiveInstallFailed(let message), .launchFailed(let message),
+      .invalidSaveBundle(let message):
       message
     }
   }
@@ -394,5 +397,282 @@ final class Vita3KBridge: @unchecked Sendable {
 
   private static func titleIDKey(gameID: Int) -> String {
     "vita3k.installed-title-id.\(gameID)"
+  }
+
+  /// Returns the title ID Vita3K recorded when it installed this RomM game.
+  ///
+  /// Save staging happens before the hosted engine starts, so it deliberately
+  /// uses the stable game-to-title mapping recorded by `installArchive`.
+  static func cachedTitleID(forGameID gameID: Int) -> String? {
+    normalizedTitleID(
+      UserDefaults.standard.string(forKey: titleIDKey(gameID: gameID))
+    )
+  }
+
+  /// Captures a Vita3K save that is newer than RetroVault's managed copy.
+  ///
+  /// This recovery step protects sessions that ended while the app or Mac was
+  /// shutting down. It also adopts saves created before hosted Vita save sync
+  /// existed, without letting a zero-byte Vita3K placeholder hide a real RomM
+  /// save.
+  @discardableResult
+  static func stageExistingSaveIfNeeded(
+    gameID: Int,
+    managedURL: URL,
+    vitaStorageURL: URL? = nil
+  ) throws -> Bool {
+    guard let titleID = cachedTitleID(forGameID: gameID) else {
+      return false
+    }
+    let liveURL = try liveSaveURL(
+      titleID: titleID,
+      vitaStorageURL: vitaStorageURL
+    )
+    guard let liveModifiedAt = latestMeaningfulModificationDate(in: liveURL) else {
+      return false
+    }
+
+    let managedSource = try managedSaveSource(
+      in: managedURL,
+      titleID: titleID
+    )
+    if let managedModifiedAt = latestMeaningfulModificationDate(
+      in: managedSource.url
+    ), managedModifiedAt >= liveModifiedAt {
+      return false
+    }
+    return try captureSaveData(
+      to: managedURL,
+      titleID: titleID,
+      vitaStorageURL: vitaStorageURL
+    )
+  }
+
+  /// Projects a managed RomM save into Vita3K's live savedata directory.
+  ///
+  /// Cannoli's portable marker + `save/` layout and RetroVault's older direct
+  /// directory bundles are both accepted. The managed copy is never mutated.
+  @discardableResult
+  static func prepareRestoredSaveData(
+    from managedURL: URL,
+    titleID: String,
+    vitaStorageURL: URL? = nil
+  ) throws -> Bool {
+    guard let titleID = normalizedTitleID(titleID) else {
+      throw Vita3KBridgeError.invalidSaveBundle(
+        "Vita3K reported an invalid PlayStation Vita title ID."
+      )
+    }
+    let source = try managedSaveSource(in: managedURL, titleID: titleID)
+    guard containsMeaningfulSaveData(in: source.url) else {
+      return false
+    }
+    let destination = try liveSaveURL(
+      titleID: titleID,
+      vitaStorageURL: vitaStorageURL
+    )
+    try replaceDirectoryContents(from: source.url, to: destination)
+    return true
+  }
+
+  /// Captures Vita3K's live savedata while retaining the imported RomM shape.
+  ///
+  /// New saves use Cannoli's portable representation so either client can
+  /// consume the next revision. Existing direct bundles remain direct.
+  @discardableResult
+  static func captureSaveData(
+    to managedURL: URL,
+    titleID: String,
+    vitaStorageURL: URL? = nil
+  ) throws -> Bool {
+    guard let titleID = normalizedTitleID(titleID) else {
+      throw Vita3KBridgeError.invalidSaveBundle(
+        "Vita3K reported an invalid PlayStation Vita title ID."
+      )
+    }
+    let source = try liveSaveURL(
+      titleID: titleID,
+      vitaStorageURL: vitaStorageURL
+    )
+    guard containsMeaningfulSaveData(in: source) else {
+      return false
+    }
+
+    let existing = try managedSaveSource(in: managedURL, titleID: titleID)
+    let usesPortableLayout = existing.isPortable
+      || !containsMeaningfulSaveData(in: existing.url)
+    if usesPortableLayout {
+      try FileManager.default.createDirectory(
+        at: managedURL,
+        withIntermediateDirectories: true
+      )
+      let portableURL = managedURL.appending(
+        path: "save",
+        directoryHint: .isDirectory
+      )
+      try replaceDirectoryContents(from: source, to: portableURL)
+      let markerData = existing.markerData ?? portableMarkerData(titleID: titleID)
+      try markerData.write(
+        to: managedURL.appending(path: "cannoli-standalone-save.txt"),
+        options: .atomic
+      )
+    } else {
+      try replaceDirectoryContents(from: source, to: managedURL)
+    }
+    return true
+  }
+
+  private struct ManagedSaveSource {
+    let url: URL
+    let isPortable: Bool
+    let markerData: Data?
+  }
+
+  private static func managedSaveSource(
+    in managedURL: URL,
+    titleID: String
+  ) throws -> ManagedSaveSource {
+    let markerURL = managedURL.appending(
+      path: "cannoli-standalone-save.txt"
+    )
+    let portableURL = managedURL.appending(
+      path: "save",
+      directoryHint: .isDirectory
+    )
+    let markerData = try? Data(contentsOf: markerURL)
+    let hasPortableDirectory = FileManager.default.fileExists(
+      atPath: portableURL.path
+    )
+    guard markerData != nil || hasPortableDirectory else {
+      return ManagedSaveSource(
+        url: managedURL,
+        isPortable: false,
+        markerData: nil
+      )
+    }
+
+    if let markerData {
+      guard let marker = String(data: markerData, encoding: .utf8) else {
+        throw Vita3KBridgeError.invalidSaveBundle(
+          "The RomM Vita save marker is not valid UTF-8."
+        )
+      }
+      var fields: [String: String] = [:]
+      for line in marker.split(whereSeparator: { $0.isNewline }) {
+        let components = line.split(separator: "=", maxSplits: 1)
+        guard components.count == 2 else { continue }
+        fields[String(components[0])] = String(components[1])
+      }
+      guard
+        fields["emulator"]?.uppercased() == "VITA3K",
+        normalizedTitleID(fields["title_id"]) == titleID
+      else {
+        throw Vita3KBridgeError.invalidSaveBundle(
+          "The RomM Vita save belongs to a different Vita title."
+        )
+      }
+    }
+    return ManagedSaveSource(
+      url: portableURL,
+      isPortable: true,
+      markerData: markerData
+    )
+  }
+
+  private static func liveSaveURL(
+    titleID: String,
+    vitaStorageURL: URL?
+  ) throws -> URL {
+    let baseURL = try vitaStorageURL ?? storageURL()
+    return baseURL
+      .appending(path: "vita", directoryHint: .isDirectory)
+      .appending(path: "ux0", directoryHint: .isDirectory)
+      .appending(path: "user", directoryHint: .isDirectory)
+      .appending(path: "00", directoryHint: .isDirectory)
+      .appending(path: "savedata", directoryHint: .isDirectory)
+      .appending(path: titleID, directoryHint: .isDirectory)
+  }
+
+  private static func replaceDirectoryContents(
+    from sourceURL: URL,
+    to destinationURL: URL
+  ) throws {
+    let archive = SaveBundleArchive()
+    guard let data = try archive.data(from: sourceURL) else {
+      throw Vita3KBridgeError.invalidSaveBundle(
+        "The Vita save bundle contains no save data."
+      )
+    }
+    let temporaryURL = FileManager.default.temporaryDirectory.appending(
+      path: "RetroVault-VitaSave-\(UUID().uuidString).zip"
+    )
+    defer { try? FileManager.default.removeItem(at: temporaryURL) }
+    try data.write(to: temporaryURL, options: .atomic)
+    try archive.restore(from: temporaryURL, to: destinationURL)
+  }
+
+  private static func containsMeaningfulSaveData(in directoryURL: URL) -> Bool {
+    latestMeaningfulModificationDate(in: directoryURL) != nil
+  }
+
+  private static func latestMeaningfulModificationDate(
+    in directoryURL: URL
+  ) -> Date? {
+    guard
+      let enumerator = FileManager.default.enumerator(
+        at: directoryURL,
+        includingPropertiesForKeys: [
+          .isRegularFileKey,
+          .fileSizeKey,
+          .contentModificationDateKey,
+        ],
+        options: [.skipsHiddenFiles, .skipsPackageDescendants]
+      )
+    else {
+      return nil
+    }
+    var latest: Date?
+    for case let fileURL as URL in enumerator {
+      guard
+        fileURL.lastPathComponent != "cannoli-standalone-save.txt",
+        let values = try? fileURL.resourceValues(forKeys: [
+          .isRegularFileKey,
+          .fileSizeKey,
+          .contentModificationDateKey,
+        ]),
+        values.isRegularFile == true,
+        (values.fileSize ?? 0) > 0
+      else {
+        continue
+      }
+      let modifiedAt = values.contentModificationDate ?? .distantPast
+      if latest.map({ modifiedAt > $0 }) ?? true {
+        latest = modifiedAt
+      }
+    }
+    return latest
+  }
+
+  private static func normalizedTitleID(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let normalized = value
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .uppercased()
+    guard
+      normalized.count == 9,
+      normalized.unicodeScalars.allSatisfy({ scalar in
+        (65...90).contains(scalar.value)
+          || (48...57).contains(scalar.value)
+      })
+    else {
+      return nil
+    }
+    return normalized
+  }
+
+  private static func portableMarkerData(titleID: String) -> Data {
+    Data(
+      "format=1\nemulator=VITA3K\ntitle_id=\(titleID)\n".utf8
+    )
   }
 }

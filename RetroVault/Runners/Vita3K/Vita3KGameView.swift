@@ -6,7 +6,8 @@ import Observation
 
 struct Vita3KGameView: View {
   let request: Vita3KRunRequest
-  let onCloseRequested: () -> Void
+  let service: any LibraryServing
+  let onCloseRequested: @MainActor @Sendable () -> Void
 
   @State private var coordinator = Vita3KPlayerCoordinator()
   @State private var playerWindow: NSWindow?
@@ -38,6 +39,13 @@ struct Vita3KGameView: View {
           Text(message.uppercased())
             .font(.title2.weight(.bold))
         }
+      case .synchronizing:
+        VStack(spacing: 18) {
+          ProgressView()
+            .controlSize(.large)
+          Text("SYNCHRONIZING VITA SAVE…")
+            .font(.title2.weight(.bold))
+        }
       case .failed(let message):
         VStack(spacing: 18) {
           Image(systemName: "exclamationmark.triangle")
@@ -60,10 +68,14 @@ struct Vita3KGameView: View {
       .frame(width: 0, height: 0)
     }
     .task(id: request) {
-      await coordinator.start(request: request)
+      await coordinator.start(
+        request: request,
+        service: service,
+        onFinished: onCloseRequested
+      )
     }
     .onDisappear {
-      coordinator.stop()
+      coordinator.stopAndPreserveLocalSave()
     }
     .onExitCommand {
       switch GameplayEscapeAction.resolve(
@@ -72,7 +84,7 @@ struct Vita3KGameView: View {
       case .leaveFullScreen:
         playerWindow?.toggleFullScreen(nil)
       case .closeGame:
-        onCloseRequested()
+        coordinator.requestClose()
       }
     }
   }
@@ -111,6 +123,7 @@ private final class Vita3KPlayerCoordinator {
     case ready
     case starting(String)
     case running
+    case synchronizing
     case failed(String)
   }
 
@@ -120,8 +133,18 @@ private final class Vita3KPlayerCoordinator {
   private var bridge: Vita3KBridge?
   private var runTask: Task<Void, Never>?
   private var eventPumpTask: Task<Void, Never>?
+  private var activeRequest: Vita3KRunRequest?
+  private var activeTitleID: String?
+  private var activeService: (any LibraryServing)?
+  private var onFinished: (@MainActor @Sendable () -> Void)?
+  private var isClosing = false
+  private var isFinishing = false
 
-  func start(request: Vita3KRunRequest) async {
+  func start(
+    request: Vita3KRunRequest,
+    service: any LibraryServing,
+    onFinished: @escaping @MainActor @Sendable () -> Void
+  ) async {
     guard runTask == nil, let surfaceView else {
       return
     }
@@ -129,6 +152,12 @@ private final class Vita3KPlayerCoordinator {
       status = .failed(Vita3KBridgeError.unavailable.localizedDescription)
       return
     }
+
+    activeRequest = request
+    activeService = service
+    self.onFinished = onFinished
+    isClosing = false
+    isFinishing = false
 
     status = .starting("Starting Vita3K…")
     do {
@@ -156,6 +185,24 @@ private final class Vita3KPlayerCoordinator {
       let titleID = try await Task.detached(priority: .userInitiated) {
         try bridge.installArchive(at: request.archiveURL, gameID: request.gameID)
       }.value
+      activeTitleID = titleID
+      guard !isClosing else { return }
+
+      if let saveSync = request.saveSync {
+        status = .starting("Restoring Vita save…")
+        let restored = try await Task.detached(priority: .userInitiated) {
+          try Vita3KBridge.prepareRestoredSaveData(
+            from: saveSync.localSaveURL,
+            titleID: titleID
+          )
+        }.value
+        if restored {
+          RetroVaultLog.libretro.notice(
+            "Restored Vita save data for game \(request.gameID, privacy: .public)"
+          )
+        }
+      }
+      guard !isClosing else { return }
 
       let pixelSize = surfaceView.pixelSize
       status = .running
@@ -192,14 +239,9 @@ private final class Vita3KPlayerCoordinator {
             pixelSize: pixelSize,
             titleID: titleID
           )
-          await MainActor.run {
-            self?.eventPumpTask?.cancel()
-          }
+          await self?.finishRun(errorMessage: nil)
         } catch {
-          await MainActor.run {
-            self?.eventPumpTask?.cancel()
-            self?.status = .failed(error.localizedDescription)
-          }
+          await self?.finishRun(errorMessage: error.localizedDescription)
         }
       }
     } catch {
@@ -215,7 +257,19 @@ private final class Vita3KPlayerCoordinator {
     bridge?.setFrontTouch(at: point, pressed: pressed, active: active)
   }
 
-  func stop() {
+  func requestClose() {
+    isClosing = true
+    guard runTask != nil else {
+      bridge?.stop()
+      onFinished?()
+      return
+    }
+    bridge?.stop()
+  }
+
+  func stopAndPreserveLocalSave() {
+    isClosing = true
+    preserveLocalSave()
     eventPumpTask?.cancel()
     eventPumpTask = nil
     _ = DSUConnection.shared.setRumble(slot: 0, strong: 0, weak: 0)
@@ -223,6 +277,75 @@ private final class Vita3KPlayerCoordinator {
     runTask?.cancel()
     runTask = nil
     bridge = nil
+  }
+
+  private func finishRun(errorMessage: String?) async {
+    guard !isFinishing else { return }
+    isFinishing = true
+    eventPumpTask?.cancel()
+    eventPumpTask = nil
+    _ = DSUConnection.shared.setRumble(slot: 0, strong: 0, weak: 0)
+    runTask = nil
+    bridge = nil
+
+    if let request = activeRequest,
+      let titleID = activeTitleID,
+      let service = activeService,
+      let saveSync = request.saveSync
+    {
+      status = .synchronizing
+      do {
+        let captured = try await Task.detached(priority: .userInitiated) {
+          try Vita3KBridge.captureSaveData(
+            to: saveSync.localSaveURL,
+            titleID: titleID
+          )
+        }.value
+        if captured {
+          RetroVaultLog.libretro.notice(
+            "Captured Vita3K save data for game \(request.gameID, privacy: .public)"
+          )
+        }
+        _ = try await service.syncCartridgeSaveAfterPlay(saveSync)
+        RetroVaultLog.libretro.notice(
+          "Synchronized Vita3K save data for game \(request.gameID, privacy: .public)"
+        )
+      } catch {
+        // The managed save remains available to Save Center for a later retry.
+        RetroVaultLog.libretro.error(
+          "Could not synchronize Vita3K save data for game \(request.gameID, privacy: .public): \(error.localizedDescription, privacy: .public)"
+        )
+      }
+    }
+
+    if let errorMessage {
+      status = .failed(errorMessage)
+      return
+    }
+    onFinished?()
+  }
+
+  private func preserveLocalSave() {
+    guard
+      let titleID = activeTitleID,
+      let saveSync = activeRequest?.saveSync
+    else {
+      return
+    }
+    do {
+      if try Vita3KBridge.captureSaveData(
+        to: saveSync.localSaveURL,
+        titleID: titleID
+      ) {
+        RetroVaultLog.libretro.notice(
+          "Preserved Vita3K save data locally while closing game \(saveSync.gameID, privacy: .public)"
+        )
+      }
+    } catch {
+      RetroVaultLog.libretro.error(
+        "Could not preserve Vita3K save data locally for game \(saveSync.gameID, privacy: .public): \(error.localizedDescription, privacy: .public)"
+      )
+    }
   }
 }
 

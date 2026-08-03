@@ -138,6 +138,7 @@ struct BigPictureView: View {
       if let activeVita3KRequest {
         Vita3KGameView(
           request: activeVita3KRequest,
+          service: model.service,
           onCloseRequested: returnToBigPicture
         )
         .id(activeVita3KRequest)
