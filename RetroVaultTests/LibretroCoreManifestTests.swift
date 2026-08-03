@@ -802,11 +802,6 @@ struct LibretroCoreManifestTests {
         #expect(LibretroVideoFilter.crt.usesFrameHistory)
         #expect(LibretroVideoFilter.crtSmart.usesFrameHistory)
         #expect(LibretroVideoFilter.crtCurved.usesFrameHistory)
-        #expect(
-            LibretroInternalResolutionPreferences.resolution(
-                from: defaults ?? .standard
-            ) == .native
-        )
     }
 
     @Test("Escape leaves gameplay fullscreen before closing the player")

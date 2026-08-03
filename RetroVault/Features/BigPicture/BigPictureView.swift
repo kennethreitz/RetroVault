@@ -74,9 +74,6 @@ struct BigPictureView: View {
   @AppStorage(LibretroTransportPreferences.enablesRewindKey)
   private var enablesL3Rewind =
     LibretroTransportPreferences.enabledByDefault
-  @AppStorage(LibretroInternalResolutionPreferences.scaleKey)
-  private var internalResolution =
-    LibretroInternalResolutionPreferences.defaultResolution
   @AppStorage(LibretroPlayerPreferences.opensInFullScreenKey)
   private var opensGamesInFullScreen =
     LibretroPlayerPreferences.opensInFullScreenByDefault
@@ -1374,7 +1371,7 @@ struct BigPictureView: View {
       "OPEN"
     case .disconnect:
       "DISCONNECT"
-    case .videoFilter, .internalResolution, .wiiController,
+    case .videoFilter, .wiiController,
       .mapsLeftAnalogToDPad, .fastForward, .rewind, .gamesFullScreen,
       .experimentalCores, .dsuEnabled, .dsuLayout,
       .bigPictureFullScreen:
@@ -1423,11 +1420,6 @@ struct BigPictureView: View {
         .videoFilter,
         title: "Video Filter",
         detail: videoFilter.displayName
-      ),
-      settingRow(
-        .internalResolution,
-        title: "Internal Resolution",
-        detail: internalResolution.displayName
       ),
       settingRow(
         .wiiController,
@@ -2560,12 +2552,6 @@ struct BigPictureView: View {
     case .videoFilter:
       videoFilter = next(videoFilter, in: LibretroVideoFilter.allCases)
       refreshSettingsRowsPreservingSelection()
-    case .internalResolution:
-      internalResolution = next(
-        internalResolution,
-        in: LibretroInternalResolution.allCases
-      )
-      refreshSettingsRowsPreservingSelection()
     case .wiiController:
       wiiControllerProfile = next(
         wiiControllerProfile,
@@ -3409,7 +3395,6 @@ private enum BigPictureSetting: Hashable, Sendable {
   case purgeAndResynchronize
   case runtime
   case videoFilter
-  case internalResolution
   case wiiController
   case mapsLeftAnalogToDPad
   case fastForward

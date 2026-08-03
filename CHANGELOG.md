@@ -35,9 +35,8 @@ being a list of every commit.
 - Cemu now inherits RetroVault's current presentation when a Wii U game starts:
   windowed RetroVault sessions launch Cemu windowed, while fullscreen sessions
   continue launching Cemu fullscreen.
-- Cemu now honors RetroVault's shared Native, 2x, and 4x internal-resolution
-  setting through cached official community graphics packs, while retaining a
-  native fallback for Wii U titles without a compatible resolution preset.
+- Removed the shared internal-resolution selector. Libretro cores and hosted
+  emulators now use their own native/default rendering resolution.
 - RetroVault now embeds the stable Vulkan Cemu companion beside the native
   Metal companion and selects it only for titles with known Metal rendering
   regressions. Super Mario 3D World uses Vulkan while other Wii U games keep

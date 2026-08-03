@@ -3634,8 +3634,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 systemDirectory: paths.system,
                 saveDirectory: paths.saves,
                 assetsDirectory: paths.assets,
-                internalResolution:
-                    LibretroInternalResolutionPreferences.resolution()
+                internalResolution: .native
             )
             environment = runtimeEnvironment
 

@@ -14,9 +14,6 @@ struct SettingsView: View {
         LibretroTransportPreferences.enabledByDefault
     @AppStorage(LibretroVideoPreferences.filterKey)
     private var videoFilter = LibretroVideoPreferences.defaultFilter
-    @AppStorage(LibretroInternalResolutionPreferences.scaleKey)
-    private var internalResolution =
-        LibretroInternalResolutionPreferences.defaultResolution
     @AppStorage(LibretroCorePreferences.enablesExperimentalCoresKey)
     private var enablesExperimentalCores =
         LibretroCorePreferences.enabledByDefault
@@ -127,24 +124,6 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Picker("Internal Resolution", selection: $internalResolution) {
-                    ForEach(LibretroInternalResolution.allCases) { resolution in
-                        Text(resolution.displayName).tag(resolution)
-                    }
-                }
-
-                Text(
-                    """
-                    Internal resolution redraws 3D games at a higher \
-                    resolution instead of enlarging the picture afterwards. \
-                    It applies to the PlayStation, Dreamcast, PSP, GameCube, \
-                    and Wii cores, costs GPU time, and takes effect the next \
-                    time a game starts. 2D cores render at a fixed resolution \
-                    and ignore it.
-                    """
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
 
             Section("Emulation") {

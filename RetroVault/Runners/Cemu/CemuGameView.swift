@@ -144,35 +144,12 @@ private final class CemuPlayerCoordinator {
           playerCount: Int(DSUProtocol.slotCount)
         )
       } ?? dsuConfiguration
-      let internalResolution = LibretroInternalResolutionPreferences.resolution()
-      if internalResolution != .native {
-        status = .starting("Preparing Cemu \(internalResolution.displayName) graphics…")
-        do {
-          let installed = try await Task.detached(priority: .utility) {
-            try await installation.ensureGraphicPacksAvailable(
-              for: internalResolution
-            )
-          }.value
-          if installed {
-            RetroVaultLog.cemu.notice(
-              "Installed Cemu's official community graphics packs"
-            )
-          }
-        } catch {
-          // Resolution scaling is optional. A GitHub outage or malformed pack
-          // must never make an otherwise playable local game fail to launch.
-          RetroVaultLog.cemu.error(
-            "Could not refresh Cemu graphics packs; continuing with cached packs or native resolution: \(error.localizedDescription, privacy: .public)"
-          )
-        }
-      }
       let runtime = try await Task.detached(priority: .userInitiated) {
         try installation.prepareRuntime(
           dsuConfiguration: effectiveDSUConfiguration,
           contentURL: request.contentURL,
           mlcURL: request.saveSync.localSaveURL,
-          launchPresentation: launchPresentation,
-          internalResolution: internalResolution
+          launchPresentation: launchPresentation
         )
       }.value
       guard !Task.isCancelled else { return }
@@ -203,7 +180,7 @@ private final class CemuPlayerCoordinator {
       process.standardOutput = launcherLogHandle
       process.standardError = launcherLogHandle
       RetroVaultLog.cemu.notice(
-        "Launching bundled Cemu with \(installation.rendererName, privacy: .public) \(launchPresentation.logDescription, privacy: .public) for game \(request.gameID, privacy: .public) with requested \(internalResolution.displayName, privacy: .public) internal resolution and content \(request.contentURL.path, privacy: .public)"
+        "Launching bundled Cemu with \(installation.rendererName, privacy: .public) \(launchPresentation.logDescription, privacy: .public) for game \(request.gameID, privacy: .public) with content \(request.contentURL.path, privacy: .public)"
       )
 
       let existingCemuProcessIDs = Set(
