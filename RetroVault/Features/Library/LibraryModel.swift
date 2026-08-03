@@ -426,27 +426,13 @@ final class LibraryModel {
 
     do {
       let details = try await transferableDetails(for: game)
-      guard
-        let installation = try? LibretroInstallation.bundled(),
-        let core = installation.compatibleCore(
-          systemName: details.systemName,
-          fileExtension: details.fileExtension,
-          archiveMemberNames: details.files.flatMap {
-            $0.archiveMembers.map(\.name)
-          },
-          contentFileNames: details.files.map(\.name),
-          includingExperimental:
-            LibretroCorePreferences.enablesExperimentalCores()
-        )
-      else {
-        throw SaveCenterError.unsupportedSystem(details.systemName)
-      }
+      let runtime = try saveSyncRuntime(for: details)
       guard
         let configuration = try await service.prepareCartridgeSaveForPlay(
           details,
           in: session,
-          emulator: "RetroVault",
-          coreID: core.id,
+          emulator: runtime.emulator,
+          coreID: runtime.coreID,
           allowsRemoteAccess: true
         )
       else {
@@ -462,6 +448,38 @@ final class LibraryModel {
       await reloadSaveCenter()
       return .failed(message)
     }
+  }
+
+  private func saveSyncRuntime(
+    for game: GameDetails
+  ) throws -> (emulator: String, coreID: String) {
+    if game.systemName.caseInsensitiveCompare(Vita3KInstallation.systemName)
+      == .orderedSame
+    {
+      return (emulator: "Vita3K", coreID: "Vita3K")
+    }
+    if game.systemName.caseInsensitiveCompare(CemuInstallation.systemName)
+      == .orderedSame
+    {
+      return (emulator: "Cemu", coreID: "cemu")
+    }
+
+    guard
+      let installation = try? LibretroInstallation.bundled(),
+      let core = installation.compatibleCore(
+        systemName: game.systemName,
+        fileExtension: game.fileExtension,
+        archiveMemberNames: game.files.flatMap {
+          $0.archiveMembers.map(\.name)
+        },
+        contentFileNames: game.files.map(\.name),
+        includingExperimental:
+          LibretroCorePreferences.enablesExperimentalCores()
+      )
+    else {
+      throw SaveCenterError.unsupportedSystem(game.systemName)
+    }
+    return (emulator: "RetroVault", coreID: core.id)
   }
 
   var hasMoreGames: Bool {

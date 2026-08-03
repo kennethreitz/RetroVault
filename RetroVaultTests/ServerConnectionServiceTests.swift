@@ -342,6 +342,64 @@ struct LibraryTests {
     }
 
     @MainActor
+    @Test("Routes hosted Vita and Cemu saves without Libretro cores")
+    func synchronizesHostedEmulatorSaves() async throws {
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let vita = GameSummary(
+            id: 1,
+            name: "Super Stardust Delta",
+            systemID: 10,
+            systemName: Vita3KInstallation.systemName,
+            coverURL: nil
+        )
+        let cemu = GameSummary(
+            id: 2,
+            name: "The Wind Waker HD",
+            systemID: 20,
+            systemName: CemuInstallation.systemName,
+            coverURL: nil
+        )
+        let service = MockLibraryService(
+            allGames: [vita, cemu],
+            gameDetailsByID: [
+                vita.id: mockGameDetails(
+                    id: vita.id,
+                    fileName: "Super Stardust Delta.vpk",
+                    systemName: vita.systemName
+                ),
+                cemu.id: mockGameDetails(
+                    id: cemu.id,
+                    fileName: "The Wind Waker HD.wua",
+                    systemName: cemu.systemName
+                ),
+            ]
+        )
+        let model = LibraryModel(session: session, service: service)
+        await model.load()
+
+        #expect(await model.synchronizeSave(gameID: vita.id) == .unchanged)
+        #expect(await model.synchronizeSave(gameID: cemu.id) == .unchanged)
+        #expect(
+            await service.recordedSavePreparations()
+                == [
+                    MockSavePreparation(
+                        gameID: vita.id,
+                        emulator: "Vita3K",
+                        coreID: "Vita3K"
+                    ),
+                    MockSavePreparation(
+                        gameID: cemu.id,
+                        emulator: "Cemu",
+                        coreID: "cemu"
+                    ),
+                ]
+        )
+    }
+
+    @MainActor
     @Test("Removes games after RomM confirms deletion")
     func deletesGamesFromLibrary() async throws {
         let session = ServerSession(
@@ -2430,6 +2488,12 @@ private struct MockRomMClient: RomMClient {
     }
 }
 
+private struct MockSavePreparation: Equatable, Sendable {
+    let gameID: Int
+    let emulator: String
+    let coreID: String
+}
+
 private actor MockLibraryService: LibraryServing {
     private var playHistory = LocalPlayHistory()
 
@@ -2447,6 +2511,7 @@ private actor MockLibraryService: LibraryServing {
     }
 
     private let allGames: [GameSummary]
+    private let gameDetailsByID: [Int: GameDetails]
     private let rejectsMetadataUpdates: Bool
     private let blockedDownloadIDs: Set<Int>
     private let downloadDelay: Duration?
@@ -2456,6 +2521,7 @@ private actor MockLibraryService: LibraryServing {
     private var activeDownloadCount = 0
     private var peakActiveDownloadCount = 0
     private var downloadedMembershipReads = 0
+    private var savePreparations: [MockSavePreparation] = []
     private var downloadStartWaiters:
         [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var blockedDownloadContinuations:
@@ -2463,12 +2529,14 @@ private actor MockLibraryService: LibraryServing {
 
     init(
         allGames: [GameSummary]? = nil,
+        gameDetailsByID: [Int: GameDetails] = [:],
         rejectsMetadataUpdates: Bool = false,
         blockedDownloadID: Int? = nil,
         blockedDownloadIDs: Set<Int> = [],
         downloadDelay: Duration? = nil
     ) {
         self.allGames = allGames ?? Self.defaultGames
+        self.gameDetailsByID = gameDetailsByID
         self.rejectsMetadataUpdates = rejectsMetadataUpdates
         self.blockedDownloadIDs =
             blockedDownloadIDs.union(blockedDownloadID.map { [$0] } ?? [])
@@ -2599,7 +2667,38 @@ private actor MockLibraryService: LibraryServing {
     }
 
     func gameDetails(for gameID: Int, in session: ServerSession) -> GameDetails {
-        mockGameDetails(id: gameID)
+        gameDetailsByID[gameID] ?? mockGameDetails(id: gameID)
+    }
+
+    func prepareCartridgeSaveForPlay(
+        _ game: GameDetails,
+        in session: ServerSession,
+        emulator: String,
+        coreID: String
+    ) -> CartridgeSaveSyncConfiguration? {
+        savePreparations.append(
+            MockSavePreparation(
+                gameID: game.id,
+                emulator: emulator,
+                coreID: coreID
+            )
+        )
+        return CartridgeSaveSyncConfiguration(
+            serverURL: session.serverURL,
+            gameID: game.id,
+            localSaveURL: FileManager.default.temporaryDirectory.appending(
+                path: "MockSave-\(game.id)",
+                directoryHint: .isDirectory
+            ),
+            uploadFileName: "MockSave-\(game.id).zip",
+            emulator: emulator,
+            slot: "autosave",
+            storage: .directoryBundle
+        )
+    }
+
+    func recordedSavePreparations() -> [MockSavePreparation] {
+        savePreparations
     }
 
     func updateUserMetadata(
