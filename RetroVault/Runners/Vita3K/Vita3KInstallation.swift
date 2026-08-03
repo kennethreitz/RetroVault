@@ -99,6 +99,24 @@ struct Vita3KFirmwareState: Equatable, Sendable {
   }
 }
 
+/// A PlayStation TV actuator request expanded to the 16-bit motor strengths
+/// used by RetroVault's shared DSU and native-controller output pipeline.
+struct Vita3KRumbleState: Equatable, Sendable {
+  let strong: UInt16
+  let weak: UInt16
+
+  init(packed: UInt32) {
+    let largeMotor = UInt16((packed >> 8) & 0xFF)
+    let smallMotor = UInt16(packed & 0xFF)
+    strong = largeMotor * 0x0101
+    weak = smallMotor * 0x0101
+  }
+
+  var isActive: Bool {
+    strong != 0 || weak != 0
+  }
+}
+
 /// Dynamically loads the experimental Vita3K C bridge.
 ///
 /// Vita3K is intentionally kept behind this narrow runtime boundary. The
@@ -133,6 +151,9 @@ final class Vita3KBridge: @unchecked Sendable {
   typealias SetController = @convention(c) (
     UnsafeMutableRawPointer?, UInt32, UInt32, Float, Float, Float, Float
   ) -> Void
+  typealias RumbleState = @convention(c) (
+    UnsafeMutableRawPointer?, Int32
+  ) -> UInt32
   typealias Stop = @convention(c) (UnsafeMutableRawPointer?) -> Void
   typealias LastError = @convention(c) (
     UnsafeMutableRawPointer?
@@ -150,6 +171,7 @@ final class Vita3KBridge: @unchecked Sendable {
   private let pumpEventsFunction: PumpEvents
   private let setFrontTouchFunction: SetFrontTouch
   private let setControllerFunction: SetController
+  private let rumbleStateFunction: RumbleState
   private let stopFunction: Stop
   private let lastErrorFunction: LastError
 
@@ -203,6 +225,10 @@ final class Vita3KBridge: @unchecked Sendable {
       setControllerFunction = try symbol(
         "retrovault_vita3k_set_controller",
         as: SetController.self
+      )
+      rumbleStateFunction = try symbol(
+        "retrovault_vita3k_rumble_state",
+        as: RumbleState.self
       )
       stopFunction = try symbol("retrovault_vita3k_stop", as: Stop.self)
       lastErrorFunction = try symbol(
@@ -327,6 +353,13 @@ final class Vita3KBridge: @unchecked Sendable {
       state.leftY,
       state.rightX,
       state.rightY
+    )
+  }
+
+  /// Reads the latest actuator request for a zero-based PlayStation TV player.
+  func rumbleState(forPlayer player: Int) -> Vita3KRumbleState {
+    Vita3KRumbleState(
+      packed: rumbleStateFunction(engine, Int32(player))
     )
   }
 

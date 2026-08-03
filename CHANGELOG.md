@@ -9,6 +9,9 @@ being a list of every commit.
 
 ### Added
 
+- PlayStation Vita titles now run as a PlayStation TV by default. Vita3K
+  actuator requests are routed through RetroVault's shared DSU/native rumble
+  pipeline, matching the app's controller-first hosted configuration.
 - Added a reversible, separately built native-arm64 Cemu Metal trial. When the
   capability-marked trial companion is present, RetroVault selects Cemu's
   native Metal renderer; the stable Cemu 2.6 Vulkan companion remains intact

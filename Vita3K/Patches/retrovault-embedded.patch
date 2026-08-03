@@ -59,3 +59,22 @@ index 8808485a..5b5a5236 100644
 @@ -463 +481 @@ if(TRACY_ENABLE_ON_CORE_COMPONENTS)
 -	target_link_libraries(vita3k PRIVATE tracy)
 +	target_link_libraries(${VITA3K_FRONTEND_TARGET} PRIVATE tracy)
+diff --git a/vita3k/ctrl/include/ctrl/state.h b/vita3k/ctrl/include/ctrl/state.h
+index 4f2e3a17..c6e579a0 100644
+--- a/vita3k/ctrl/include/ctrl/state.h
++++ b/vita3k/ctrl/include/ctrl/state.h
+@@ -27,0 +28 @@
++#include <functional>
+@@ -63,0 +65,2 @@ struct CtrlState {
++    using RumbleHandler = std::function<bool(int, uint8_t, uint8_t)>;
++
+@@ -76,0 +80 @@ struct CtrlState {
++    RumbleHandler rumble_handler;
+diff --git a/vita3k/modules/SceCtrl/SceCtrl.cpp b/vita3k/modules/SceCtrl/SceCtrl.cpp
+index 5d38f29c..e725a64f 100644
+--- a/vita3k/modules/SceCtrl/SceCtrl.cpp
++++ b/vita3k/modules/SceCtrl/SceCtrl.cpp
+@@ -196,0 +197,3 @@ EXPORT(int, sceCtrlSetActuator, int port, const SceCtrlActuator *pState) {
++    if (state.rumble_handler && state.rumble_handler(port, pState->small, pState->large)) {
++        return 0;
++    }

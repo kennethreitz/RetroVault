@@ -161,6 +161,7 @@ private final class Vita3KPlayerCoordinator {
       status = .running
       eventPumpTask = Task { @MainActor [weak self] in
         var previousControllerState: Vita3KControllerState?
+        var previousRumbleState = Vita3KRumbleState(packed: 0)
         while !Task.isCancelled {
           bridge.pumpEvents()
           let controllerState = Vita3KControllerInput.currentState()
@@ -168,7 +169,19 @@ private final class Vita3KPlayerCoordinator {
             bridge.setController(controllerState)
             previousControllerState = controllerState
           }
+          let rumbleState = bridge.rumbleState(forPlayer: 0)
+          if rumbleState != previousRumbleState {
+            _ = DSUConnection.shared.setRumble(
+              slot: 0,
+              strong: rumbleState.strong,
+              weak: rumbleState.weak
+            )
+            previousRumbleState = rumbleState
+          }
           try? await Task.sleep(for: .milliseconds(8))
+        }
+        if previousRumbleState.isActive {
+          _ = DSUConnection.shared.setRumble(slot: 0, strong: 0, weak: 0)
         }
         self?.eventPumpTask = nil
       }
@@ -205,6 +218,7 @@ private final class Vita3KPlayerCoordinator {
   func stop() {
     eventPumpTask?.cancel()
     eventPumpTask = nil
+    _ = DSUConnection.shared.setRumble(slot: 0, strong: 0, weak: 0)
     bridge?.stop()
     runTask?.cancel()
     runTask = nil

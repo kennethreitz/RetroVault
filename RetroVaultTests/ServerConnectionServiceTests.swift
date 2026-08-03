@@ -150,6 +150,19 @@ struct LibraryTests {
         #expect(Vita3KFirmwareState(mask: 0b110).canLaunch)
     }
 
+    @Test("Vita actuator bytes expand into shared controller motor strengths")
+    func vitaRumbleState() {
+        let active = Vita3KRumbleState(packed: 0xA53C)
+        #expect(active.strong == 0xA5A5)
+        #expect(active.weak == 0x3C3C)
+        #expect(active.isActive)
+
+        let stopped = Vita3KRumbleState(packed: 0)
+        #expect(stopped.strong == 0)
+        #expect(stopped.weak == 0)
+        #expect(!stopped.isActive)
+    }
+
     @Test("Vita pointer input maps AppKit coordinates onto the front touchscreen")
     func vitaTouchMapping() throws {
         let bounds = CGRect(x: 10, y: 20, width: 960, height: 544)

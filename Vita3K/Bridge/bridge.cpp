@@ -24,6 +24,7 @@
 #include <dlfcn.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -100,6 +101,7 @@ struct RetroVaultVita3KEngine {
     std::atomic<float> touch_y{ 0.0f };
     std::atomic<bool> touch_pressed{ false };
     std::atomic<bool> touch_active{ false };
+    std::array<std::atomic<uint16_t>, SCE_CTRL_MAX_WIRELESS_NUM> rumble{};
     std::mutex error_mutex;
     std::string last_error;
     std::string installed_title_id;
@@ -109,6 +111,11 @@ struct RetroVaultVita3KEngine {
         last_error = std::move(message);
     }
 };
+
+void clear_rumble(RetroVaultVita3KEngine &engine) {
+    for (auto &state : engine.rumble)
+        state.store(0, std::memory_order_release);
+}
 
 bool initialize_engine(
     RetroVaultVita3KEngine &engine,
@@ -151,6 +158,8 @@ bool initialize_engine(
         Config cfg{};
         cfg.config_path = storage_path;
         cfg.set_vita_fs_path(vita_path);
+        cfg.pstv_mode = true;
+        cfg.current_config.pstv_mode = true;
         cfg.current_config.backend_renderer = "Vulkan";
 
         stage = "initializing the emulated environment";
@@ -158,6 +167,19 @@ bool initialize_engine(
             engine.set_error("Vita3K could not initialize its emulated environment.");
             return false;
         }
+        engine.emuenv->ctrl.rumble_handler = [&engine](
+            int port,
+            uint8_t small,
+            uint8_t large) {
+            const int index = port - 1;
+            if (index < 0 || index >= SCE_CTRL_MAX_WIRELESS_NUM)
+                return false;
+
+            const auto packed = static_cast<uint16_t>(
+                (static_cast<uint16_t>(large) << 8) | small);
+            engine.rumble[index].store(packed, std::memory_order_release);
+            return true;
+        };
 
         stage = "enumerating Vulkan devices";
         engine.emuenv->vulkan_device_info =
@@ -377,6 +399,7 @@ int retrovault_vita3k_run(
     }
 
     engine->session->stop(app::AppSessionStopReason::UserRequest);
+    clear_rumble(*engine);
     engine->frame_host.reset();
     return 1;
 }
@@ -436,6 +459,17 @@ void retrovault_vita3k_set_controller(
     state.axes[3] = std::clamp(right_y, -1.0f, 1.0f);
 }
 
+uint32_t retrovault_vita3k_rumble_state(
+    void *opaque_engine,
+    int32_t player_index) {
+    auto *engine = static_cast<RetroVaultVita3KEngine *>(opaque_engine);
+    if (!engine || player_index < 0
+        || player_index >= SCE_CTRL_MAX_WIRELESS_NUM)
+        return 0;
+
+    return engine->rumble[player_index].load(std::memory_order_acquire);
+}
+
 void retrovault_vita3k_resize(
     void *opaque_engine,
     int width,
@@ -447,8 +481,10 @@ void retrovault_vita3k_resize(
 
 void retrovault_vita3k_stop(void *opaque_engine) {
     auto *engine = static_cast<RetroVaultVita3KEngine *>(opaque_engine);
-    if (engine)
+    if (engine) {
+        clear_rumble(*engine);
         engine->stop_requested.store(true, std::memory_order_release);
+    }
 }
 
 const char *retrovault_vita3k_last_error(void *opaque_engine) {
