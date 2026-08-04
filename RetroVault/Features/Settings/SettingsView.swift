@@ -220,45 +220,53 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
             }
 
-            Section("Network Controller (DSU)") {
-                Toggle(
-                    "Read a DSU Controller Server",
-                    isOn: $usesDSUController
-                )
+            Section("Advanced") {
+                DisclosureGroup("DSU Controller Server") {
+                    Toggle(
+                        "Read a DSU Controller Server",
+                        isOn: $usesDSUController
+                    )
 
-                TextField("Server", text: $dsuHost, prompt: Text(DSUProtocol.defaultHost))
+                    TextField(
+                        "Server",
+                        text: $dsuHost,
+                        prompt: Text(DSUProtocol.defaultHost)
+                    )
                     .disabled(!usesDSUController)
 
-                TextField(
-                    "Port",
-                    value: $dsuPort,
-                    format: .number.grouping(.never),
-                    prompt: Text(String(DSUProtocol.defaultPort))
-                )
-                .disabled(!usesDSUController)
+                    TextField(
+                        "Port",
+                        value: $dsuPort,
+                        format: .number.grouping(.never),
+                        prompt: Text(String(DSUProtocol.defaultPort))
+                    )
+                    .disabled(!usesDSUController)
 
-                Picker("Button Layout", selection: $dsuLayout) {
-                    Text("Standard").tag(ControllerFaceButtonLayout.standard.rawValue)
-                    Text("Nintendo").tag(ControllerFaceButtonLayout.nintendo.rawValue)
+                    Picker("Button Layout", selection: $dsuLayout) {
+                        Text("Standard")
+                            .tag(ControllerFaceButtonLayout.standard.rawValue)
+                        Text("Nintendo")
+                            .tag(ControllerFaceButtonLayout.nintendo.rawValue)
+                    }
+                    .disabled(!usesDSUController)
+
+                    LabeledContent("Status", value: dsuStatus.summary)
+
+                    Text(
+                        """
+                        DSU, also called the cemuhook protocol, carries a pad's \
+                        buttons, sticks, touchpad, and motion over the local \
+                        network. RetroVault reads every live slot and merges them \
+                        with controllers attached to this Mac in stable player \
+                        order. Cores that ask for motion receive the pad's \
+                        gyroscope and accelerometer. A DSU packet carries no \
+                        controller identity, so choose Nintendo if the server is \
+                        publishing a Switch pad and its face buttons read swapped.
+                        """
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
-                .disabled(!usesDSUController)
-
-                LabeledContent("Status", value: dsuStatus.summary)
-
-                Text(
-                    """
-                    DSU, also called the cemuhook protocol, carries a pad's \
-                    buttons, sticks, touchpad, and motion over the local \
-                    network. RetroVault reads every live slot and merges them \
-                    with controllers attached to this Mac in stable player \
-                    order. Cores that ask for motion receive the pad's \
-                    gyroscope and accelerometer. A DSU packet carries no \
-                    controller identity, so choose Nintendo if the server is \
-                    publishing a Switch pad and its face buttons read swapped.
-                    """
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
 
             Section("Presentation") {

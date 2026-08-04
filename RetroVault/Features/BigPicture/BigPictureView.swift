@@ -1213,6 +1213,9 @@ struct BigPictureView: View {
     case .settings:
       settingsRows
 
+    case .advancedSettings:
+      advancedSettingsRows
+
     case .saveCenter:
       model.saveCenterItems.map { item in
         BigPictureRow(
@@ -1369,7 +1372,10 @@ struct BigPictureView: View {
   }
 
   private var selectedSetting: BigPictureSetting? {
-    guard page == .settings, rows.indices.contains(selectedIndex) else {
+    guard
+      page == .settings || page == .advancedSettings,
+      rows.indices.contains(selectedIndex)
+    else {
       return nil
     }
     guard case .setting(let setting) = rows[selectedIndex].id else {
@@ -1470,6 +1476,25 @@ struct BigPictureView: View {
         title: "Experimental Cores",
         detail: onOff(enablesExperimentalCores)
       ),
+      BigPictureRow(
+        id: .home("advanced-settings"),
+        title: "Advanced",
+        detail: nil,
+        isFavorite: false,
+        action: .navigate(.advancedSettings)
+      ),
+      settingRow(
+        .bigPictureFullScreen,
+        title: "Open RetroVault in Full Screen",
+        detail: onOff(opensInFullScreen)
+      ),
+      settingRow(.openLogs, title: "Open Log Viewer"),
+      settingRow(.disconnect, title: "Disconnect from RomM"),
+      ]
+  }
+
+  private var advancedSettingsRows: [BigPictureRow] {
+    [
       settingRow(
         .dsuEnabled,
         title: "DSU Controller",
@@ -1493,14 +1518,7 @@ struct BigPictureView: View {
         title: "DSU Status",
         detail: DSUConnection.shared.status.summary
       ),
-      settingRow(
-        .bigPictureFullScreen,
-        title: "Open RetroVault in Full Screen",
-        detail: onOff(opensInFullScreen)
-      ),
-      settingRow(.openLogs, title: "Open Log Viewer"),
-      settingRow(.disconnect, title: "Disconnect from RomM"),
-      ]
+    ]
   }
 
   private func settingRow(
@@ -1847,6 +1865,8 @@ struct BigPictureView: View {
       "Ignored Systems"
     case .settings:
       "Settings"
+    case .advancedSettings:
+      "Advanced"
     case .collections:
       "Collections"
     case .saveCenter:
@@ -1866,6 +1886,8 @@ struct BigPictureView: View {
       "\(ignoredSystemIDs.count.formatted()) SYSTEMS"
     case .settings:
       "RETROVAULT PREFERENCES"
+    case .advancedSettings:
+      "CONTROLLER & NETWORK"
     case .collections:
       "\(catalog.collections.count.formatted()) ROMM COLLECTIONS"
     case .saveCenter:
@@ -1888,7 +1910,7 @@ struct BigPictureView: View {
     case .home:
       31
     case .collections, .saveCenter, .downloaded, .ignoredSystems,
-      .settings, .games:
+      .settings, .advancedSettings, .games:
       25
     }
   }
@@ -2714,7 +2736,7 @@ struct BigPictureView: View {
   }
 
   private func refreshSettingsRowsPreservingSelection() {
-    guard page == .settings else {
+    guard page == .settings || page == .advancedSettings else {
       return
     }
     let selectedRowID = rows.indices.contains(selectedIndex)
@@ -3399,6 +3421,7 @@ private enum BigPicturePage: Hashable, Sendable {
   case home
   case ignoredSystems
   case settings
+  case advancedSettings
   case collections
   case saveCenter
   /// The systems that have something downloaded, browsed before the games.
