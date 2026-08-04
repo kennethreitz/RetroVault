@@ -25,7 +25,8 @@ downloads; Vita3K installs their contents into its private environment.
 
 ## Distribution boundary
 
-Vita3K currently declares GPL-2.0-only while RetroVault is GPL-3.0. The hosted
-engine proves the integration but must not ship in a public RetroVault release
-until the projects establish a compatible licensing boundary. The bridge is
-therefore dynamically loaded, locally built, and never fetched by the app.
+Vita3K declares GPL-2.0-only while RetroVault is GPL-2.0-or-later, so the
+hosted engine has a compatible free-software licensing boundary. It remains a
+local, experimental build and is never fetched by the app. Any public build
+that embeds it must also ship the complete corresponding Vita3K and bridge
+source required by GPL-2.0.

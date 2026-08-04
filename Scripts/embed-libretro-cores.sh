@@ -4,6 +4,18 @@ set -eu
 
 artifact_directory="$SRCROOT/Build/LibretroCores"
 
+case "${TARGET_BUILD_DIR:-}" in
+    ""|/)
+        echo "error: Refusing to embed resources without a safe TARGET_BUILD_DIR." >&2
+        exit 1
+        ;;
+esac
+
+acknowledgements_directory="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Acknowledgements"
+mkdir -p -- "$acknowledgements_directory"
+ditto "$SRCROOT/THIRD_PARTY_NOTICES.md" \
+    "$acknowledgements_directory/THIRD_PARTY_NOTICES.md"
+
 if [ ! -d "$artifact_directory/Cores" ]; then
     if [ "${CONFIGURATION:-Debug}" = "Release" ]; then
         echo "error: Release builds require bundled core artifacts." >&2
@@ -14,13 +26,6 @@ if [ ! -d "$artifact_directory/Cores" ]; then
     echo "note: No Libretro artifacts found; skipping cores for this development build."
     exit 0
 fi
-
-case "${TARGET_BUILD_DIR:-}" in
-    ""|/)
-        echo "error: Refusing to embed cores without a safe TARGET_BUILD_DIR." >&2
-        exit 1
-        ;;
-esac
 
 plugins_directory="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/PlugIns/Libretro"
 resources_directory="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Libretro"

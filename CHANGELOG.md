@@ -5,6 +5,22 @@ This changelog records notable user-facing and architectural changes by the
 date they landed on the main branch. It is intentionally curated rather than
 being a list of every commit.
 
+## 2026-08-04
+
+### Added
+
+- Added a native **Acknowledgements…** command beside the macOS About menu.
+  Its window lists Swift packages, hosted emulators, and the exact bundled
+  Libretro core revisions and license links from the reviewed manifest.
+- Added a distribution-ready third-party notice that records bundled
+  component licenses and ships inside release application bundles.
+
+### Changed
+
+- Relicensed RetroVault original code from GPL-3.0 to GPL-2.0-or-later with a
+  narrowly scoped Libretro core-linking exception. Every third-party component
+  remains governed by its own license, including noncommercial restrictions.
+
 ## 2026-08-02
 
 ### Added

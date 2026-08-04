@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/macOS-26-111827?style=flat-square&logo=apple" alt="macOS 26">
   <img src="https://img.shields.io/badge/architecture-Apple_silicon-111827?style=flat-square" alt="Apple silicon">
   <img src="https://img.shields.io/badge/Swift-6.2-f05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 6.2">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-2563eb?style=flat-square" alt="GPL-3.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--2.0%2B-2563eb?style=flat-square" alt="GPL-2.0-or-later"></a>
 </p>
 
 RetroVault is a native macOS client for [RomM](https://romm.app), the
@@ -179,3 +179,12 @@ RetroVault's only Swift package dependencies are
 [Nuke](https://github.com/kean/Nuke) for artwork and
 [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) for archive
 extraction.
+
+## License
+
+RetroVault original code is licensed under the GNU General Public License,
+version 2 or later, with the narrowly scoped RetroVault Core Linking
+Exception. Bundled cores and hosted emulators remain under their own licenses;
+some reviewed cores prohibit commercial use. See [LICENSE](LICENSE) and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the complete terms and
+component notices.
