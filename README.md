@@ -28,7 +28,7 @@ Metal video, controller navigation, managed firmware, save synchronization,
 and emulation through bundled Libretro cores plus hosted Cemu and Vita3K
 engines.
 
-![RetroVault Big Picture library](.github/assets/retrovault-big-picture.jpg)
+![RetroVault Big Picture library](.github/assets/retrovault-big-picture.png)
 
 > [!IMPORTANT]
 > RetroVault is under active development. It currently requires macOS 26 on
