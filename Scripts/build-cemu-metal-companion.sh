@@ -11,6 +11,7 @@ artifact_directory="$repository_root/Build/CemuMetalCompanion"
 staging_directory="$repository_root/Build/CemuMetalCompanion.staging"
 application="$artifact_directory/Cemu.app"
 standalone_metal_patch="$script_directory/patches/cemu-metal-standalone.patch"
+dsu_rumble_patch="$script_directory/patches/cemu-metal-dsu-rumble.patch"
 
 # Pin the trial to a reviewed upstream revision. Updating this value is an
 # explicit compatibility decision rather than an accidental moving-main build.
@@ -61,15 +62,21 @@ git -C "$source_directory" submodule sync --recursive
 git -C "$source_directory" submodule update --init --recursive --depth 1
 
 # Upstream's Metal-only configuration currently relied on VulkanRenderer.h to
-# include robin_hood transitively. Apply the narrow include fix only while
-# compiling, then restore the generated checkout even when the build fails.
-git -C "$source_directory" apply --unidiff-zero "$standalone_metal_patch"
+# include robin_hood transitively. The second narrow patch adds RetroVault's
+# DSU rumble extension to the same native Metal executable. Apply both only
+# while compiling, then restore the generated checkout even when the build
+# fails.
 cleanup_source_patch() {
+  if git -C "$source_directory" apply --reverse --check "$dsu_rumble_patch" >/dev/null 2>&1; then
+    git -C "$source_directory" apply --reverse "$dsu_rumble_patch"
+  fi
   if git -C "$source_directory" apply --unidiff-zero --reverse --check "$standalone_metal_patch" >/dev/null 2>&1; then
     git -C "$source_directory" apply --unidiff-zero --reverse "$standalone_metal_patch"
   fi
 }
 trap cleanup_source_patch EXIT
+git -C "$source_directory" apply --unidiff-zero "$standalone_metal_patch"
+git -C "$source_directory" apply "$dsu_rumble_patch"
 
 sdk_path=$(xcrun --sdk macosx --show-sdk-path)
 PATH="$(dirname "$cmake"):$(dirname "$ninja"):$PATH" "$cmake" \
@@ -110,6 +117,7 @@ mv "$staging_directory/Cemu.app/Contents/MacOS/Cemu_release" \
   "$staging_directory/Cemu.app/Contents/Info.plist"
 mkdir -p "$staging_directory/Cemu.app/Contents/Resources"
 touch "$staging_directory/Cemu.app/Contents/Resources/RetroVaultMetalRenderer"
+touch "$staging_directory/Cemu.app/Contents/Resources/RetroVaultDSURumble"
 printf '%s\n' "$cemu_revision" > \
   "$staging_directory/Cemu.app/Contents/Resources/RetroVaultCemuSourceRevision"
 cp "$source_directory/LICENSE.txt" "$staging_directory/COPYING-Cemu.txt"

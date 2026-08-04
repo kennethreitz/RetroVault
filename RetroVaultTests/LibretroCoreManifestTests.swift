@@ -2020,6 +2020,38 @@ struct CemuInstallationTests {
             primaryApplicationURL: metalApplication,
             vulkanFallbackApplicationURL: nil
         ) == metalApplication)
+        #expect(CemuInstallation.preferredApplicationURL(
+            forGameTitle: "Super Mario 3D World",
+            rendererPreference: .metal,
+            primaryApplicationURL: metalApplication,
+            vulkanFallbackApplicationURL: vulkanApplication
+        ) == metalApplication)
+        #expect(CemuInstallation.preferredApplicationURL(
+            forGameTitle: "Mario Kart 8",
+            rendererPreference: .vulkan,
+            primaryApplicationURL: metalApplication,
+            vulkanFallbackApplicationURL: vulkanApplication
+        ) == vulkanApplication)
+    }
+
+    @Test("Persists Cemu renderer overrides per game")
+    func persistsPerGameRendererOverrides() throws {
+        let suiteName = "CemuRendererPreferenceStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = CemuRendererPreferenceStore(defaults: defaults)
+
+        #expect(store.preference(forGameID: 42) == .automatic)
+        #expect(store.preference(forGameID: 43) == .automatic)
+
+        store.set(.vulkan, forGameID: 42)
+        store.set(.metal, forGameID: 43)
+        #expect(store.preference(forGameID: 42) == .vulkan)
+        #expect(store.preference(forGameID: 43) == .metal)
+
+        store.set(.automatic, forGameID: 42)
+        #expect(store.preference(forGameID: 42) == .automatic)
+        #expect(store.preference(forGameID: 43) == .metal)
     }
 
     @Test("Maps the shared internal-resolution setting to Cemu graphics packs")

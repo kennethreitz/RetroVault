@@ -1615,6 +1615,37 @@ struct BigPictureView: View {
         )
       )
     }
+    if CemuInstallation.supports(systemName: game.systemName) {
+      let selectedPreference = CemuRendererPreferenceStore()
+        .preference(forGameID: game.id)
+      for preference in CemuRendererPreference.allCases {
+        let resolvedRenderer = CemuInstallation.resolvedRendererName(
+          forGameTitle: game.name,
+          rendererPreference: preference
+        )
+        let title: String
+        if preference == .automatic, let resolvedRenderer {
+          title = "Engine: Automatic (\(resolvedRenderer))"
+        } else {
+          title = "Engine: \(preference.title)"
+        }
+        options.append(
+          BigPictureGameOption(
+            action: .setCemuRenderer(preference),
+            title: title,
+            systemImage:
+              preference == selectedPreference
+              ? "checkmark.circle.fill"
+              : "circle",
+            isEnabled:
+              preference == .automatic
+              || CemuInstallation.isAvailable(
+                rendererPreference: preference
+              )
+          )
+        )
+      }
+    }
     if hasManagedSave {
       options.append(
         BigPictureGameOption(
@@ -2377,6 +2408,23 @@ struct BigPictureView: View {
       play(game, fromBeginning: true)
     case .manageSaves:
       navigate(to: .saveCenter, selecting: .save(game.id))
+    case .setCemuRenderer(let preference):
+      CemuRendererPreferenceStore().set(
+        preference,
+        forGameID: game.id
+      )
+      let renderer = CemuInstallation.resolvedRendererName(
+        forGameTitle: game.name,
+        rendererPreference: preference
+      ) ?? preference.title
+      actionNotice = BigPictureActionNotice(
+        title: "Emulator Engine Updated",
+        message:
+          preference == .automatic
+          ? "\(game.name) will use RetroVault’s automatic \(renderer) selection."
+          : "\(game.name) will launch with \(renderer).",
+        systemImage: "checkmark.circle.fill"
+      )
     case .setFavorite(let isFavorite):
       updateFavorite(isFavorite, for: game)
     case .setDownloaded(let isDownloaded):
@@ -3750,6 +3798,7 @@ private struct BigPictureGameOption: Identifiable {
     case play
     case playFromBeginning
     case manageSaves
+    case setCemuRenderer(CemuRendererPreference)
     case setFavorite(Bool)
     case setDownloaded(Bool)
     case export

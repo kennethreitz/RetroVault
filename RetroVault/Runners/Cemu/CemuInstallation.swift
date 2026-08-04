@@ -1,6 +1,67 @@
 import Foundation
 import ZIPFoundation
 
+/// The renderer RetroVault should use when launching a particular Wii U game.
+///
+/// Automatic preserves RetroVault's compatibility rules, while Metal and
+/// Vulkan are explicit per-game overrides selected from the game options menu.
+enum CemuRendererPreference: String, CaseIterable, Hashable, Sendable {
+  case automatic
+  case metal
+  case vulkan
+
+  var title: String {
+    switch self {
+    case .automatic:
+      "Automatic"
+    case .metal:
+      "Metal"
+    case .vulkan:
+      "Vulkan"
+    }
+  }
+}
+
+/// Persists renderer overrides without coupling them to RomM metadata.
+///
+/// Removing an override stores no value, so new compatibility rules continue
+/// to apply to games that remain on Automatic.
+struct CemuRendererPreferenceStore {
+  private static let defaultsKey = "CemuRendererOverrides"
+  private let defaults: UserDefaults
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+  }
+
+  func preference(forGameID gameID: Int) -> CemuRendererPreference {
+    guard
+      let rawValue = overrides[String(gameID)],
+      let preference = CemuRendererPreference(rawValue: rawValue)
+    else {
+      return .automatic
+    }
+    return preference
+  }
+
+  func set(
+    _ preference: CemuRendererPreference,
+    forGameID gameID: Int
+  ) {
+    var updatedOverrides = overrides
+    if preference == .automatic {
+      updatedOverrides.removeValue(forKey: String(gameID))
+    } else {
+      updatedOverrides[String(gameID)] = preference.rawValue
+    }
+    defaults.set(updatedOverrides, forKey: Self.defaultsKey)
+  }
+
+  private var overrides: [String: String] {
+    defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
+  }
+}
+
 /// Locates and prepares the Cemu companion application used for Wii U games.
 ///
 /// Cemu is a standalone emulator rather than a Libretro core. RetroVault keeps
@@ -27,7 +88,7 @@ struct CemuInstallation: Sendable {
   }
 
   static var available: CemuInstallation? {
-    available(forGameTitle: nil)
+    available(forGameTitle: nil, rendererPreference: .automatic)
   }
 
   /// Selects the bundled Cemu companion appropriate for a specific game.
@@ -36,12 +97,16 @@ struct CemuInstallation: Sendable {
   /// can route titles with known Metal rendering regressions through the
   /// separately bundled stable Vulkan companion without weakening other
   /// games that benefit from Metal.
-  static func available(forGameTitle title: String?) -> CemuInstallation? {
+  static func available(
+    forGameTitle title: String?,
+    rendererPreference: CemuRendererPreference = .automatic
+  ) -> CemuInstallation? {
     guard let primaryApplicationURL = sourceApplicationURL else {
       return nil
     }
     let sourceApplicationURL = preferredApplicationURL(
       forGameTitle: title,
+      rendererPreference: rendererPreference,
       primaryApplicationURL: primaryApplicationURL,
       vulkanFallbackApplicationURL: vulkanFallbackApplicationURL
     )
@@ -82,9 +147,19 @@ struct CemuInstallation: Sendable {
 
   static func preferredApplicationURL(
     forGameTitle title: String?,
+    rendererPreference: CemuRendererPreference = .automatic,
     primaryApplicationURL: URL,
     vulkanFallbackApplicationURL: URL?
   ) -> URL {
+    switch rendererPreference {
+    case .metal:
+      return primaryApplicationURL
+    case .vulkan:
+      return vulkanFallbackApplicationURL ?? primaryApplicationURL
+    case .automatic:
+      break
+    }
+
     guard
       let title,
       CemuCompatibilityOverrides.requiresVulkan(forGameTitle: title),
@@ -93,6 +168,33 @@ struct CemuInstallation: Sendable {
       return primaryApplicationURL
     }
     return vulkanFallbackApplicationURL
+  }
+
+  static func isAvailable(
+    rendererPreference: CemuRendererPreference
+  ) -> Bool {
+    switch rendererPreference {
+    case .automatic:
+      return sourceApplicationURL != nil
+    case .metal:
+      guard let sourceApplicationURL else {
+        return false
+      }
+      return isMetalApplication(at: sourceApplicationURL)
+    case .vulkan:
+      return vulkanFallbackApplicationURL != nil
+        || sourceApplicationURL.map { !isMetalApplication(at: $0) } == true
+    }
+  }
+
+  static func resolvedRendererName(
+    forGameTitle title: String?,
+    rendererPreference: CemuRendererPreference
+  ) -> String? {
+    available(
+      forGameTitle: title,
+      rendererPreference: rendererPreference
+    )?.rendererName
   }
 
   private static var defaultApplicationSupportURL: URL {
@@ -132,6 +234,14 @@ struct CemuInstallation: Sendable {
       return false
     }
     return permissions.intValue & 0o111 != 0
+  }
+
+  private static func isMetalApplication(at url: URL) -> Bool {
+    FileManager.default.fileExists(
+      atPath: url
+        .appending(path: "Contents/Resources/RetroVaultMetalRenderer")
+        .path
+    )
   }
 
   private static func executableURL(in applicationURL: URL) -> URL {
@@ -1105,6 +1215,7 @@ struct CemuRunRequest: Hashable, Sendable {
   let title: String
   let contentURL: URL
   let saveSync: CartridgeSaveSyncConfiguration
+  let rendererPreference: CemuRendererPreference
 }
 
 enum CemuError: LocalizedError {

@@ -100,14 +100,19 @@ private final class CemuPlayerCoordinator {
     }
     guard
       let installation = CemuInstallation.available(
-        forGameTitle: request.title
+        forGameTitle: request.title,
+        rendererPreference: request.rendererPreference
       )
     else {
       status = .failed(CemuError.unavailable.localizedDescription)
       return
     }
 
-    if CemuCompatibilityOverrides.requiresVulkan(
+    if request.rendererPreference != .automatic {
+      RetroVaultLog.cemu.notice(
+        "Using the per-game \(request.rendererPreference.title, privacy: .public) renderer override for \(request.title, privacy: .public)"
+      )
+    } else if CemuCompatibilityOverrides.requiresVulkan(
       forGameTitle: request.title
     ) {
       if installation.rendererName == "Vulkan" {

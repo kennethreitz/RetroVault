@@ -504,7 +504,9 @@ final class GameDetailsModel {
                 gameID: game.id,
                 title: game.name,
                 contentURL: prepared.0,
-                saveSync: saveSync
+                saveSync: saveSync,
+                rendererPreference: CemuRendererPreferenceStore()
+                    .preference(forGameID: game.id)
             )
         } catch is CancellationError {
             return nil
