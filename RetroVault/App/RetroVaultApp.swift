@@ -72,12 +72,6 @@ struct RetroVaultApp: App {
         }
         .defaultSize(width: 900, height: 720)
         .windowResizability(.contentMinSize)
-        .commands {
-            AcknowledgementsCommands()
-            DiagnosticsCommands()
-            GameInfoCommands()
-            FullScreenCommands()
-        }
 
         WindowGroup("Game Information", for: GameInfoRequest.self) { $request in
             if
@@ -98,45 +92,21 @@ struct RetroVaultApp: App {
         }
         .defaultSize(width: 780, height: 680)
         .windowResizability(.contentMinSize)
-        .commands {
-            AcknowledgementsCommands()
-            DiagnosticsCommands()
-            GameInfoCommands()
-            FullScreenCommands()
-        }
 
         WindowGroup("RetroVault Logs", id: "diagnostics") {
             LogViewerView()
         }
         .defaultSize(width: 980, height: 580)
         .windowResizability(.contentMinSize)
-        .commands {
-            AcknowledgementsCommands()
-            DiagnosticsCommands()
-            GameInfoCommands()
-            FullScreenCommands()
-        }
 
         WindowGroup("Acknowledgements", id: "acknowledgements") {
             AcknowledgementsView()
         }
         .defaultSize(width: 760, height: 680)
         .windowResizability(.contentMinSize)
-        .commands {
-            AcknowledgementsCommands()
-            DiagnosticsCommands()
-            GameInfoCommands()
-            FullScreenCommands()
-        }
 
         Settings {
             SettingsView(model: model)
-        }
-        .commands {
-            AcknowledgementsCommands()
-            DiagnosticsCommands()
-            GameInfoCommands()
-            FullScreenCommands()
         }
     }
 }
