@@ -1,14 +1,15 @@
 # Changelog
 
-RetroVault is in active development and does not have tagged releases yet.
-This changelog records notable user-facing and architectural changes by the
-date they landed on the main branch. It is intentionally curated rather than
-being a list of every commit.
+RetroVault uses Calendar Versioning in `YYYY.M.D` form. This changelog records
+notable user-facing and architectural changes and is intentionally curated
+rather than being a list of every commit.
 
-## 2026-08-04
+## 2026.8.4 (2026-08-04)
 
 ### Added
 
+- Added the first downloadable Apple-silicon DMG release, with an ad-hoc signed
+  application bundle, SHA-256 checksum, and explicit Gatekeeper instructions.
 - Added a native **Acknowledgements…** command beside the macOS About menu.
   Its window lists Swift packages, hosted emulators, and the exact bundled
   Libretro core revisions and license links from the reviewed manifest.
@@ -17,6 +18,7 @@ being a list of every commit.
 
 ### Changed
 
+- Adopted Calendar Versioning in `YYYY.M.D` form.
 - Relicensed RetroVault original code from GPL-3.0 to GPL-2.0-or-later with a
   narrowly scoped Libretro core-linking exception. Every third-party component
   remains governed by its own license, including noncommercial restrictions.

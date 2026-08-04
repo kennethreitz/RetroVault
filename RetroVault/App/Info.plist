@@ -34,7 +34,7 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>RetroVault connects to a RomM server and, when enabled, to a DSU controller server on your local network.</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2026 Kenneth Reitz. Licensed under GPL v3.</string>
+	<string>Copyright © 2026 Kenneth Reitz. Licensed under GPL-2.0-or-later.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

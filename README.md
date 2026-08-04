@@ -35,6 +35,19 @@ engines.
 > Apple silicon and targets the RomM 5.x API. Compatibility and save handling
 > still vary by system and title.
 
+## Install
+
+Download the Apple-silicon DMG from
+[GitHub Releases](https://github.com/kennethreitz/RetroVault/releases), open it,
+and drag RetroVault to Applications.
+
+Preview releases are signed ad hoc rather than with an Apple Developer ID and
+are not notarized. On first launch, macOS will block the app. After attempting
+to open it, go to **System Settings → Privacy & Security**, scroll to
+**Security**, choose **Open Anyway**, and confirm **Open**. Only make this
+exception for a DMG downloaded from the official release page; each release
+also publishes a SHA-256 checksum.
+
 ## Highlights
 
 - Controller-first browsing for downloaded games, recent games, favorites,
@@ -122,6 +135,9 @@ Scripts/build-app.sh
 
 Project history is recorded in [`CHANGELOG.md`](CHANGELOG.md), and core build
 details live in [`Libretro/README.md`](Libretro/README.md).
+
+RetroVault uses Calendar Versioning in `YYYY.M.D` form. The bundle build number
+uses the same date as `YYYYMMDD`.
 
 ## License
 
