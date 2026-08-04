@@ -2196,11 +2196,20 @@ struct BigPictureView: View {
     guard !rows.isEmpty else {
       return
     }
-    let newIndex = BigPictureSelectionNavigation.index(
-      afterMovingFrom: selectedIndex,
-      by: offset,
-      itemCount: rows.count
-    )
+    let newIndex = switch motion {
+    case .step:
+      BigPictureSelectionNavigation.index(
+        afterMovingFrom: selectedIndex,
+        by: offset,
+        itemCount: rows.count
+      )
+    case .page:
+      BigPictureSelectionNavigation.pageIndex(
+        afterMovingFrom: selectedIndex,
+        by: offset,
+        itemCount: rows.count
+      )
+    }
     selectRow(
       at: newIndex,
       scrollsIntoView: true,
@@ -4221,6 +4230,33 @@ enum BigPictureSelectionNavigation {
     }
     let remainder = (index + offset) % itemCount
     return remainder >= 0 ? remainder : remainder + itemCount
+  }
+
+  /// Paging lands on a boundary before wrapping so the first and last rows
+  /// remain reachable even when the page stride does not divide the list.
+  static func pageIndex(
+    afterMovingFrom index: Int,
+    by offset: Int,
+    itemCount: Int
+  ) -> Int {
+    guard itemCount > 0 else {
+      return 0
+    }
+
+    let lastIndex = itemCount - 1
+    let currentIndex = min(max(index, 0), lastIndex)
+
+    if offset < 0 {
+      return currentIndex == 0
+        ? lastIndex
+        : max(currentIndex + offset, 0)
+    }
+    if offset > 0 {
+      return currentIndex == lastIndex
+        ? 0
+        : min(currentIndex + offset, lastIndex)
+    }
+    return currentIndex
   }
 }
 

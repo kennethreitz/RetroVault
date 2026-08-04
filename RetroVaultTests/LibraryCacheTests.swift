@@ -1517,6 +1517,45 @@ struct BigPictureCatalogTests {
     )
   }
 
+  @Test("Stops Big Picture paging at boundaries before wrapping")
+  func stopsBigPicturePagingAtBoundaries() {
+    #expect(
+      BigPictureSelectionNavigation.pageIndex(
+        afterMovingFrom: 15,
+        by: 10,
+        itemCount: 20
+      ) == 19
+    )
+    #expect(
+      BigPictureSelectionNavigation.pageIndex(
+        afterMovingFrom: 19,
+        by: 10,
+        itemCount: 20
+      ) == 0
+    )
+    #expect(
+      BigPictureSelectionNavigation.pageIndex(
+        afterMovingFrom: 4,
+        by: -10,
+        itemCount: 20
+      ) == 0
+    )
+    #expect(
+      BigPictureSelectionNavigation.pageIndex(
+        afterMovingFrom: 0,
+        by: -10,
+        itemCount: 20
+      ) == 19
+    )
+    #expect(
+      BigPictureSelectionNavigation.pageIndex(
+        afterMovingFrom: 7,
+        by: 10,
+        itemCount: 20
+      ) == 17
+    )
+  }
+
   @Test("Does not carry held gameplay input back into Big Picture")
   func suppressesHeldInputWhileInactive() {
     var navigation = BigPictureControllerNavigation()
