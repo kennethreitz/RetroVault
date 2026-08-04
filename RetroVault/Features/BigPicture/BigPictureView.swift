@@ -50,6 +50,20 @@ struct BigPictureSynchronizationFooterPresentation:
   }
 }
 
+private enum BigPictureSelectionMotion {
+  case step
+  case page
+
+  var animation: Animation {
+    switch self {
+    case .step:
+      .snappy(duration: 0.16, extraBounce: 0)
+    case .page:
+      .easeOut(duration: 0.07)
+    }
+  }
+}
+
 struct BigPictureView: View {
   private static let bundledManifest =
     try? LibretroInstallation.bundled().manifest
@@ -2106,9 +2120,9 @@ struct BigPictureView: View {
     case .down:
       moveSelection(by: 1)
     case .pageUp:
-      moveSelection(by: -pageSelectionStride)
+      moveSelection(by: -pageSelectionStride, motion: .page)
     case .pageDown:
-      moveSelection(by: pageSelectionStride)
+      moveSelection(by: pageSelectionStride, motion: .page)
     case .activate:
       guard rows.indices.contains(selectedIndex) else {
         return
@@ -2153,7 +2167,10 @@ struct BigPictureView: View {
     page == .home ? 7 : 10
   }
 
-  private func moveSelection(by offset: Int) {
+  private func moveSelection(
+    by offset: Int,
+    motion: BigPictureSelectionMotion = .step
+  ) {
     guard !rows.isEmpty else {
       return
     }
@@ -2162,19 +2179,22 @@ struct BigPictureView: View {
       by: offset,
       itemCount: rows.count
     )
-    selectRow(at: newIndex, scrollsIntoView: true)
+    selectRow(
+      at: newIndex,
+      scrollsIntoView: true,
+      motion: motion
+    )
   }
 
   private func selectRow(
     at index: Int,
-    scrollsIntoView: Bool
+    scrollsIntoView: Bool,
+    motion: BigPictureSelectionMotion = .step
   ) {
     guard rows.indices.contains(index) else {
       return
     }
-    withAnimation(
-      reducesMotion ? nil : .snappy(duration: 0.16, extraBounce: 0)
-    ) {
+    withAnimation(reducesMotion ? nil : motion.animation) {
       selectedIndex = index
       if scrollsIntoView {
         scrollTargetID = rows[index].id
