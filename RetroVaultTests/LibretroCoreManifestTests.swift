@@ -5,6 +5,27 @@ import Testing
 
 @Suite("Bundled Libretro cores")
 struct LibretroCoreManifestTests {
+    @Test("Checkpoints once per interval without catching up repeatedly")
+    func checkpointsAtBoundedCadence() {
+        var cadence = LibretroCheckpointCadence(
+            startedAt: 100,
+            interval: 60
+        )
+
+        let beforeInterval = cadence.shouldCheckpoint(at: 159.9)
+        let atInterval = cadence.shouldCheckpoint(at: 160)
+        let immediatelyAfter = cadence.shouldCheckpoint(at: 160.1)
+        let afterLongSleep = cadence.shouldCheckpoint(at: 500)
+        let immediatelyAfterSleep = cadence.shouldCheckpoint(at: 500.1)
+
+        #expect(!beforeInterval)
+        #expect(atInterval)
+        #expect(!immediatelyAfter)
+        #expect(afterLongSleep)
+        #expect(!immediatelyAfterSleep)
+        #expect(cadence.nextCheckpoint == 560)
+    }
+
     @Test("Uses interpreter mode for DOSBox Pure")
     func usesSafeDOSBoxPureCPUCore() {
         #expect(

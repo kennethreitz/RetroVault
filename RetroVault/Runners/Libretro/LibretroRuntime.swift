@@ -1408,6 +1408,59 @@ enum LibretroExitMode: Equatable, Sendable {
     }
 }
 
+struct LibretroCheckpointCadence: Equatable, Sendable {
+    static let defaultInterval: TimeInterval = 60
+
+    private let interval: TimeInterval
+    private(set) var nextCheckpoint: TimeInterval
+
+    init(
+        startedAt: TimeInterval,
+        interval: TimeInterval = Self.defaultInterval
+    ) {
+        self.interval = interval
+        nextCheckpoint = startedAt + interval
+    }
+
+    mutating func shouldCheckpoint(at time: TimeInterval) -> Bool {
+        guard time >= nextCheckpoint else {
+            return false
+        }
+        nextCheckpoint = time + interval
+        return true
+    }
+}
+
+@MainActor
+final class LibretroApplicationTerminationCoordinator {
+    static let shared = LibretroApplicationTerminationCoordinator()
+
+    private weak var activeSession: LibretroSession?
+
+    var hasActiveSession: Bool {
+        activeSession != nil
+    }
+
+    func register(_ session: LibretroSession) {
+        activeSession = session
+    }
+
+    func unregister(_ session: LibretroSession) {
+        guard activeSession === session else {
+            return
+        }
+        activeSession = nil
+    }
+
+    func checkpointAndStop(completion: @escaping @MainActor () -> Void) {
+        guard let activeSession else {
+            completion()
+            return
+        }
+        activeSession.prepareForApplicationTermination(completion: completion)
+    }
+}
+
 @MainActor
 @Observable
 final class LibretroSession {
@@ -1453,6 +1506,7 @@ final class LibretroSession {
     }
 
     private let engine: LibretroEngine
+    private var applicationTerminationCompletion: (@MainActor () -> Void)?
     private let syncCartridgeSave:
         @Sendable (CartridgeSaveSyncConfiguration) async throws
             -> CartridgeSaveSyncOutcome
@@ -1487,6 +1541,7 @@ final class LibretroSession {
         }
 
         phase = .starting
+        LibretroApplicationTerminationCoordinator.shared.register(self)
         isPaused = false
         isMuted = false
         resetTransportState()
@@ -1582,6 +1637,29 @@ final class LibretroSession {
         }
     }
 
+    func prepareForApplicationTermination(
+        completion: @escaping @MainActor () -> Void
+    ) {
+        switch phase {
+        case .idle, .stopped, .failed:
+            completion()
+        case .starting:
+            applicationTerminationCompletion = completion
+            shouldClosePlayer = true
+            message = "Preserving game before quitting…"
+            stop()
+        case .running:
+            applicationTerminationCompletion = completion
+            shouldClosePlayer = true
+            message = "Preserving game before quitting…"
+            if allowsQuickStates {
+                engine.saveQuickStateAndStop()
+            } else {
+                stop()
+            }
+        }
+    }
+
     func toggleMute() {
         guard case .running = phase else {
             return
@@ -1626,6 +1704,7 @@ final class LibretroSession {
                 synchronizeCartridgeSave()
             }
             RetroVaultLog.libretro.notice("Libretro session stopped")
+            finishApplicationTerminationIfNeeded()
         case let .failed(error):
             phase = .failed(error)
             isPaused = false
@@ -1634,6 +1713,7 @@ final class LibretroSession {
             canRewind = false
             displaySleep.end()
             RetroVaultLog.libretro.error("Libretro session failed: \(error)")
+            finishApplicationTerminationIfNeeded()
         case .quickStateSaved:
             hasQuickState = true
             RetroVaultLog.libretro.info("Quick state saved")
@@ -1671,6 +1751,15 @@ final class LibretroSession {
         isRewinding = false
         isFastForwarding = false
         isFastForwardLatched = false
+    }
+
+    private func finishApplicationTerminationIfNeeded() {
+        LibretroApplicationTerminationCoordinator.shared.unregister(self)
+        guard let completion = applicationTerminationCompletion else {
+            return
+        }
+        applicationTerminationCompletion = nil
+        completion()
     }
 
     private func synchronizeCartridgeSave() {
@@ -3754,6 +3843,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 framesPerSecond: avInfo.framesPerSecond
             )
             var nextFrame = ProcessInfo.processInfo.systemUptime
+            var checkpointCadence = LibretroCheckpointCadence(
+                startedAt: nextFrame
+            )
             var wasFastForwarding = false
             var wasFastForwardLatched = false
             var wasRewinding = false
@@ -3876,6 +3968,14 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 }
                 runtimeEnvironment.makeHardwareContextCurrent()
                 loadedCore.run()
+                if
+                    !wasRewinding,
+                    checkpointCadence.shouldCheckpoint(
+                        at: ProcessInfo.processInfo.systemUptime
+                    )
+                {
+                    persistPeriodicCheckpoint(using: loadedCore)
+                }
                 if !didRewind, !wasRewinding {
                     captureRewindStateIfNeeded(
                         using: loadedCore,
@@ -4008,7 +4108,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         return didRewind
     }
 
-    private func persistQuickState(using core: LibretroCore) throws {
+    private func persistQuickState(
+        using core: LibretroCore,
+        emitsEvent: Bool = true
+    ) throws {
         let data = try core.saveState()
         try data.write(to: quickStateURL, options: .atomic)
         if let coreFingerprint {
@@ -4018,7 +4121,31 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 encoding: .utf8
             )
         }
-        emit(.quickStateSaved)
+        if emitsEvent {
+            emit(.quickStateSaved)
+        }
+    }
+
+    private func persistPeriodicCheckpoint(using core: LibretroCore) {
+        var persistedComponent = false
+        if request.allowsQuickStates {
+            do {
+                try persistQuickState(using: core, emitsEvent: false)
+                persistedComponent = true
+            } catch {
+                RetroVaultLog.libretro.error(
+                    "Could not checkpoint quick state: \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
+        if persistSaveMemory(from: core) {
+            persistedComponent = true
+        }
+        if persistedComponent {
+            RetroVaultLog.libretro.info(
+                "Persisted periodic local checkpoint for \(self.request.title, privacy: .public)"
+            )
+        }
     }
 
     private func captureRewindStateIfNeeded(

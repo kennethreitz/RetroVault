@@ -4,6 +4,10 @@ import SwiftUI
 
 @MainActor
 private final class RetroVaultApplicationDelegate: NSObject, NSApplicationDelegate {
+    private var terminationIsPending = false
+    private var terminationReplyWasSent = false
+    private var terminationFallback: Task<Void, Never>?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hosted emulators become the foreground application while RetroVault
         // continues publishing native controllers through its DSU relay.
@@ -35,6 +39,55 @@ private final class RetroVaultApplicationDelegate: NSObject, NSApplicationDelega
         RetroVaultLog.application.debug(
             "Applied the bundled application icon."
         )
+    }
+
+    func applicationShouldTerminate(
+        _ sender: NSApplication
+    ) -> NSApplication.TerminateReply {
+        guard
+            !terminationIsPending,
+            LibretroApplicationTerminationCoordinator.shared.hasActiveSession
+        else {
+            return terminationIsPending ? .terminateLater : .terminateNow
+        }
+
+        terminationIsPending = true
+        terminationReplyWasSent = false
+        RetroVaultLog.application.notice(
+            "Application termination requested during gameplay; preserving the active session first."
+        )
+
+        LibretroApplicationTerminationCoordinator.shared.checkpointAndStop {
+            self.finishDeferredTermination(in: sender)
+        }
+
+        // A faulty third-party core must not make RetroVault impossible to
+        // quit. Healthy cores normally complete this handshake in well under
+        // a second.
+        terminationFallback = Task { @MainActor [weak self, weak sender] in
+            try? await Task.sleep(for: .seconds(10))
+            guard let self, let sender else {
+                return
+            }
+            RetroVaultLog.application.error(
+                "Timed out while preserving the active session during application termination."
+            )
+            finishDeferredTermination(in: sender)
+        }
+        return .terminateLater
+    }
+
+    private func finishDeferredTermination(in application: NSApplication) {
+        guard !terminationReplyWasSent else {
+            return
+        }
+        terminationReplyWasSent = true
+        terminationFallback?.cancel()
+        terminationFallback = nil
+        RetroVaultLog.application.notice(
+            "Active gameplay session was preserved; completing application termination."
+        )
+        application.reply(toApplicationShouldTerminate: true)
     }
 }
 

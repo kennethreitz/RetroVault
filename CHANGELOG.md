@@ -23,6 +23,12 @@ rather than being a list of every commit.
   narrowly scoped Libretro core-linking exception. Every third-party component
   remains governed by its own license, including noncommercial restrictions.
 
+### Fixed
+
+- Active Libretro games now checkpoint their quick state and battery-backed
+  save memory locally every minute. Quitting RetroVault with Command-Q also
+  waits for one final atomic checkpoint before allowing macOS to terminate.
+
 ## 2026-08-02
 
 ### Added
