@@ -2001,16 +2001,15 @@ struct BigPictureView: View {
     }
 
     if isShowingSyncStatus {
-      switch command {
-      case .activate:
+      switch BigPictureSyncStatusPresentation.action(for: command) {
+      case .synchronize:
         synchronizeNow()
-      case .openGameOptions:
+      case .openSettings:
         isShowingSyncStatus = false
         navigate(to: .settings)
-      case .playFromBeginning, .back:
+      case .dismiss:
         isShowingSyncStatus = false
-      case .up, .down, .pageUp, .pageDown, .cycleSort, .showSyncStatus,
-        .exit:
+      case .ignore:
         break
       }
       return
@@ -3425,6 +3424,29 @@ enum BigPictureCommand: Equatable, Sendable {
   case showSyncStatus
   case back
   case exit
+}
+
+enum BigPictureSyncStatusPresentation {
+  enum Action: Equatable, Sendable {
+    case synchronize
+    case openSettings
+    case dismiss
+    case ignore
+  }
+
+  static func action(for command: BigPictureCommand) -> Action {
+    switch command {
+    case .activate:
+      .synchronize
+    case .playFromBeginning, .openGameOptions:
+      .openSettings
+    case .back:
+      .dismiss
+    case .up, .down, .pageUp, .pageDown, .cycleSort, .showSyncStatus,
+      .exit:
+      .ignore
+    }
+  }
 }
 
 enum BigPictureIgnoredSystems {

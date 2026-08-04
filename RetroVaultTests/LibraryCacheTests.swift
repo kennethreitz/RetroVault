@@ -1232,6 +1232,26 @@ struct BigPictureCatalogTests {
     #expect(navigation.command(for: select, at: 21.1) == nil)
   }
 
+  @Test("Routes X from sync status to Settings")
+  func routesSyncStatusOptionsToSettings() {
+    #expect(
+      BigPictureSyncStatusPresentation.action(for: .playFromBeginning)
+        == .openSettings
+    )
+    #expect(
+      BigPictureSyncStatusPresentation.action(for: .openGameOptions)
+        == .openSettings
+    )
+    #expect(
+      BigPictureSyncStatusPresentation.action(for: .activate)
+        == .synchronize
+    )
+    #expect(
+      BigPictureSyncStatusPresentation.action(for: .back)
+        == .dismiss
+    )
+  }
+
   @Test("Maps Select to Big Picture and Start to game options")
   func mapsAuxiliaryButtons() {
     let select = BigPictureControllerState.extendedAuxiliaryButtonActions(
