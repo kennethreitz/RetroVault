@@ -185,7 +185,7 @@ struct LibretroCoreManifestTests {
         #expect(!latch.isLatched)
     }
 
-    @Test("Fast-forward multiplier reads and clamps the defaults override")
+    @Test("Fast-forward multiplier reads the unbounded defaults override")
     func fastForwardMultiplierDefaultsOverride() throws {
         let suiteName = "LibretroCoreTests.fast-forward-multiplier"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -220,7 +220,7 @@ struct LibretroCoreManifestTests {
         #expect(
             LibretroTransportPreferences.fastForwardMultiplier(
                 defaults: defaults
-            ) == 16
+            ) == 100
         )
 
         defaults.set(

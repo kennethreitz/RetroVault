@@ -565,7 +565,7 @@ enum LibretroTransportPreferences {
         "LibretroFastForwardMultiplier"
     static let enabledByDefault = true
     static let defaultFastForwardMultiplier = 4.0
-    static let fastForwardMultiplierRange = 1.0...16.0
+    static let minimumFastForwardMultiplier = 1.0
 
     static func fastForwardMultiplier(
         defaults: UserDefaults = .standard
@@ -581,12 +581,9 @@ enum LibretroTransportPreferences {
             return defaultFastForwardMultiplier
         }
 
-        return min(
-            max(
-                requestedMultiplier,
-                fastForwardMultiplierRange.lowerBound
-            ),
-            fastForwardMultiplierRange.upperBound
+        return max(
+            requestedMultiplier,
+            minimumFastForwardMultiplier
         )
     }
 
@@ -594,10 +591,10 @@ enum LibretroTransportPreferences {
         defaults: UserDefaults = .standard
     ) -> String {
         let multiplier = fastForwardMultiplier(defaults: defaults)
-        if multiplier.rounded() == multiplier {
-            return "\(Int(multiplier))×"
-        }
-        return "\(multiplier.formatted(.number.precision(.fractionLength(1))))×"
+        let formattedMultiplier = multiplier.formatted(
+            .number.precision(.fractionLength(0...1))
+        )
+        return "\(formattedMultiplier)×"
     }
 }
 

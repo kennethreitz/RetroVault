@@ -120,9 +120,9 @@ through compatible RomM details.
 
 ## Runtime preferences
 
-Libretro fast-forward targets 4× speed by default. A power user can choose a
-multiplier from 1× through 16× with a macOS default, then restart the active
-game:
+Libretro fast-forward targets 4× speed by default. A power user can choose any
+positive multiplier with a macOS default, then restart the active game. The
+actual speed remains limited by the selected core and available CPU time:
 
 ```sh
 defaults write org.kennethreitz.RetroVault \
