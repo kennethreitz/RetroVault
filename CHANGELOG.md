@@ -4,6 +4,21 @@ RetroVault uses Calendar Versioning in `YYYY.M.D` form. This changelog records
 notable user-facing and architectural changes and is intentionally curated
 rather than being a list of every commit.
 
+## 2026.8.5 (2026-08-05)
+
+### Changed
+
+- Libretro's fast-forward speed can now be overridden with any positive
+  `LibretroFastForwardMultiplier` macOS default, without an artificial upper
+  cap. The active multiplier is shown in the gameplay transport overlay.
+- Updated the public Big Picture screenshot to reflect the current interface.
+
+### Fixed
+
+- Active Libretro games now checkpoint their quick state and battery-backed
+  save memory locally every minute. Quitting RetroVault with Command-Q also
+  waits for one final atomic checkpoint before allowing macOS to terminate.
+
 ## 2026.8.4 (2026-08-04)
 
 ### Added
@@ -19,18 +34,9 @@ rather than being a list of every commit.
 ### Changed
 
 - Adopted Calendar Versioning in `YYYY.M.D` form.
-- Libretro's maximum fast-forward speed can now be overridden with any
-  positive `LibretroFastForwardMultiplier` macOS default. The active multiplier
-  is also shown in the gameplay transport overlay.
 - Relicensed RetroVault original code from GPL-3.0 to GPL-2.0-or-later with a
   narrowly scoped Libretro core-linking exception. Every third-party component
   remains governed by its own license, including noncommercial restrictions.
-
-### Fixed
-
-- Active Libretro games now checkpoint their quick state and battery-backed
-  save memory locally every minute. Quitting RetroVault with Command-Q also
-  waits for one final atomic checkpoint before allowing macOS to terminate.
 
 ## 2026-08-02
 
