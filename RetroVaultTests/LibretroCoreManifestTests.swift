@@ -1327,6 +1327,63 @@ struct LibretroCoreManifestTests {
         #expect(rewind.byteCount == 2)
     }
 
+    @Test("Compresses rewind states without changing their contents")
+    func compressesRewindStatesLosslessly() {
+        let state = Data(repeating: 0x5A, count: 256 * 1_024)
+        let snapshot = LibretroRewindSnapshot(compressing: state)
+
+        #expect(snapshot.storedByteCount < state.count / 10)
+        #expect(snapshot.restoredData() == state)
+    }
+
+    @Test("Bounds rewind history by compressed bytes")
+    func boundsRewindHistoryByCompressedBytes() {
+        let state = Data(repeating: 0x33, count: 256 * 1_024)
+        var rewind = LibretroRewindBuffer(
+            byteLimit: state.count / 2,
+            entryLimit: 10
+        )
+
+        let appendedFirst = rewind.append(state)
+        let appendedSecond = rewind.append(state)
+        #expect(appendedFirst)
+        #expect(appendedSecond)
+        #expect(rewind.count == 2)
+        #expect(rewind.byteCount < state.count / 2)
+        #expect(rewind.popLast() == state)
+        #expect(rewind.popLast() == state)
+    }
+
+    @Test("Compresses rewind states off-thread in submission order")
+    func compressesRewindStatesInSubmissionOrder() {
+        let compressor = LibretroRewindCompressor(maximumPendingCount: 4)
+        let states = (1...3).map {
+            Data(repeating: UInt8($0), count: 128 * 1_024)
+        }
+
+        for state in states {
+            #expect(compressor.submit(state))
+        }
+        compressor.waitForPendingWork()
+
+        #expect(compressor.drain().compactMap { $0.restoredData() } == states)
+    }
+
+    @Test("Discards compressed rewind work after a timeline reset")
+    func discardsCompressedRewindWorkAfterReset() {
+        let compressor = LibretroRewindCompressor(maximumPendingCount: 2)
+        #expect(
+            compressor.submit(
+                Data(repeating: 0x7F, count: 1 * 1_024 * 1_024)
+            )
+        )
+
+        compressor.removeAll()
+        compressor.waitForPendingWork()
+
+        #expect(compressor.drain().isEmpty)
+    }
+
     @Test("Captures small rewind states at frame cadence")
     func capturesSmallRewindStatesAtFrameCadence() {
         let cadence = LibretroRewindCadence(
@@ -1335,7 +1392,7 @@ struct LibretroCoreManifestTests {
         )
 
         #expect(
-            cadence.snapshotInterval(forStateByteCount: 128 * 1_024)
+            cadence.snapshotInterval(forStateByteCount: 64 * 1_024)
                 == 1.0 / 60.0
         )
     }
@@ -1346,15 +1403,17 @@ struct LibretroCoreManifestTests {
             framesPerSecond: 60,
             byteLimit: LibretroRewindCadence.defaultByteLimit
         )
-        let interval =
-            cadence.snapshotInterval(forStateByteCount: 1 * 1_024 * 1_024)
+        let stateByteCount = 128 * 1_024
+        let interval = cadence.snapshotInterval(
+            forStateByteCount: stateByteCount
+        )
 
         #expect(interval > 1.0 / 60.0)
         #expect(interval < 1.0 / 12.0)
         #expect(
             abs(
                 (1 / interval) * LibretroRewindCadence.targetHistoryDuration
-                    * Double(1 * 1_024 * 1_024)
+                    * Double(stateByteCount)
                     - Double(LibretroRewindCadence.defaultByteLimit)
             ) < 1
         )
@@ -1386,7 +1445,7 @@ struct LibretroCoreManifestTests {
         )
     }
 
-    // A core too large for the full sixteen seconds keeps rewind on a shorter
+    // A core too large for the full target window keeps rewind on a shorter
     // history rather than losing it, which is what puts the PlayStation back
     // in range.
     @Test("Shortens rewind history rather than dropping it")
@@ -1413,6 +1472,26 @@ struct LibretroCoreManifestTests {
         #expect(rate >= LibretroRewindCadence.minimumSnapshotsPerSecond)
     }
 
+    @Test("Compression substantially extends PlayStation rewind history")
+    func compressionExtendsPlayStationRewindHistory() {
+        let cadence = LibretroRewindCadence(
+            framesPerSecond: 60,
+            byteLimit: LibretroRewindCadence.defaultByteLimit
+        )
+        let rawStateByteCount = 4_500 * 1_024
+        let compressedStateByteCount = 1_600 * 1_024
+
+        let rawHistory = cadence.sustainableHistoryDuration(
+            forStateByteCount: rawStateByteCount
+        )
+        let compressedHistory = cadence.sustainableHistoryDuration(
+            forStateByteCount: compressedStateByteCount
+        )
+
+        #expect(compressedHistory > rawHistory * 2.5)
+        #expect(compressedHistory > 12)
+    }
+
     // A core small enough for the full history must be completely unaffected
     // by the shortening path.
     @Test("Leaves small states on the full history and rate")
@@ -1422,7 +1501,7 @@ struct LibretroCoreManifestTests {
             framesPerSecond: 60,
             byteLimit: byteLimit
         )
-        let stateByteCount = 256 * 1_024
+        let stateByteCount = 128 * 1_024
 
         #expect(
             cadence.sustainableHistoryDuration(

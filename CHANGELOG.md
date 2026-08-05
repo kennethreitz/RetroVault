@@ -4,6 +4,16 @@ RetroVault uses Calendar Versioning in `YYYY.M.D` form. This changelog records
 notable user-facing and architectural changes and is intentionally curated
 rather than being a list of every commit.
 
+## Unreleased
+
+### Changed
+
+- Libretro rewind snapshots are now compressed with LZFSE away from the
+  emulation loop. Rewind keeps up to sixty seconds of history within the same
+  256 MB memory budget, while dropping captures instead of stalling gameplay
+  if compression falls behind. This substantially extends PlayStation rewind
+  history.
+
 ## 2026.8.5 (2026-08-05)
 
 ### Changed

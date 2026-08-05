@@ -1,5 +1,6 @@
 @preconcurrency import AppKit
 @preconcurrency import AVFoundation
+import Compression
 import CryptoKit
 import Darwin
 import Foundation
@@ -316,15 +317,12 @@ enum LibretroRewindPolicy {
 
 struct LibretroRewindCadence: Sendable {
     static let defaultByteLimit = 256 * 1_024 * 1_024
-    static let targetHistoryDuration = 16.0
+    static let targetHistoryDuration = 60.0
     /// The shortest history worth keeping rewind on for.
     ///
-    /// A core whose states are too large for `targetHistoryDuration` used to
-    /// lose rewind outright. Trading history length for keeping the feature is
-    /// the better deal: the PlayStation's roughly 3.5 MB states cannot hold
-    /// sixteen seconds inside the budget, but they hold about six, which still
-    /// covers the mistake the button gets pressed for. Below this the window
-    /// is too short to aim at and rewind stays off.
+    /// A core whose stored states are too large for `targetHistoryDuration`
+    /// gets a shorter history rather than losing rewind outright. Below this
+    /// duration the window is too short to aim at and rewind stays off.
     static let minimumHistoryDuration = 2.5
     static let minimumSnapshotsPerSecond = 12.0
     static let maximumSnapshotsPerSecond = 60.0
@@ -384,7 +382,7 @@ struct LibretroRewindCadence: Sendable {
     /// The rate at which the affordable history fits the budget.
     ///
     /// For a core small enough to reach `targetHistoryDuration` this is the
-    /// rate that fills the budget over those sixteen seconds, exactly as before.
+    /// rate that fills the budget over that full window.
     /// For a core held to a shorter history it works out to the minimum rate,
     /// which is what keeps the per-frame serialization cost bounded.
     private func memoryBoundRate(
@@ -450,7 +448,7 @@ struct LibretroRewindBuffer: Sendable {
     let byteLimit: Int
     let entryLimit: Int
 
-    private var states: [Data] = []
+    private var states: [LibretroRewindSnapshot] = []
     private(set) var byteCount = 0
 
     init(byteLimit: Int, entryLimit: Int) {
@@ -468,42 +466,225 @@ struct LibretroRewindBuffer: Sendable {
 
     @discardableResult
     mutating func append(_ state: Data) -> Bool {
-        guard !state.isEmpty, state.count <= byteLimit else {
+        append(LibretroRewindSnapshot(compressing: state))
+    }
+
+    @discardableResult
+    mutating func append(_ snapshot: LibretroRewindSnapshot) -> Bool {
+        guard
+            snapshot.uncompressedByteCount > 0,
+            snapshot.storedByteCount <= byteLimit
+        else {
             removeAll()
             return false
         }
 
-        states.append(state)
-        byteCount += state.count
+        states.append(snapshot)
+        byteCount += snapshot.storedByteCount
 
         while states.count > entryLimit || byteCount > byteLimit {
-            byteCount -= states.removeFirst().count
+            byteCount -= states.removeFirst().storedByteCount
         }
         return !states.isEmpty
     }
 
     mutating func popLast() -> Data? {
-        guard let state = states.popLast() else {
+        guard let snapshot = states.popLast() else {
             return nil
         }
-        byteCount -= state.count
-        return state
+        byteCount -= snapshot.storedByteCount
+        return snapshot.restoredData()
     }
 
     mutating func popLast(steps: Int) -> Data? {
-        var state: Data?
-        for _ in 0..<max(steps, 1) {
-            guard let previousState = popLast() else {
-                break
-            }
-            state = previousState
+        let availableSteps = min(max(steps, 1), states.count)
+        guard availableSteps > 0 else {
+            return nil
         }
-        return state
+        if availableSteps > 1 {
+            for _ in 1..<availableSteps {
+                byteCount -= states.removeLast().storedByteCount
+            }
+        }
+        return popLast()
     }
 
     mutating func removeAll() {
         states.removeAll(keepingCapacity: true)
         byteCount = 0
+    }
+}
+
+struct LibretroRewindSnapshot: Sendable {
+    enum Storage: Sendable {
+        case raw
+        case lzfse
+    }
+
+    let payload: Data
+    let uncompressedByteCount: Int
+    let storage: Storage
+
+    init(compressing state: Data) {
+        uncompressedByteCount = state.count
+
+        guard
+            !state.isEmpty,
+            let compressed = Self.lzfseCompressed(state),
+            compressed.count < state.count
+        else {
+            payload = state
+            storage = .raw
+            return
+        }
+
+        payload = compressed
+        storage = .lzfse
+    }
+
+    var storedByteCount: Int {
+        payload.count
+    }
+
+    var compressionRatio: Double {
+        guard uncompressedByteCount > 0 else {
+            return 1
+        }
+        return Double(storedByteCount) / Double(uncompressedByteCount)
+    }
+
+    func restoredData() -> Data? {
+        switch storage {
+        case .raw:
+            return payload
+        case .lzfse:
+            return Self.lzfseDecompressed(
+                payload,
+                byteCount: uncompressedByteCount
+            )
+        }
+    }
+
+    private static func lzfseCompressed(_ source: Data) -> Data? {
+        let overhead = 64 * 1_024
+        var destination = Data(count: source.count + overhead)
+        let encodedByteCount = source.withUnsafeBytes { sourceBytes in
+            destination.withUnsafeMutableBytes { destinationBytes in
+                guard
+                    let sourceAddress = sourceBytes
+                        .bindMemory(to: UInt8.self).baseAddress,
+                    let destinationAddress = destinationBytes
+                        .bindMemory(to: UInt8.self).baseAddress
+                else {
+                    return 0
+                }
+                return compression_encode_buffer(
+                    destinationAddress,
+                    destinationBytes.count,
+                    sourceAddress,
+                    sourceBytes.count,
+                    nil,
+                    COMPRESSION_LZFSE
+                )
+            }
+        }
+        guard encodedByteCount > 0 else {
+            return nil
+        }
+        destination.removeSubrange(encodedByteCount..<destination.count)
+        return destination
+    }
+
+    private static func lzfseDecompressed(
+        _ source: Data,
+        byteCount: Int
+    ) -> Data? {
+        guard byteCount > 0 else {
+            return nil
+        }
+        var destination = Data(count: byteCount)
+        let decodedByteCount = source.withUnsafeBytes { sourceBytes in
+            destination.withUnsafeMutableBytes { destinationBytes in
+                guard
+                    let sourceAddress = sourceBytes
+                        .bindMemory(to: UInt8.self).baseAddress,
+                    let destinationAddress = destinationBytes
+                        .bindMemory(to: UInt8.self).baseAddress
+                else {
+                    return 0
+                }
+                return compression_decode_buffer(
+                    destinationAddress,
+                    destinationBytes.count,
+                    sourceAddress,
+                    sourceBytes.count,
+                    nil,
+                    COMPRESSION_LZFSE
+                )
+            }
+        }
+        guard decodedByteCount == byteCount else {
+            return nil
+        }
+        return destination
+    }
+}
+
+final class LibretroRewindCompressor: @unchecked Sendable {
+    private let queue = DispatchQueue(
+        label: "org.kennethreitz.RetroVault.libretro.rewind-compression",
+        qos: .userInitiated
+    )
+    private let lock = NSLock()
+    private let maximumPendingCount: Int
+    private var generation = 0
+    private var pendingCount = 0
+    private var completed: [LibretroRewindSnapshot] = []
+
+    init(maximumPendingCount: Int = 2) {
+        self.maximumPendingCount = max(maximumPendingCount, 1)
+    }
+
+    @discardableResult
+    func submit(_ state: Data) -> Bool {
+        lock.lock()
+        guard pendingCount < maximumPendingCount else {
+            lock.unlock()
+            return false
+        }
+        let submittedGeneration = generation
+        pendingCount += 1
+        lock.unlock()
+
+        queue.async { [self] in
+            let snapshot = LibretroRewindSnapshot(compressing: state)
+            lock.lock()
+            pendingCount -= 1
+            if submittedGeneration == generation {
+                completed.append(snapshot)
+            }
+            lock.unlock()
+        }
+        return true
+    }
+
+    func drain() -> [LibretroRewindSnapshot] {
+        lock.lock()
+        defer { lock.unlock() }
+        let snapshots = completed
+        completed.removeAll(keepingCapacity: true)
+        return snapshots
+    }
+
+    func removeAll() {
+        lock.lock()
+        generation &+= 1
+        completed.removeAll(keepingCapacity: true)
+        lock.unlock()
+    }
+
+    func waitForPendingWork() {
+        queue.sync {}
     }
 }
 
@@ -3708,10 +3889,14 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             byteLimit: Self.rewindByteLimit,
             entryLimit: Self.rewindEntryLimit
         )
+        let rewindCompressor = LibretroRewindCompressor()
         var rewindIsSupported = request.allowsRewind
         var rewindSnapshotInterval = 1.0 / 60.0
+        var rewindStoredStateByteEstimate: Int?
+        var didLogRewindCompression = false
 
         defer {
+            rewindCompressor.removeAll()
             inputState.stopRumble()
             if loaded, let core {
                 environment?.makeHardwareContextCurrent()
@@ -3908,6 +4093,17 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     nextFrame = ProcessInfo.processInfo.systemUptime
                 }
 
+                drainCompressedRewindStates(
+                    from: rewindCompressor,
+                    cadence: rewindCadence,
+                    rewindBuffer: &rewindBuffer,
+                    rewindIsSupported: &rewindIsSupported,
+                    rewindSnapshotInterval: &rewindSnapshotInterval,
+                    rewindStoredStateByteEstimate:
+                        &rewindStoredStateByteEstimate,
+                    didLogCompression: &didLogRewindCompression
+                )
+
                 // Once history is exhausted the core cannot run merely to
                 // discover that L3 was released: doing so advances the game
                 // away from the oldest frame. Poll the physical controller
@@ -3924,7 +4120,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 // holding the button would stall gameplay rather than do
                 // nothing.
                 let isRewinding =
-                    transportControls.isRewinding && rewindIsSupported
+                    transportControls.isRewinding
+                    && rewindIsSupported
+                    && !rewindBuffer.isEmpty
                 if !inputState.fastForwardIsEnabled() {
                     fastForwardLatch.reset()
                 }
@@ -3938,6 +4136,13 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     isHoldingAtRewindBoundary = false
                 }
                 if isRewinding, !isHoldingAtRewindBoundary {
+                    if !wasRewinding {
+                        // A snapshot that finishes after rewind starts would
+                        // be newer than the state we just stepped back to and
+                        // could make the next step jump forward. Drop pending
+                        // work at the start of a rewind gesture instead.
+                        rewindCompressor.removeAll()
+                    }
                     enqueue(
                         .rewind(steps: Self.heldRewindMultiplier)
                     )
@@ -3971,7 +4176,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     using: loadedCore,
                     rewindBuffer: &rewindBuffer,
                     rewindIsSupported: &rewindIsSupported,
-                    rewindCaptureSchedule: &rewindCaptureSchedule
+                    rewindCaptureSchedule: &rewindCaptureSchedule,
+                    rewindCompressor: rewindCompressor,
+                    rewindStoredStateByteEstimate:
+                        &rewindStoredStateByteEstimate
                 )
                 if didRewind, rewindBuffer.isEmpty, isRewinding {
                     isHoldingAtRewindBoundary = true
@@ -4017,7 +4225,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                         rewindBuffer: &rewindBuffer,
                         rewindIsSupported: &rewindIsSupported,
                         rewindCaptureSchedule: &rewindCaptureSchedule,
-                        rewindSnapshotInterval: &rewindSnapshotInterval
+                        rewindSnapshotInterval: &rewindSnapshotInterval,
+                        rewindCompressor: rewindCompressor,
+                        rewindStoredStateByteEstimate:
+                            &rewindStoredStateByteEstimate
                     )
                 }
                 if runtimeEnvironment.requestedShutdown {
@@ -4071,7 +4282,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         using core: LibretroCore,
         rewindBuffer: inout LibretroRewindBuffer,
         rewindIsSupported: inout Bool,
-        rewindCaptureSchedule: inout LibretroRewindCaptureSchedule
+        rewindCaptureSchedule: inout LibretroRewindCaptureSchedule,
+        rewindCompressor: LibretroRewindCompressor,
+        rewindStoredStateByteEstimate: inout Int?
     ) -> Bool {
         controlLock.lock()
         let pending = commands
@@ -4085,7 +4298,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 case .reset:
                     core.reset()
                     rewindBuffer.removeAll()
+                    rewindCompressor.removeAll()
                     rewindIsSupported = request.allowsRewind
+                    rewindStoredStateByteEstimate = nil
                     rewindCaptureSchedule.reset()
                     emit(.rewindAvailabilityChanged(false))
                 case let .setMuted(isMuted):
@@ -4113,7 +4328,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     let data = try Data(contentsOf: quickStateURL)
                     try core.loadState(data)
                     rewindBuffer.removeAll()
+                    rewindCompressor.removeAll()
                     rewindIsSupported = request.allowsRewind
+                    rewindStoredStateByteEstimate = nil
                     rewindCaptureSchedule.reset()
                     audioOutput.flush()
                     emit(.rewindAvailabilityChanged(false))
@@ -4188,54 +4405,103 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         rewindBuffer: inout LibretroRewindBuffer,
         rewindIsSupported: inout Bool,
         rewindCaptureSchedule: inout LibretroRewindCaptureSchedule,
-        rewindSnapshotInterval: inout TimeInterval
+        rewindSnapshotInterval: inout TimeInterval,
+        rewindCompressor: LibretroRewindCompressor,
+        rewindStoredStateByteEstimate: inout Int?
     ) {
         guard rewindIsSupported, rewindCaptureSchedule.shouldCapture() else {
             return
         }
 
         do {
-            let wasEmpty = rewindBuffer.isEmpty
             let state = try core.saveState()
-            guard cadence.canSustainRewind(forStateByteCount: state.count) else {
-                rewindIsSupported = false
-                rewindBuffer.removeAll()
-                emit(.rewindAvailabilityChanged(false))
-                emit(
-                    .notice(
-                        "Rewind is unavailable because this core’s states are too large to keep a useful history."
-                    )
-                )
-                RetroVaultLog.libretro.notice(
-                    "Disabled rewind: \(state.count, privacy: .public) byte states cannot sustain \(Int(LibretroRewindCadence.targetHistoryDuration), privacy: .public) seconds of history within the \(Self.rewindByteLimit, privacy: .public) byte budget"
-                )
-                return
-            }
+            let estimatedStoredByteCount =
+                rewindStoredStateByteEstimate ?? state.count
             rewindSnapshotInterval =
-                cadence.snapshotInterval(forStateByteCount: state.count)
+                cadence.snapshotInterval(
+                    forStateByteCount: estimatedStoredByteCount
+                )
             rewindCaptureSchedule.didCapture(
                 snapshotInterval: rewindSnapshotInterval
             )
-            guard rewindBuffer.append(state) else {
-                rewindIsSupported = false
-                emit(.rewindAvailabilityChanged(false))
-                emit(
-                    .notice(
-                        "Rewind is unavailable because this core’s state exceeds the 128 MB history limit."
-                    )
-                )
-                return
-            }
-            if wasEmpty {
-                emit(.rewindAvailabilityChanged(true))
-            }
+            // Compression is deliberately off the emulation queue. If it is
+            // still processing the previous two states, skip this capture
+            // rather than adding latency to the frame currently being played.
+            _ = rewindCompressor.submit(state)
         } catch {
             rewindIsSupported = false
             rewindBuffer.removeAll()
+            rewindCompressor.removeAll()
+            rewindStoredStateByteEstimate = nil
             emit(.rewindAvailabilityChanged(false))
             RetroVaultLog.libretro.info(
                 "Rewind is unavailable for this core: \(error.localizedDescription, privacy: .public)"
             )
+        }
+    }
+
+    private func drainCompressedRewindStates(
+        from rewindCompressor: LibretroRewindCompressor,
+        cadence: LibretroRewindCadence,
+        rewindBuffer: inout LibretroRewindBuffer,
+        rewindIsSupported: inout Bool,
+        rewindSnapshotInterval: inout TimeInterval,
+        rewindStoredStateByteEstimate: inout Int?,
+        didLogCompression: inout Bool
+    ) {
+        guard rewindIsSupported else {
+            rewindCompressor.removeAll()
+            return
+        }
+
+        for snapshot in rewindCompressor.drain() {
+            let storedByteCount = snapshot.storedByteCount
+            guard
+                cadence.canSustainRewind(
+                    forStateByteCount: storedByteCount
+                )
+            else {
+                rewindIsSupported = false
+                rewindBuffer.removeAll()
+                rewindCompressor.removeAll()
+                rewindStoredStateByteEstimate = nil
+                emit(.rewindAvailabilityChanged(false))
+                emit(
+                    .notice(
+                        "Rewind is unavailable because this core’s compressed states are too large to keep a useful history."
+                    )
+                )
+                RetroVaultLog.libretro.notice(
+                    "Disabled rewind: \(storedByteCount, privacy: .public) stored bytes per state cannot sustain \(LibretroRewindCadence.minimumHistoryDuration, privacy: .public) seconds of history within the \(Self.rewindByteLimit, privacy: .public) byte budget"
+                )
+                return
+            }
+
+            let wasEmpty = rewindBuffer.isEmpty
+            rewindStoredStateByteEstimate = storedByteCount
+            rewindSnapshotInterval = cadence.snapshotInterval(
+                forStateByteCount: storedByteCount
+            )
+            guard rewindBuffer.append(snapshot) else {
+                rewindIsSupported = false
+                rewindCompressor.removeAll()
+                emit(.rewindAvailabilityChanged(false))
+                emit(
+                    .notice(
+                        "Rewind is unavailable because this core’s state exceeds the 256 MB history limit."
+                    )
+                )
+                return
+            }
+            if !didLogCompression {
+                didLogCompression = true
+                RetroVaultLog.libretro.info(
+                    "Rewind state compression: \(snapshot.uncompressedByteCount, privacy: .public) raw bytes to \(storedByteCount, privacy: .public) stored bytes (\(snapshot.compressionRatio, privacy: .public) ratio)"
+                )
+            }
+            if wasEmpty {
+                emit(.rewindAvailabilityChanged(true))
+            }
         }
     }
 
