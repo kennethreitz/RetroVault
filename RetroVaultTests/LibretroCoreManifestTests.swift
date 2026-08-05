@@ -185,6 +185,55 @@ struct LibretroCoreManifestTests {
         #expect(!latch.isLatched)
     }
 
+    @Test("Fast-forward multiplier reads and clamps the defaults override")
+    func fastForwardMultiplierDefaultsOverride() throws {
+        let suiteName = "LibretroCoreTests.fast-forward-multiplier"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(
+            LibretroTransportPreferences.fastForwardMultiplier(
+                defaults: defaults
+            ) == 4
+        )
+
+        defaults.set(
+            8,
+            forKey: LibretroTransportPreferences.fastForwardMultiplierKey
+        )
+        #expect(
+            LibretroTransportPreferences.fastForwardMultiplier(
+                defaults: defaults
+            ) == 8
+        )
+        #expect(
+            LibretroTransportPreferences.fastForwardMultiplierLabel(
+                defaults: defaults
+            ) == "8×"
+        )
+
+        defaults.set(
+            100,
+            forKey: LibretroTransportPreferences.fastForwardMultiplierKey
+        )
+        #expect(
+            LibretroTransportPreferences.fastForwardMultiplier(
+                defaults: defaults
+            ) == 16
+        )
+
+        defaults.set(
+            -2,
+            forKey: LibretroTransportPreferences.fastForwardMultiplierKey
+        )
+        #expect(
+            LibretroTransportPreferences.fastForwardMultiplier(
+                defaults: defaults
+            ) == 1
+        )
+    }
+
     @Test("Fast-forward latches after four seconds and toggles off")
     func fastForwardLatchesAndTogglesOff() {
         var latch = LibretroFastForwardLatch()

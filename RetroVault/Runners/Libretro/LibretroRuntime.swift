@@ -561,7 +561,44 @@ enum LibretroTransportPreferences {
         "libretro.transport.fast-forward-r3.v1"
     static let enablesRewindKey =
         "libretro.transport.rewind-l3.v1"
+    static let fastForwardMultiplierKey =
+        "LibretroFastForwardMultiplier"
     static let enabledByDefault = true
+    static let defaultFastForwardMultiplier = 4.0
+    static let fastForwardMultiplierRange = 1.0...16.0
+
+    static func fastForwardMultiplier(
+        defaults: UserDefaults = .standard
+    ) -> Double {
+        guard defaults.object(forKey: fastForwardMultiplierKey) != nil else {
+            return defaultFastForwardMultiplier
+        }
+
+        let requestedMultiplier = defaults.double(
+            forKey: fastForwardMultiplierKey
+        )
+        guard requestedMultiplier.isFinite else {
+            return defaultFastForwardMultiplier
+        }
+
+        return min(
+            max(
+                requestedMultiplier,
+                fastForwardMultiplierRange.lowerBound
+            ),
+            fastForwardMultiplierRange.upperBound
+        )
+    }
+
+    static func fastForwardMultiplierLabel(
+        defaults: UserDefaults = .standard
+    ) -> String {
+        let multiplier = fastForwardMultiplier(defaults: defaults)
+        if multiplier.rounded() == multiplier {
+            return "\(Int(multiplier))×"
+        }
+        return "\(multiplier.formatted(.number.precision(.fractionLength(1))))×"
+    }
 }
 
 struct LibretroTransportControls: Equatable, Sendable {
@@ -3355,8 +3392,6 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
     private static let rewindEntryLimit =
         LibretroRewindCadence.maximumEntryCount
     private static let heldRewindMultiplier = 2
-    private static let fastForwardMultiplier = 4.0
-
     private struct Paths {
         let system: URL
         let saves: URL
@@ -3851,6 +3886,8 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             var wasRewinding = false
             var isHoldingAtRewindBoundary = false
             var fastForwardLatch = LibretroFastForwardLatch()
+            let fastForwardMultiplier =
+                LibretroTransportPreferences.fastForwardMultiplier()
 
             while !stopRequested {
                 // A core may change its frame rate mid-game through
@@ -3994,7 +4031,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     wasRewinding
                     ? rewindSnapshotInterval
                     : wasFastForwarding
-                    ? frameDuration / Self.fastForwardMultiplier
+                    ? frameDuration / fastForwardMultiplier
                     : frameDuration
                 nextFrame += activeFrameDuration
                 let frameFinishedAt =

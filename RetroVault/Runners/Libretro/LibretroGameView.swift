@@ -352,7 +352,10 @@ struct LibretroGameView: View {
                         : "forward.fill"
                 )
                 if session.isFastForwarding {
-                    Text("4×")
+                    Text(
+                        LibretroTransportPreferences
+                            .fastForwardMultiplierLabel()
+                    )
                         .fontDesign(.rounded)
                     if session.isFastForwardLatched {
                         Image(systemName: "lock.fill")

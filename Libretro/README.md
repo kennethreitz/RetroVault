@@ -118,6 +118,23 @@ RETROVAULT_LIBRETRO_TEST_ROM="/path/to/test.gb" \
 This adds a debug-only Settings button. Release builds launch game content only
 through compatible RomM details.
 
+## Runtime preferences
+
+Libretro fast-forward targets 4× speed by default. A power user can choose a
+multiplier from 1× through 16× with a macOS default, then restart the active
+game:
+
+```sh
+defaults write org.kennethreitz.RetroVault \
+  LibretroFastForwardMultiplier -float 8
+```
+
+Remove the override to restore 4×:
+
+```sh
+defaults delete org.kennethreitz.RetroVault LibretroFastForwardMultiplier
+```
+
 ## Adding a core
 
 1. Confirm the core can be redistributed under RetroVault's release model.

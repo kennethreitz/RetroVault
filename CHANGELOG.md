@@ -19,6 +19,9 @@ rather than being a list of every commit.
 ### Changed
 
 - Adopted Calendar Versioning in `YYYY.M.D` form.
+- Libretro's maximum fast-forward speed can now be overridden between 1× and
+  16× with the `LibretroFastForwardMultiplier` macOS default. The active
+  multiplier is also shown in the gameplay transport overlay.
 - Relicensed RetroVault original code from GPL-3.0 to GPL-2.0-or-later with a
   narrowly scoped Libretro core-linking exception. Every third-party component
   remains governed by its own license, including noncommercial restrictions.
