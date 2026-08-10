@@ -1,5 +1,37 @@
 import Foundation
 
+/// App-level shortcuts reserved while a controller-oriented Libretro core is
+/// running.
+///
+/// Keyboard-driven cores receive every letter unchanged. That keeps DOS,
+/// Pico-8, and similar systems usable while still giving controller-focused
+/// games a convenient audio control.
+enum LibretroGameplayHotkey {
+    static let muteMacKeyCode: UInt16 = 46
+
+    static func consumesMuteKey(
+        macKeyCode: UInt16,
+        readsKeyboard: Bool,
+        hasModifiers: Bool
+    ) -> Bool {
+        macKeyCode == muteMacKeyCode && !readsKeyboard && !hasModifiers
+    }
+
+    static func togglesMute(
+        macKeyCode: UInt16,
+        readsKeyboard: Bool,
+        hasModifiers: Bool,
+        isKeyDown: Bool,
+        isRepeat: Bool
+    ) -> Bool {
+        consumesMuteKey(
+            macKeyCode: macKeyCode,
+            readsKeyboard: readsKeyboard,
+            hasModifiers: hasModifiers
+        ) && isKeyDown && !isRepeat
+    }
+}
+
 /// Libretro's `retro_key` values, and the translation from the virtual key
 /// codes AppKit reports.
 ///

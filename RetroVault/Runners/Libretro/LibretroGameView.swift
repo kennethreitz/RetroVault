@@ -99,11 +99,14 @@ struct LibretroGameView: View {
                     .foregroundStyle(.white)
                 }
 
-                LibretroKeyboardCapture(input: session.input)
+                LibretroKeyboardCapture(
+                    input: session.input,
+                    onToggleMute: session.toggleMute
+                )
                     .frame(width: 1, height: 1)
                     .opacity(0.001)
 
-                transportOverlay
+                playbackStatusOverlay
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
@@ -125,6 +128,9 @@ struct LibretroGameView: View {
                 // received while a button happens to be held.
                 window?.acceptsMouseMovedEvents = true
                 isFullScreen = window?.styleMask.contains(.fullScreen) == true
+                updatePlayerToolbarVisibility(
+                    forFullScreen: isFullScreen
+                )
                 enterFullScreenIfPreferred()
             }
             .frame(width: 0, height: 0)
@@ -194,6 +200,7 @@ struct LibretroGameView: View {
                 return
             }
             isFullScreen = true
+            updatePlayerToolbarVisibility(forFullScreen: true)
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -204,6 +211,7 @@ struct LibretroGameView: View {
                 return
             }
             isFullScreen = false
+            updatePlayerToolbarVisibility(forFullScreen: false)
         }
         .windowToolbarFullScreenVisibility(.onHover)
         .toolbarVisibility(
@@ -236,8 +244,8 @@ struct LibretroGameView: View {
                     .disabled(!isRunning)
                     .help(
                         session.isMuted
-                            ? "Restore game audio"
-                            : "Mute game audio"
+                            ? "Restore game audio (M)"
+                            : "Mute game audio (M)"
                     )
 
                     Button {
@@ -343,34 +351,26 @@ struct LibretroGameView: View {
     }
 
     @ViewBuilder
-    private var transportOverlay: some View {
-        if session.isRewinding || session.isFastForwarding {
-            HStack(spacing: 8) {
-                Image(
-                    systemName: session.isRewinding
-                        ? "backward.fill"
-                        : "forward.fill"
-                )
-                if session.isFastForwarding {
-                    Text(
-                        LibretroTransportPreferences
-                            .fastForwardMultiplierLabel()
-                    )
-                        .fontDesign(.rounded)
-                    if session.isFastForwardLatched {
-                        Image(systemName: "lock.fill")
-                            .font(.caption)
-                    }
+    private var playbackStatusOverlay: some View {
+        if session.isRewinding || session.isFastForwarding || session.isMuted {
+            VStack(alignment: .trailing, spacing: 10) {
+                if session.isRewinding || session.isFastForwarding {
+                    transportStatusBadge
+                }
+
+                if session.isMuted {
+                    Label("Muted", systemImage: "speaker.slash.fill")
+                        .font(.headline.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .openVaultGlass(
+                            tint: .black.opacity(0.68),
+                            in: Capsule()
+                        )
+                        .accessibilityLabel("Game audio muted")
                 }
             }
-            .font(.title2.bold())
-            .foregroundStyle(.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 11)
-            .openVaultGlass(
-                tint: .black.opacity(0.68),
-                in: Capsule()
-            )
             .frame(
                 maxWidth: .infinity,
                 maxHeight: .infinity,
@@ -378,15 +378,44 @@ struct LibretroGameView: View {
             )
             .padding(20)
             .allowsHitTesting(false)
-            .accessibilityLabel(
-                session.isRewinding
-                    ? "Rewinding"
-                    : session.isFastForwardLatched
-                    ? "Fast forward locked at four times speed"
-                    : "Fast forwarding at four times speed"
-            )
             .transition(.scale.combined(with: .opacity))
         }
+    }
+
+    private var transportStatusBadge: some View {
+        HStack(spacing: 8) {
+            Image(
+                systemName: session.isRewinding
+                    ? "backward.fill"
+                    : "forward.fill"
+            )
+            if session.isFastForwarding {
+                Text(
+                    LibretroTransportPreferences
+                        .fastForwardMultiplierLabel()
+                )
+                .fontDesign(.rounded)
+                if session.isFastForwardLatched {
+                    Image(systemName: "lock.fill")
+                        .font(.caption)
+                }
+            }
+        }
+        .font(.title2.bold())
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+        .openVaultGlass(
+            tint: .black.opacity(0.68),
+            in: Capsule()
+        )
+        .accessibilityLabel(
+            session.isRewinding
+                ? "Rewinding"
+                : session.isFastForwardLatched
+                ? "Fast forward locked"
+                : "Fast forwarding"
+        )
     }
 
     @ViewBuilder
@@ -425,6 +454,21 @@ struct LibretroGameView: View {
 
     private var isImmersiveBigPicturePlayback: Bool {
         session.request.playerOrigin == .bigPicture && isFullScreen
+    }
+
+    /// SwiftUI can leave the toolbar hidden after an immersive Big Picture
+    /// session exits fullscreen because the same NSWindow is reused. Keep the
+    /// AppKit toolbar in sync with the actual presentation state so windowed
+    /// gameplay always regains its controls.
+    private func updatePlayerToolbarVisibility(forFullScreen fullScreen: Bool) {
+        guard let playerWindow else {
+            return
+        }
+        let shouldHide =
+            session.request.playerOrigin == .bigPicture && fullScreen
+        Task { @MainActor in
+            playerWindow.toolbar?.isVisible = !shouldHide
+        }
     }
 
     private var transportControlsHint: String? {
@@ -1371,12 +1415,18 @@ struct LibretroVideoLayout {
 
 private struct LibretroKeyboardCapture: NSViewRepresentable {
     let input: LibretroInputState
+    let onToggleMute: @MainActor () -> Void
 
     func makeNSView(context: Context) -> LibretroKeyboardView {
-        LibretroKeyboardView(input: input)
+        LibretroKeyboardView(
+            input: input,
+            onToggleMute: onToggleMute
+        )
     }
 
-    func updateNSView(_ nsView: LibretroKeyboardView, context: Context) {}
+    func updateNSView(_ nsView: LibretroKeyboardView, context: Context) {
+        nsView.onToggleMute = onToggleMute
+    }
 }
 
 private final class LibretroEventMonitor: @unchecked Sendable {
@@ -1393,10 +1443,15 @@ private final class LibretroEventMonitor: @unchecked Sendable {
 
 private final class LibretroKeyboardView: NSView {
     private let input: LibretroInputState
+    var onToggleMute: @MainActor () -> Void
     private var eventMonitor: LibretroEventMonitor?
 
-    init(input: LibretroInputState) {
+    init(
+        input: LibretroInputState,
+        onToggleMute: @escaping @MainActor () -> Void
+    ) {
         self.input = input
+        self.onToggleMute = onToggleMute
         super.init(frame: .zero)
     }
 
@@ -1429,6 +1484,27 @@ private final class LibretroKeyboardView: NSView {
                         return event
                     }
                     handleFlagsChanged(event)
+                    return nil
+                }
+
+                let hasGameplayHotkeyModifiers =
+                    !event.modifierFlags
+                    .intersection([.command, .control, .option, .shift])
+                    .isEmpty
+                if LibretroGameplayHotkey.consumesMuteKey(
+                    macKeyCode: event.keyCode,
+                    readsKeyboard: input.readsKeyboard,
+                    hasModifiers: hasGameplayHotkeyModifiers
+                ) {
+                    if LibretroGameplayHotkey.togglesMute(
+                        macKeyCode: event.keyCode,
+                        readsKeyboard: input.readsKeyboard,
+                        hasModifiers: hasGameplayHotkeyModifiers,
+                        isKeyDown: event.type == .keyDown,
+                        isRepeat: event.isARepeat
+                    ) {
+                        onToggleMute()
+                    }
                     return nil
                 }
 

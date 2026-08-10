@@ -1881,6 +1881,7 @@ final class LibretroSession {
         }
         isMuted.toggle()
         engine.setMuted(isMuted)
+        message = isMuted ? "Game audio muted." : "Game audio restored."
     }
 
     var isReadyToClosePlayer: Bool {
