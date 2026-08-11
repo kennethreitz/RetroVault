@@ -2,32 +2,103 @@ import AppKit
 import MetalKit
 import SwiftUI
 
-struct LibretroAudioControl {
+struct LibretroGameplayControl {
+    let isPaused: Bool
     let isMuted: Bool
-    private let toggle: @MainActor () -> Void
+    let canRewind: Bool
+    let canSaveQuickState: Bool
+    let canLoadQuickState: Bool
+    let isFullScreen: Bool
+    private let togglePauseAction: @MainActor () -> Void
+    private let toggleMuteAction: @MainActor () -> Void
+    private let rewindAction: @MainActor () -> Void
+    private let saveQuickStateAction: @MainActor () -> Void
+    private let loadQuickStateAction: @MainActor () -> Void
+    private let resetAction: @MainActor () -> Void
+    private let toggleFullScreenAction: @MainActor () -> Void
+    private let stopAction: @MainActor () -> Void
 
     init(
+        isPaused: Bool,
         isMuted: Bool,
-        toggle: @escaping @MainActor () -> Void
+        canRewind: Bool,
+        canSaveQuickState: Bool,
+        canLoadQuickState: Bool,
+        isFullScreen: Bool,
+        togglePause: @escaping @MainActor () -> Void,
+        toggleMute: @escaping @MainActor () -> Void,
+        rewind: @escaping @MainActor () -> Void,
+        saveQuickState: @escaping @MainActor () -> Void,
+        loadQuickState: @escaping @MainActor () -> Void,
+        reset: @escaping @MainActor () -> Void,
+        toggleFullScreen: @escaping @MainActor () -> Void,
+        stop: @escaping @MainActor () -> Void
     ) {
+        self.isPaused = isPaused
         self.isMuted = isMuted
-        self.toggle = toggle
+        self.canRewind = canRewind
+        self.canSaveQuickState = canSaveQuickState
+        self.canLoadQuickState = canLoadQuickState
+        self.isFullScreen = isFullScreen
+        togglePauseAction = togglePause
+        toggleMuteAction = toggleMute
+        rewindAction = rewind
+        saveQuickStateAction = saveQuickState
+        loadQuickStateAction = loadQuickState
+        resetAction = reset
+        toggleFullScreenAction = toggleFullScreen
+        stopAction = stop
+    }
+
+    @MainActor
+    func togglePause() {
+        togglePauseAction()
     }
 
     @MainActor
     func toggleMute() {
-        toggle()
+        toggleMuteAction()
+    }
+
+    @MainActor
+    func rewind() {
+        rewindAction()
+    }
+
+    @MainActor
+    func saveQuickState() {
+        saveQuickStateAction()
+    }
+
+    @MainActor
+    func loadQuickState() {
+        loadQuickStateAction()
+    }
+
+    @MainActor
+    func reset() {
+        resetAction()
+    }
+
+    @MainActor
+    func toggleFullScreen() {
+        toggleFullScreenAction()
+    }
+
+    @MainActor
+    func stop() {
+        stopAction()
     }
 }
 
-private struct LibretroAudioControlFocusedValueKey: FocusedValueKey {
-    typealias Value = LibretroAudioControl
+private struct LibretroGameplayControlFocusedValueKey: FocusedValueKey {
+    typealias Value = LibretroGameplayControl
 }
 
 extension FocusedValues {
-    var libretroAudioControl: LibretroAudioControl? {
-        get { self[LibretroAudioControlFocusedValueKey.self] }
-        set { self[LibretroAudioControlFocusedValueKey.self] = newValue }
+    var libretroGameplayControl: LibretroGameplayControl? {
+        get { self[LibretroGameplayControlFocusedValueKey.self] }
+        set { self[LibretroGameplayControlFocusedValueKey.self] = newValue }
     }
 }
 
@@ -239,7 +310,7 @@ struct LibretroGameView: View {
             isFullScreen = false
             updatePlayerToolbarVisibility(forFullScreen: false)
         }
-        .focusedSceneValue(\.libretroAudioControl, audioControl)
+        .focusedSceneValue(\.libretroGameplayControl, gameplayControl)
         .windowToolbarFullScreenVisibility(.onHover)
         .toolbarVisibility(
             isImmersiveBigPicturePlayback ? .hidden : .automatic,
@@ -317,11 +388,7 @@ struct LibretroGameView: View {
                     .keyboardShortcut("f", modifiers: [.control, .command])
 
                     Button(role: .destructive) {
-                        if onCloseRequested == nil {
-                            session.stop()
-                        } else {
-                            session.exitPlayer(mode: .explicitStop)
-                        }
+                        stopGameplay()
                     } label: {
                         Label("Stop", systemImage: "stop.fill")
                     }
@@ -483,14 +550,37 @@ struct LibretroGameView: View {
         session.request.playerOrigin == .bigPicture && isFullScreen
     }
 
-    private var audioControl: LibretroAudioControl? {
+    private var gameplayControl: LibretroGameplayControl? {
         guard isRunning else {
             return nil
         }
-        return LibretroAudioControl(
+        return LibretroGameplayControl(
+            isPaused: session.isPaused,
             isMuted: session.isMuted,
-            toggle: session.toggleMute
+            canRewind: session.canRewind,
+            canSaveQuickState: session.allowsQuickStates,
+            canLoadQuickState:
+                session.allowsQuickStates && session.hasQuickState,
+            isFullScreen: isFullScreen,
+            togglePause: session.togglePause,
+            toggleMute: session.toggleMute,
+            rewind: session.rewind,
+            saveQuickState: session.saveQuickState,
+            loadQuickState: session.loadQuickState,
+            reset: session.reset,
+            toggleFullScreen: {
+                playerWindow?.toggleFullScreen(nil)
+            },
+            stop: stopGameplay
         )
+    }
+
+    private func stopGameplay() {
+        if onCloseRequested == nil {
+            session.stop()
+        } else {
+            session.exitPlayer(mode: .explicitStop)
+        }
     }
 
     /// SwiftUI can leave the toolbar hidden after an immersive Big Picture

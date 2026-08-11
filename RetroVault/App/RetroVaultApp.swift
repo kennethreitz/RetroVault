@@ -168,26 +168,91 @@ struct RetroVaultApp: App {
 }
 
 private struct GameplayCommands: Commands {
-    @FocusedValue(\.libretroAudioControl) private var audioControl
+    @FocusedValue(\.libretroGameplayControl) private var gameplayControl
 
     var body: some Commands {
         CommandMenu("Game") {
-            if let audioControl {
-                muteButton(for: audioControl)
-                    .keyboardShortcut("m", modifiers: .command)
+            if let gameplayControl {
+                Button(gameplayControl.isPaused ? "Resume" : "Pause") {
+                    gameplayControl.togglePause()
+                }
+                .keyboardShortcut("p", modifiers: .command)
+
+                Button(gameplayControl.isMuted ? "Unmute" : "Mute") {
+                    gameplayControl.toggleMute()
+                }
+                .keyboardShortcut("m", modifiers: .command)
+
+                Divider()
+
+                Button("Rewind One Step") {
+                    gameplayControl.rewind()
+                }
+                .disabled(!gameplayControl.canRewind)
+
+                Divider()
+
+                Button("Save Quick State") {
+                    gameplayControl.saveQuickState()
+                }
+                .keyboardShortcut("s", modifiers: .command)
+                .disabled(!gameplayControl.canSaveQuickState)
+
+                Button("Load Quick State") {
+                    gameplayControl.loadQuickState()
+                }
+                .keyboardShortcut("l", modifiers: .command)
+                .disabled(!gameplayControl.canLoadQuickState)
+
+                Divider()
+
+                Button("Reset Game") {
+                    gameplayControl.reset()
+                }
+                .keyboardShortcut("r", modifiers: .command)
+
+                Button(
+                    gameplayControl.isFullScreen
+                        ? "Exit Full Screen"
+                        : "Enter Full Screen"
+                ) {
+                    gameplayControl.toggleFullScreen()
+                }
+                .keyboardShortcut("f", modifiers: .command)
+
+                Divider()
+
+                Button("Stop Game", role: .destructive) {
+                    gameplayControl.stop()
+                }
             } else {
-                Button("Mute") {}
-                    .disabled(true)
+                unavailableGameCommands
             }
         }
     }
 
-    private func muteButton(
-        for audioControl: LibretroAudioControl
-    ) -> some View {
-        Button(audioControl.isMuted ? "Unmute" : "Mute") {
-            audioControl.toggleMute()
-        }
+    @ViewBuilder
+    private var unavailableGameCommands: some View {
+        Button("Pause") {}
+            .disabled(true)
+        Button("Mute") {}
+            .disabled(true)
+        Divider()
+        Button("Rewind One Step") {}
+            .disabled(true)
+        Divider()
+        Button("Save Quick State") {}
+            .disabled(true)
+        Button("Load Quick State") {}
+            .disabled(true)
+        Divider()
+        Button("Reset Game") {}
+            .disabled(true)
+        Button("Enter Full Screen") {}
+            .disabled(true)
+        Divider()
+        Button("Stop Game") {}
+            .disabled(true)
     }
 }
 
