@@ -125,6 +125,9 @@ struct RetroVaultApp: App {
         }
         .defaultSize(width: 900, height: 720)
         .windowResizability(.contentMinSize)
+        .commands {
+            GameplayCommands()
+        }
 
         WindowGroup("Game Information", for: GameInfoRequest.self) { $request in
             if
@@ -160,6 +163,30 @@ struct RetroVaultApp: App {
 
         Settings {
             SettingsView(model: model)
+        }
+    }
+}
+
+private struct GameplayCommands: Commands {
+    @FocusedValue(\.libretroAudioControl) private var audioControl
+
+    var body: some Commands {
+        CommandMenu("Game") {
+            if let audioControl {
+                muteButton(for: audioControl)
+                    .keyboardShortcut("m", modifiers: .command)
+            } else {
+                Button("Mute") {}
+                    .disabled(true)
+            }
+        }
+    }
+
+    private func muteButton(
+        for audioControl: LibretroAudioControl
+    ) -> some View {
+        Button(audioControl.isMuted ? "Unmute" : "Mute") {
+            audioControl.toggleMute()
         }
     }
 }

@@ -2,55 +2,6 @@ import Testing
 
 @testable import RetroVault
 
-@Suite("Libretro gameplay hotkeys")
-struct LibretroGameplayHotkeyTests {
-    @Test("M toggles mute for controller-oriented games")
-    func muteForControllerGames() {
-        #expect(
-            LibretroGameplayHotkey.togglesMute(
-                macKeyCode: 46,
-                readsKeyboard: false,
-                hasModifiers: false,
-                isKeyDown: true,
-                isRepeat: false
-            )
-        )
-    }
-
-    @Test("Keyboard cores keep the M key")
-    func keyboardGamesKeepM() {
-        #expect(
-            !LibretroGameplayHotkey.consumesMuteKey(
-                macKeyCode: 46,
-                readsKeyboard: true,
-                hasModifiers: false
-            )
-        )
-    }
-
-    @Test("Modified and repeated M presses do not retoggle mute")
-    func modifiedAndRepeatedM() {
-        #expect(
-            !LibretroGameplayHotkey.togglesMute(
-                macKeyCode: 46,
-                readsKeyboard: false,
-                hasModifiers: true,
-                isKeyDown: true,
-                isRepeat: false
-            )
-        )
-        #expect(
-            !LibretroGameplayHotkey.togglesMute(
-                macKeyCode: 46,
-                readsKeyboard: false,
-                hasModifiers: false,
-                isKeyDown: true,
-                isRepeat: true
-            )
-        )
-    }
-}
-
 @Suite("Libretro keyboard")
 struct LibretroKeyboardTests {
     // Printable keys share their ASCII code in retro_key, which is what lets a

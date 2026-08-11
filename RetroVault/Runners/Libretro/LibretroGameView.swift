@@ -2,6 +2,35 @@ import AppKit
 import MetalKit
 import SwiftUI
 
+struct LibretroAudioControl {
+    let isMuted: Bool
+    private let toggle: @MainActor () -> Void
+
+    init(
+        isMuted: Bool,
+        toggle: @escaping @MainActor () -> Void
+    ) {
+        self.isMuted = isMuted
+        self.toggle = toggle
+    }
+
+    @MainActor
+    func toggleMute() {
+        toggle()
+    }
+}
+
+private struct LibretroAudioControlFocusedValueKey: FocusedValueKey {
+    typealias Value = LibretroAudioControl
+}
+
+extension FocusedValues {
+    var libretroAudioControl: LibretroAudioControl? {
+        get { self[LibretroAudioControlFocusedValueKey.self] }
+        set { self[LibretroAudioControlFocusedValueKey.self] = newValue }
+    }
+}
+
 struct LibretroGameView: View {
     @State private var session: LibretroSession
     @State private var playerWindow: NSWindow?
@@ -99,10 +128,7 @@ struct LibretroGameView: View {
                     .foregroundStyle(.white)
                 }
 
-                LibretroKeyboardCapture(
-                    input: session.input,
-                    onToggleMute: session.toggleMute
-                )
+                LibretroKeyboardCapture(input: session.input)
                     .frame(width: 1, height: 1)
                     .opacity(0.001)
 
@@ -213,6 +239,7 @@ struct LibretroGameView: View {
             isFullScreen = false
             updatePlayerToolbarVisibility(forFullScreen: false)
         }
+        .focusedSceneValue(\.libretroAudioControl, audioControl)
         .windowToolbarFullScreenVisibility(.onHover)
         .toolbarVisibility(
             isImmersiveBigPicturePlayback ? .hidden : .automatic,
@@ -244,8 +271,8 @@ struct LibretroGameView: View {
                     .disabled(!isRunning)
                     .help(
                         session.isMuted
-                            ? "Restore game audio (M)"
-                            : "Mute game audio (M)"
+                            ? "Restore game audio (⌘M)"
+                            : "Mute game audio (⌘M)"
                     )
 
                     Button {
@@ -454,6 +481,16 @@ struct LibretroGameView: View {
 
     private var isImmersiveBigPicturePlayback: Bool {
         session.request.playerOrigin == .bigPicture && isFullScreen
+    }
+
+    private var audioControl: LibretroAudioControl? {
+        guard isRunning else {
+            return nil
+        }
+        return LibretroAudioControl(
+            isMuted: session.isMuted,
+            toggle: session.toggleMute
+        )
     }
 
     /// SwiftUI can leave the toolbar hidden after an immersive Big Picture
@@ -1415,18 +1452,12 @@ struct LibretroVideoLayout {
 
 private struct LibretroKeyboardCapture: NSViewRepresentable {
     let input: LibretroInputState
-    let onToggleMute: @MainActor () -> Void
 
     func makeNSView(context: Context) -> LibretroKeyboardView {
-        LibretroKeyboardView(
-            input: input,
-            onToggleMute: onToggleMute
-        )
+        LibretroKeyboardView(input: input)
     }
 
-    func updateNSView(_ nsView: LibretroKeyboardView, context: Context) {
-        nsView.onToggleMute = onToggleMute
-    }
+    func updateNSView(_ nsView: LibretroKeyboardView, context: Context) {}
 }
 
 private final class LibretroEventMonitor: @unchecked Sendable {
@@ -1443,15 +1474,10 @@ private final class LibretroEventMonitor: @unchecked Sendable {
 
 private final class LibretroKeyboardView: NSView {
     private let input: LibretroInputState
-    var onToggleMute: @MainActor () -> Void
     private var eventMonitor: LibretroEventMonitor?
 
-    init(
-        input: LibretroInputState,
-        onToggleMute: @escaping @MainActor () -> Void
-    ) {
+    init(input: LibretroInputState) {
         self.input = input
-        self.onToggleMute = onToggleMute
         super.init(frame: .zero)
     }
 
@@ -1484,27 +1510,6 @@ private final class LibretroKeyboardView: NSView {
                         return event
                     }
                     handleFlagsChanged(event)
-                    return nil
-                }
-
-                let hasGameplayHotkeyModifiers =
-                    !event.modifierFlags
-                    .intersection([.command, .control, .option, .shift])
-                    .isEmpty
-                if LibretroGameplayHotkey.consumesMuteKey(
-                    macKeyCode: event.keyCode,
-                    readsKeyboard: input.readsKeyboard,
-                    hasModifiers: hasGameplayHotkeyModifiers
-                ) {
-                    if LibretroGameplayHotkey.togglesMute(
-                        macKeyCode: event.keyCode,
-                        readsKeyboard: input.readsKeyboard,
-                        hasModifiers: hasGameplayHotkeyModifiers,
-                        isKeyDown: event.type == .keyDown,
-                        isRepeat: event.isARepeat
-                    ) {
-                        onToggleMute()
-                    }
                     return nil
                 }
 
