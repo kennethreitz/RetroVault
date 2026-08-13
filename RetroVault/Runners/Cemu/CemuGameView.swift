@@ -63,6 +63,14 @@ struct CemuGameView: View {
       )
     }
     .onDisappear { coordinator.stop() }
+    .focusedSceneValue(
+      \.hostedGameplayControl,
+      HostedGameplayControl(
+        title: request.title,
+        canStop: coordinator.canStop,
+        stop: coordinator.requestClose
+      )
+    )
   }
 }
 
@@ -78,6 +86,10 @@ private final class CemuPlayerCoordinator {
   }
 
   var status = Status.ready
+
+  var canStop: Bool {
+    runningApplication != nil || runningProcess != nil
+  }
 
   private var runningApplication: NSRunningApplication?
   private var runningProcess: Process?
@@ -290,6 +302,13 @@ private final class CemuPlayerCoordinator {
     try? launcherLogHandle?.close()
     launcherLogHandle = nil
     restoreRetroVaultFocusIfNeeded()
+  }
+
+  func requestClose() {
+    guard canStop else { return }
+    if runningApplication?.terminate() != true {
+      runningProcess?.terminate()
+    }
   }
 
   private func finish(

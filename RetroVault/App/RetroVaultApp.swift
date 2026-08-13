@@ -107,7 +107,10 @@ struct RetroVaultApp: App {
             AcknowledgementsCommands()
             DiagnosticsCommands()
             GameInfoCommands()
+            LibraryCommands()
+            GameplayCommands()
             FullScreenCommands()
+            RetroVaultHelpCommands()
         }
 
         WindowGroup("RetroVault Player", for: LibretroRunRequest.self) { $request in
@@ -125,9 +128,6 @@ struct RetroVaultApp: App {
         }
         .defaultSize(width: 900, height: 720)
         .windowResizability(.contentMinSize)
-        .commands {
-            GameplayCommands()
-        }
 
         WindowGroup("Game Information", for: GameInfoRequest.self) { $request in
             if
@@ -167,8 +167,44 @@ struct RetroVaultApp: App {
     }
 }
 
+/// The common menu-bar surface for hosted emulators that do not expose
+/// Libretro's pause, reset, rewind, or quick-state controls.
+struct HostedGameplayControl {
+    let title: String
+    let canStop: Bool
+    private let stopAction: @MainActor () -> Void
+
+    init(
+        title: String,
+        canStop: Bool,
+        stop: @escaping @MainActor () -> Void
+    ) {
+        self.title = title
+        self.canStop = canStop
+        stopAction = stop
+    }
+
+    @MainActor
+    func stop() {
+        stopAction()
+    }
+}
+
+private struct HostedGameplayControlFocusedValueKey: FocusedValueKey {
+    typealias Value = HostedGameplayControl
+}
+
+extension FocusedValues {
+    var hostedGameplayControl: HostedGameplayControl? {
+        get { self[HostedGameplayControlFocusedValueKey.self] }
+        set { self[HostedGameplayControlFocusedValueKey.self] = newValue }
+    }
+}
+
 private struct GameplayCommands: Commands {
     @FocusedValue(\.libretroGameplayControl) private var gameplayControl
+    @FocusedValue(\.hostedGameplayControl) private var hostedGameplayControl
+    @FocusedValue(\.retroVaultLibraryControl) private var libraryControl
 
     var body: some Commands {
         CommandMenu("Game") {
@@ -201,7 +237,7 @@ private struct GameplayCommands: Commands {
                 Button("Load Quick State") {
                     gameplayControl.loadQuickState()
                 }
-                .keyboardShortcut("l", modifiers: .command)
+                .keyboardShortcut("l", modifiers: [.command, .shift])
                 .disabled(!gameplayControl.canLoadQuickState)
 
                 Divider()
@@ -211,24 +247,75 @@ private struct GameplayCommands: Commands {
                 }
                 .keyboardShortcut("r", modifiers: .command)
 
-                Button(
-                    gameplayControl.isFullScreen
-                        ? "Exit Full Screen"
-                        : "Enter Full Screen"
-                ) {
-                    gameplayControl.toggleFullScreen()
-                }
-                .keyboardShortcut("f", modifiers: .command)
-
-                Divider()
-
                 Button("Stop Game", role: .destructive) {
                     gameplayControl.stop()
                 }
+            } else if let hostedGameplayControl {
+                Button("Stop \(hostedGameplayControl.title)", role: .destructive) {
+                    hostedGameplayControl.stop()
+                }
+                .disabled(!hostedGameplayControl.canStop)
+            } else if let libraryControl {
+                libraryGameCommands(libraryControl)
             } else {
                 unavailableGameCommands
             }
         }
+    }
+
+    @ViewBuilder
+    private func libraryGameCommands(
+        _ libraryControl: RetroVaultLibraryControl
+    ) -> some View {
+        Button(
+            libraryControl.hasResumeState
+                ? "Resume \(libraryControl.selectedGameTitle ?? "Game")"
+                : "Play \(libraryControl.selectedGameTitle ?? "Game")"
+        ) {
+            libraryControl.play()
+        }
+        .disabled(libraryControl.selectedGameTitle == nil)
+
+        Button("Play from Beginning") {
+            libraryControl.playFromBeginning()
+        }
+        .disabled(
+            libraryControl.selectedGameTitle == nil
+                || !libraryControl.hasResumeState
+        )
+
+        Button("Game Options…") {
+            libraryControl.showOptions()
+        }
+        .disabled(
+            libraryControl.selectedGameTitle == nil
+                && libraryControl.selectedSystemTitle == nil
+        )
+
+        Divider()
+
+        Button(
+            libraryControl.isFavorite
+                ? "Remove from Favorite Games"
+                : "Add to Favorite Games"
+        ) {
+            libraryControl.toggleFavorite()
+        }
+        .disabled(!libraryControl.canChangeFavorite)
+
+        Button(
+            libraryControl.isDownloaded
+                ? "Remove Download"
+                : "Download Game"
+        ) {
+            libraryControl.toggleDownload()
+        }
+        .disabled(!libraryControl.canChangeDownload)
+
+        Button("Manage Saves…") {
+            libraryControl.manageSaves()
+        }
+        .disabled(!libraryControl.canManageSaves)
     }
 
     @ViewBuilder
@@ -248,11 +335,85 @@ private struct GameplayCommands: Commands {
         Divider()
         Button("Reset Game") {}
             .disabled(true)
-        Button("Enter Full Screen") {}
-            .disabled(true)
         Divider()
         Button("Stop Game") {}
             .disabled(true)
+    }
+}
+
+private struct LibraryCommands: Commands {
+    @FocusedValue(\.retroVaultLibraryControl) private var libraryControl
+
+    var body: some Commands {
+        CommandMenu("Library") {
+            Button("Home") {
+                libraryControl?.showHome()
+            }
+            .keyboardShortcut("1", modifiers: .command)
+            .disabled(libraryControl == nil)
+
+            Divider()
+
+            Button("Downloaded Games") {
+                libraryControl?.showDownloaded()
+            }
+            .keyboardShortcut("2", modifiers: .command)
+            .disabled(libraryControl == nil)
+
+            Button("Recently Played") {
+                libraryControl?.showRecentlyPlayed()
+            }
+            .keyboardShortcut("3", modifiers: .command)
+            .disabled(libraryControl == nil)
+
+            Button("Favorite Games") {
+                libraryControl?.showFavorites()
+            }
+            .keyboardShortcut("4", modifiers: .command)
+            .disabled(libraryControl == nil)
+
+            Button("Recently Added") {
+                libraryControl?.showRecentlyAdded()
+            }
+            .keyboardShortcut("5", modifiers: .command)
+            .disabled(libraryControl == nil)
+
+            Button("All Games") {
+                libraryControl?.showAllGames()
+            }
+            .keyboardShortcut("6", modifiers: .command)
+            .disabled(libraryControl == nil)
+
+            Divider()
+
+            Button("Save Center") {
+                libraryControl?.showSaveCenter()
+            }
+            .keyboardShortcut("s", modifiers: [.command, .option])
+            .disabled(libraryControl == nil)
+
+            Button("Sync Status…") {
+                libraryControl?.showSyncStatus()
+            }
+            .disabled(libraryControl == nil)
+
+            Button("Sync Now") {
+                libraryControl?.synchronize()
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(
+                libraryControl == nil
+                    || libraryControl?.isSynchronizing == true
+                    || libraryControl?.isServerReachable != true
+            )
+
+            Divider()
+
+            Button("Open RomM in Browser") {
+                libraryControl?.openRomM()
+            }
+            .disabled(libraryControl == nil)
+        }
     }
 }
 
@@ -465,7 +626,7 @@ private struct BundledCoreAcknowledgement: Decodable, Identifiable {
 
 private struct FullScreenCommands: Commands {
     var body: some Commands {
-        CommandGroup(after: .windowArrangement) {
+        CommandGroup(after: .toolbar) {
             Button("Toggle Full Screen") {
                 NSApplication.shared.keyWindow?.toggleFullScreen(nil)
             }
@@ -483,6 +644,33 @@ private struct DiagnosticsCommands: Commands {
                 openWindow(id: "diagnostics")
             }
             .keyboardShortcut("l", modifiers: .command)
+        }
+    }
+}
+
+private struct RetroVaultHelpCommands: Commands {
+    var body: some Commands {
+        CommandGroup(before: .help) {
+            Link(
+                "RetroVault on GitHub",
+                destination: URL(
+                    string: "https://github.com/kennethreitz/RetroVault"
+                )!
+            )
+
+            Link(
+                "RomM Project Website",
+                destination: URL(string: "https://romm.app")!
+            )
+
+            Divider()
+
+            Link(
+                "Report an Issue…",
+                destination: URL(
+                    string: "https://github.com/kennethreitz/RetroVault/issues/new/choose"
+                )!
+            )
         }
     }
 }

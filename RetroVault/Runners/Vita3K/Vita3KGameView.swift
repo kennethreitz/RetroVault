@@ -87,6 +87,14 @@ struct Vita3KGameView: View {
         coordinator.requestClose()
       }
     }
+    .focusedSceneValue(
+      \.hostedGameplayControl,
+      HostedGameplayControl(
+        title: request.title,
+        canStop: coordinator.canStop,
+        stop: coordinator.requestClose
+      )
+    )
   }
 }
 
@@ -129,6 +137,10 @@ private final class Vita3KPlayerCoordinator {
 
   var status = Status.ready
   weak var surfaceView: NSView?
+
+  var canStop: Bool {
+    runTask != nil || bridge != nil
+  }
 
   private var bridge: Vita3KBridge?
   private var runTask: Task<Void, Never>?

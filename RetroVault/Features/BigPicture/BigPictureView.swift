@@ -50,6 +50,123 @@ struct BigPictureSynchronizationFooterPresentation:
   }
 }
 
+/// The currently focused library actions exposed to RetroVault's native menu
+/// bar. Keeping these actions focused prevents library commands from operating
+/// on a hidden Big Picture view while a game or utility window is active.
+struct RetroVaultLibraryControl {
+  let selectedGameTitle: String?
+  let selectedSystemTitle: String?
+  let hasResumeState: Bool
+  let isFavorite: Bool
+  let canChangeFavorite: Bool
+  let isDownloaded: Bool
+  let canChangeDownload: Bool
+  let canManageSaves: Bool
+  let isSynchronizing: Bool
+  let isServerReachable: Bool
+
+  private let showHomeAction: @MainActor () -> Void
+  private let showDownloadedAction: @MainActor () -> Void
+  private let showRecentlyPlayedAction: @MainActor () -> Void
+  private let showFavoritesAction: @MainActor () -> Void
+  private let showRecentlyAddedAction: @MainActor () -> Void
+  private let showAllGamesAction: @MainActor () -> Void
+  private let showSaveCenterAction: @MainActor () -> Void
+  private let synchronizeAction: @MainActor () -> Void
+  private let showSyncStatusAction: @MainActor () -> Void
+  private let openRomMAction: @MainActor () -> Void
+  private let playAction: @MainActor () -> Void
+  private let playFromBeginningAction: @MainActor () -> Void
+  private let showOptionsAction: @MainActor () -> Void
+  private let toggleFavoriteAction: @MainActor () -> Void
+  private let toggleDownloadAction: @MainActor () -> Void
+  private let manageSavesAction: @MainActor () -> Void
+
+  init(
+    selectedGameTitle: String?,
+    selectedSystemTitle: String?,
+    hasResumeState: Bool,
+    isFavorite: Bool,
+    canChangeFavorite: Bool,
+    isDownloaded: Bool,
+    canChangeDownload: Bool,
+    canManageSaves: Bool,
+    isSynchronizing: Bool,
+    isServerReachable: Bool,
+    showHome: @escaping @MainActor () -> Void,
+    showDownloaded: @escaping @MainActor () -> Void,
+    showRecentlyPlayed: @escaping @MainActor () -> Void,
+    showFavorites: @escaping @MainActor () -> Void,
+    showRecentlyAdded: @escaping @MainActor () -> Void,
+    showAllGames: @escaping @MainActor () -> Void,
+    showSaveCenter: @escaping @MainActor () -> Void,
+    synchronize: @escaping @MainActor () -> Void,
+    showSyncStatus: @escaping @MainActor () -> Void,
+    openRomM: @escaping @MainActor () -> Void,
+    play: @escaping @MainActor () -> Void,
+    playFromBeginning: @escaping @MainActor () -> Void,
+    showOptions: @escaping @MainActor () -> Void,
+    toggleFavorite: @escaping @MainActor () -> Void,
+    toggleDownload: @escaping @MainActor () -> Void,
+    manageSaves: @escaping @MainActor () -> Void
+  ) {
+    self.selectedGameTitle = selectedGameTitle
+    self.selectedSystemTitle = selectedSystemTitle
+    self.hasResumeState = hasResumeState
+    self.isFavorite = isFavorite
+    self.canChangeFavorite = canChangeFavorite
+    self.isDownloaded = isDownloaded
+    self.canChangeDownload = canChangeDownload
+    self.canManageSaves = canManageSaves
+    self.isSynchronizing = isSynchronizing
+    self.isServerReachable = isServerReachable
+    showHomeAction = showHome
+    showDownloadedAction = showDownloaded
+    showRecentlyPlayedAction = showRecentlyPlayed
+    showFavoritesAction = showFavorites
+    showRecentlyAddedAction = showRecentlyAdded
+    showAllGamesAction = showAllGames
+    showSaveCenterAction = showSaveCenter
+    synchronizeAction = synchronize
+    showSyncStatusAction = showSyncStatus
+    openRomMAction = openRomM
+    playAction = play
+    playFromBeginningAction = playFromBeginning
+    showOptionsAction = showOptions
+    toggleFavoriteAction = toggleFavorite
+    toggleDownloadAction = toggleDownload
+    manageSavesAction = manageSaves
+  }
+
+  @MainActor func showHome() { showHomeAction() }
+  @MainActor func showDownloaded() { showDownloadedAction() }
+  @MainActor func showRecentlyPlayed() { showRecentlyPlayedAction() }
+  @MainActor func showFavorites() { showFavoritesAction() }
+  @MainActor func showRecentlyAdded() { showRecentlyAddedAction() }
+  @MainActor func showAllGames() { showAllGamesAction() }
+  @MainActor func showSaveCenter() { showSaveCenterAction() }
+  @MainActor func synchronize() { synchronizeAction() }
+  @MainActor func showSyncStatus() { showSyncStatusAction() }
+  @MainActor func openRomM() { openRomMAction() }
+  @MainActor func play() { playAction() }
+  @MainActor func playFromBeginning() { playFromBeginningAction() }
+  @MainActor func showOptions() { showOptionsAction() }
+  @MainActor func toggleFavorite() { toggleFavoriteAction() }
+  @MainActor func toggleDownload() { toggleDownloadAction() }
+  @MainActor func manageSaves() { manageSavesAction() }
+}
+
+private struct RetroVaultLibraryControlFocusedValueKey: FocusedValueKey {
+  typealias Value = RetroVaultLibraryControl
+}
+
+extension FocusedValues {
+  var retroVaultLibraryControl: RetroVaultLibraryControl? {
+    get { self[RetroVaultLibraryControlFocusedValueKey.self] }
+    set { self[RetroVaultLibraryControlFocusedValueKey.self] = newValue }
+  }
+}
+
 private enum BigPictureSelectionMotion {
   case step
   case page
@@ -294,6 +411,11 @@ struct BigPictureView: View {
       handleEscape()
       return .handled
     }
+    .focusedSceneValue(
+      \.retroVaultLibraryControl,
+      retroVaultLibraryControl
+    )
+    .focusedSceneValue(\.openGameInfo, gameInfoAction)
   }
 
   private var resolvedBigPictureVideoFilter: LibretroVideoFilter {
@@ -1384,6 +1506,112 @@ struct BigPictureView: View {
     return setting
   }
 
+  private var retroVaultLibraryControl: RetroVaultLibraryControl? {
+    guard
+      activePlayerRequest == nil,
+      activeVita3KRequest == nil,
+      activeCemuRequest == nil
+    else {
+      return nil
+    }
+
+    let game = selectedGame
+    let isFavorite = game.map {
+      model.favoriteGameIDs.contains($0.id)
+    } ?? false
+    let isDownloaded = game.map {
+      model.downloadedGameIDs.contains($0.id)
+    } ?? false
+    let canManageSaves = game.map { game in
+      BigPictureGameSavePresentation.isAvailable(
+        gameHasRemoteSave: game.hasSave == true,
+        hasLocalSave: model.saveCenterItems.contains { item in
+          item.id == game.id
+        }
+      )
+    } ?? false
+
+    return RetroVaultLibraryControl(
+      selectedGameTitle: game?.name,
+      selectedSystemTitle: selectedSystem?.name,
+      hasResumeState: game.map(hasResumeState) ?? false,
+      isFavorite: isFavorite,
+      canChangeFavorite:
+        game != nil
+        && model.favoriteCollectionID != nil
+        && !model.isUpdatingFavorites,
+      isDownloaded: isDownloaded,
+      canChangeDownload:
+        game != nil
+        && !model.isDownloadingGames
+        && !model.isRemovingDownloads
+        && (isDownloaded || game?.isMissingFromFileSystem != true),
+      canManageSaves: canManageSaves,
+      isSynchronizing: model.isSynchronizing,
+      isServerReachable: model.isServerReachable,
+      showHome: { showLibraryPage(.home) },
+      showDownloaded: { showLibraryPage(.downloaded) },
+      showRecentlyPlayed: {
+        showLibraryPage(.games(.recentlyPlayed))
+      },
+      showFavorites: { showLibraryPage(.games(.favorites)) },
+      showRecentlyAdded: {
+        showLibraryPage(.games(.recentlyAdded))
+      },
+      showAllGames: { showLibraryPage(.games(.all)) },
+      showSaveCenter: { showLibraryPage(.saveCenter) },
+      synchronize: synchronizeNow,
+      showSyncStatus: { handle(.showSyncStatus) },
+      openRomM: {
+        NSWorkspace.shared.open(model.session.serverURL.value)
+      },
+      play: {
+        if let game {
+          play(game)
+        }
+      },
+      playFromBeginning: {
+        if let game {
+          play(game, fromBeginning: true)
+        }
+      },
+      showOptions: presentSelectedOptions,
+      toggleFavorite: {
+        if let game {
+          updateFavorite(!isFavorite, for: game)
+        }
+      },
+      toggleDownload: {
+        if let game {
+          if isDownloaded {
+            removeDownload(for: game)
+          } else {
+            download(game)
+          }
+        }
+      },
+      manageSaves: {
+        if let game {
+          showLibraryPage(.saveCenter, selecting: .save(game.id))
+        }
+      }
+    )
+  }
+
+  private var gameInfoAction: OpenGameInfoAction? {
+    guard let selectedGame else {
+      return nil
+    }
+    return OpenGameInfoAction {
+      openWindow(
+        value: GameInfoRequest(
+          game: selectedGame,
+          lastLibrarySync: model.lastSuccessfulSync
+        )
+      )
+    }
+  }
+
   private func settingActionLabel(_ setting: BigPictureSetting) -> String {
     switch setting {
     case .romMServer, .romMUser, .runtime, .dsuEndpoint, .dsuStatus:
@@ -2255,6 +2483,28 @@ struct BigPictureView: View {
     history.append(
       BigPictureHistoryEntry(page: page, selectedIndex: selectedIndex)
     )
+    page = destination
+    rows = makeRows(for: destination, catalog: catalog)
+    selectInitialRow(selectedRowID)
+
+    guard destination == .saveCenter else {
+      return
+    }
+    Task {
+      await model.reloadSaveCenter()
+      guard page == .saveCenter else {
+        return
+      }
+      rows = makeRows(for: page, catalog: catalog)
+      selectInitialRow(selectedRowID)
+    }
+  }
+
+  private func showLibraryPage(
+    _ destination: BigPicturePage,
+    selecting selectedRowID: BigPictureRow.ID? = nil
+  ) {
+    history.removeAll()
     page = destination
     rows = makeRows(for: destination, catalog: catalog)
     selectInitialRow(selectedRowID)
