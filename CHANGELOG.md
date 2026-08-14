@@ -4,7 +4,15 @@ RetroVault uses Calendar Versioning in `YYYY.M.D` form. This changelog records
 notable user-facing and architectural changes and is intentionally curated
 rather than being a list of every commit.
 
-## Unreleased
+## 2026.8.14 (2026-08-14)
+
+### Added
+
+- Completed RetroVault's native macOS menu bar with contextual Library and
+  Game commands for Big Picture, Libretro, Vita3K, and Cemu sessions.
+- Added native gameplay commands for pause, mute, reset, quick save, quick
+  load, fullscreen, and stopping the active game, with conflict-free keyboard
+  shortcuts and live command availability.
 
 ### Changed
 
@@ -13,6 +21,15 @@ rather than being a list of every commit.
   256 MB memory budget, while dropping captures instead of stalling gameplay
   if compression falls behind. This substantially extends PlayStation rewind
   history.
+- Big Picture now participates in the same macOS command system as separate
+  gameplay windows, so menu actions always target the active library or game
+  session.
+
+### Fixed
+
+- Restored window chrome when leaving fullscreen gameplay and resolved
+  shortcut collisions between library sync, logs, reset, and quick-load
+  commands.
 
 ## 2026.8.5 (2026-08-05)
 
