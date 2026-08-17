@@ -1,0 +1,29 @@
+diff --git a/libs/z8lua/llex.c b/libs/z8lua/llex.c
+index c90a47e..18b6e34 100644
+--- a/libs/z8lua/llex.c
++++ b/libs/z8lua/llex.c
+@@ -281,5 +281,4 @@ static int skip_sep (LexState *ls) {
+-//ATTN: long comments still don't match pico-8 behavior
++// Pico-8 long comments close at the first matching delimiter and do not nest.
+ static void read_long_string (LexState *ls, SemInfo *seminfo, int sep) {
+-  int cont = 0;
+   save_and_next(ls);  /* skip 2nd `[' */
+   if (currIsNewline(ls))  /* string starts with a newline? */
+@@ -294,17 +293,6 @@ static void read_long_string (LexState *ls, SemInfo *seminfo, int sep) {
+-      case '[': {
+-        save_and_next(ls);
+-        if (ls->current == '[') {
+-            save_and_next(ls);  /* skip 2nd `[' */
+-            cont++;
+-        }
+-        break;
+-      }
+       case ']': {
+         if (skip_sep(ls) == sep) {
+           save_and_next(ls);  /* skip 2nd `]' */
+-          cont--;
+-          if (cont >= 0)
+-            break;
+           goto endloop;
+         }
+         break;

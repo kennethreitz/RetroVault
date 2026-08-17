@@ -4,6 +4,17 @@ RetroVault uses Calendar Versioning in `YYYY.M.D` form. This changelog records
 notable user-facing and architectural changes and is intentionally curated
 rather than being a list of every commit.
 
+## 2026.8.17 (2026-08-17)
+
+### Fixed
+
+- Pico-8 cartridges whose source contains nested-looking long-comment markers
+  now follow Pico-8's non-nesting comment semantics instead of being rejected
+  and silently replaced by FAKE-08's built-in launcher.
+- FAKE-08's compatibility patch is now applied reproducibly after its pinned
+  Lua-parser submodule is initialized, and its smoke test waits long enough to
+  detect delayed launcher fallback.
+
 ## 2026.8.14 (2026-08-14)
 
 ### Added

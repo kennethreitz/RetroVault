@@ -325,6 +325,23 @@ enum CoreBuilder {
             )
         }
 
+        let submodules = core.source.submodules ?? []
+        if !submodules.isEmpty {
+            try run(
+                "/usr/bin/git",
+                arguments: [
+                    "submodule",
+                    "update",
+                    "--init",
+                    "--recursive",
+                    "--depth",
+                    "1",
+                    "--",
+                ] + submodules,
+                currentDirectory: sourceDirectory
+            )
+        }
+
         for patch in core.source.localPatches ?? [] {
             let patchURL = manifestDirectory.appending(path: patch.path)
             guard FileManager.default.fileExists(atPath: patchURL.path) else {
@@ -353,22 +370,6 @@ enum CoreBuilder {
             )
         }
 
-        let submodules = core.source.submodules ?? []
-        if !submodules.isEmpty {
-            try run(
-                "/usr/bin/git",
-                arguments: [
-                    "submodule",
-                    "update",
-                    "--init",
-                    "--recursive",
-                    "--depth",
-                    "1",
-                    "--",
-                ] + submodules,
-                currentDirectory: sourceDirectory
-            )
-        }
     }
 
     private static func validateBinary(_ url: URL, coreID: String) throws {

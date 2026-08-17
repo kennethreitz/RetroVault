@@ -1102,6 +1102,12 @@
       "source": {
         "repository": "https://github.com/jtothebell/fake-08.git",
         "revision": "814991a2571ad3970e386cef48f3b148aa1c27b9",
+        "localPatches": [
+          {
+            "path": "Patches/libretro-fake08/pico8-long-comment-semantics.patch",
+            "sha256": "bf9672c6dcff348f9268be58fc802dc465aa994cf1e575a83cf4b71eb4e2d3f1"
+          }
+        ],
         "licenseFile": "LICENSE.MD",
         "submodules": [
           "libs/z8lua"

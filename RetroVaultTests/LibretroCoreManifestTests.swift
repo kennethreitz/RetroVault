@@ -1075,11 +1075,8 @@ struct LibretroCoreManifestTests {
             switch session.phase {
             case .running:
                 didStart = true
-                if let frame = session.videoBuffer.snapshot() {
+                if session.videoBuffer.snapshot() != nil {
                     didReceiveFrame = true
-                    if containsVisiblePixels(frame) {
-                        return
-                    }
                 }
             case let .failed(message):
                 Issue.record("FAKE-08 failed to start: \(message)")
@@ -1094,9 +1091,86 @@ struct LibretroCoreManifestTests {
             Issue.record("FAKE-08 did not start within 10 seconds.")
         } else if !didReceiveFrame {
             Issue.record("FAKE-08 did not return a frame within 10 seconds.")
+        } else if let frame = session.videoBuffer.snapshot(),
+                  containsVisiblePixels(frame) {
+            return
         } else {
             Issue.record("FAKE-08 returned only black frames for 10 seconds.")
         }
+    }
+
+    @Test("FAKE-08 follows Pico-8 long-comment semantics")
+    @MainActor
+    func fake08FollowsPico8LongCommentSemantics() async throws {
+        let repositoryURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let installation = try LibretroInstallation(
+            manifestURL: repositoryURL.appending(
+                path: "Libretro/CoreManifest.json"
+            ),
+            coresDirectory: repositoryURL.appending(
+                path: "Build/LibretroCores/Cores",
+                directoryHint: .isDirectory
+            )
+        )
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        let cartURL = temporaryDirectory.appending(path: "comments.p8")
+        let cart = """
+            pico-8 cartridge // http://www.pico-8.com
+            version 16
+            __lua__
+            --[[
+            pico-8 long comments do not nest
+            --[[ nested-looking marker ]]
+            function _draw()
+              cls(8)
+            end
+            """
+        try Data(cart.utf8).write(to: cartURL, options: .atomic)
+
+        let session = LibretroSession(
+            request: LibretroRunRequest(
+                title: "Pico-8 Comment Compatibility Test",
+                coreID: "libretro-fake08",
+                contentURL: cartURL,
+                systemName: "Pico-8"
+            ),
+            installation: installation
+        )
+        session.start()
+        defer {
+            session.stop()
+        }
+
+        for _ in 0..<100 {
+            switch session.phase {
+            case .running:
+                if let frame = session.videoBuffer.snapshot(),
+                   isMostlyPico8Red(frame) {
+                    return
+                }
+            case let .failed(message):
+                Issue.record("FAKE-08 failed to start: \(message)")
+                return
+            case .idle, .starting, .stopped:
+                break
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        Issue.record(
+            "FAKE-08 did not render the compatibility cartridge. It may have fallen back to its built-in launcher."
+        )
     }
 
     @Test("Runs a PlayStation smoke-test image when one is provided")
@@ -1900,6 +1974,28 @@ struct LibretroCoreManifestTests {
                 }
             }
             return false
+        }
+    }
+
+    private func isMostlyPico8Red(_ frame: LibretroVideoFrame) -> Bool {
+        frame.pixels.withUnsafeBytes { bytes in
+            guard let pixels = bytes.baseAddress?.assumingMemoryBound(
+                to: UInt8.self
+            ) else {
+                return false
+            }
+
+            var matchingPixels = 0
+            let pixelCount = bytes.count / 4
+            for offset in stride(from: 0, to: bytes.count - 3, by: 4) {
+                let blue = pixels[offset]
+                let green = pixels[offset + 1]
+                let red = pixels[offset + 2]
+                if red > 200, green < 40, blue < 120 {
+                    matchingPixels += 1
+                }
+            }
+            return matchingPixels * 4 > pixelCount * 3
         }
     }
 }
