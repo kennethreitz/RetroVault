@@ -45,7 +45,10 @@ hdiutil create \
 
 hdiutil verify "$dmg_path"
 codesign --verify --deep --strict "$staging_directory/RetroVault.app"
-shasum -a 256 "$dmg_path" > "$checksum_path"
+(
+    cd "$release_directory"
+    shasum -a 256 "$dmg_name" > "$dmg_name.sha256"
+)
 rm -rf "$staging_directory"
 
 echo
