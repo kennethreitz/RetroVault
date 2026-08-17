@@ -1,20 +1,23 @@
 # Changelog
 
-RetroVault uses Calendar Versioning in `YYYY.M.D` form. This changelog records
-notable user-facing and architectural changes and is intentionally curated
-rather than being a list of every commit.
+RetroVault uses Calendar Versioning in `YYYY.M.D` form, with a numeric suffix
+for additional releases on the same day. This changelog records notable
+user-facing and architectural changes and is intentionally curated rather than
+being a list of every commit.
 
-## 2026.8.17 (2026-08-17)
+## 2026.8.17.1 (2026-08-17)
 
 ### Added
 
-- Select toggles game lists between the standard layout and a 50% right-side
-  cover view while retaining Sync Status on the home screen.
 - Added box art to controller-first game lists by default. Small covers load
   only for visible rows through the existing image cache, and the setting can
   still be disabled for a text-only list.
+- Select toggles game lists between the standard layout and a 50% right-side
+  cover view while retaining Sync Status on the home screen.
 - Documented a deliberately tabled Apple TV feasibility boundary and a small
   physical-device prototype milestone.
+
+## 2026.8.17 (2026-08-17)
 
 ### Fixed
 
