@@ -1232,6 +1232,31 @@ struct BigPictureCatalogTests {
     #expect(navigation.command(for: select, at: 21.1) == nil)
   }
 
+  @Test("Select previews game artwork outside the home page")
+  func resolvesContextualSelectAction() {
+    #expect(
+      BigPictureSelectAction.resolve(
+        isHome: true,
+        hasSelectedGame: false,
+        hasArtwork: false
+      ) == .showSyncStatus
+    )
+    #expect(
+      BigPictureSelectAction.resolve(
+        isHome: false,
+        hasSelectedGame: true,
+        hasArtwork: true
+      ) == .previewArtwork
+    )
+    #expect(
+      BigPictureSelectAction.resolve(
+        isHome: false,
+        hasSelectedGame: true,
+        hasArtwork: false
+      ) == .ignore
+    )
+  }
+
   @Test("Routes X from sync status to Settings")
   func routesSyncStatusOptionsToSettings() {
     #expect(

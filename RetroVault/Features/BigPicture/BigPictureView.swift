@@ -267,6 +267,7 @@ struct BigPictureView: View {
   @State private var actionNotice: BigPictureActionNotice?
   @State private var settingsConfirmation: BigPictureSetting?
   @State private var isShowingSyncStatus = false
+  @State private var artworkPreviewGame: GameSummary?
   @Namespace private var selectionHighlight
   @FocusState private var hasInterfaceFocus: Bool
 
@@ -373,6 +374,8 @@ struct BigPictureView: View {
         actionNoticeOverlay(actionNotice)
       } else if isShowingSyncStatus {
         syncStatusOverlay
+      } else if let artworkPreviewGame {
+        artworkPreviewOverlay(artworkPreviewGame)
       }
     }
     .foregroundStyle(.white)
@@ -676,6 +679,18 @@ struct BigPictureView: View {
               : nil,
             label: "STATUS"
           )
+        } else if selectedGame?.coverURL != nil {
+          actionHint(
+            key:
+              controllerState.isConnected
+              ? controllerState.syncStatusButtonPrompt.label
+              : "SELECT",
+            systemImage:
+              controllerState.isConnected
+              ? controllerState.syncStatusButtonPrompt.systemImage
+              : nil,
+            label: "ARTWORK"
+          )
         }
 
         if page != .home {
@@ -890,6 +905,62 @@ struct BigPictureView: View {
         .stroke(.white.opacity(0.18), lineWidth: 1)
     }
     .shadow(color: .black.opacity(0.8), radius: 50)
+  }
+
+  private func artworkPreviewOverlay(_ game: GameSummary) -> some View {
+    GeometryReader { geometry in
+      let imageHeight = min(max(geometry.size.height - 210, 280), 760)
+      let imageWidth = min(imageHeight * 0.82, geometry.size.width - 120)
+
+      VStack(spacing: 16) {
+        RomMImageView(
+          url: game.coverURL,
+          session: model.session,
+          service: model.service,
+          targetSize: CGSize(width: 960, height: 1_280),
+          contentMode: .fit,
+          placeholderSystemImage: "photo",
+          cornerRadius: 14,
+          imagePadding: 4
+        )
+        .frame(width: imageWidth, height: imageHeight)
+        .shadow(color: .black.opacity(0.8), radius: 40)
+
+        Text(game.name)
+          .font(.system(size: 22, weight: .black, design: .rounded))
+          .lineLimit(1)
+          .frame(maxWidth: imageWidth)
+
+        HStack(spacing: 12) {
+          actionHint(
+            key:
+              controllerState.isConnected
+              ? controllerState.syncStatusButtonPrompt.label
+              : "SELECT",
+            systemImage:
+              controllerState.isConnected
+              ? controllerState.syncStatusButtonPrompt.systemImage
+              : nil,
+            label: "CLOSE"
+          )
+          actionHint(
+            key: controllerState.backButtonPrompt.label,
+            systemImage: controllerState.backButtonPrompt.systemImage,
+            label: "BACK"
+          )
+        }
+      }
+      .padding(28)
+      .background(
+        .black.opacity(0.97),
+        in: RoundedRectangle(cornerRadius: 28)
+      )
+      .overlay {
+        RoundedRectangle(cornerRadius: 28)
+          .stroke(.white.opacity(0.18), lineWidth: 1)
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
   }
 
   private func gameOptionsOverlay(_ game: GameSummary) -> some View {
@@ -2272,15 +2343,45 @@ struct BigPictureView: View {
       return
     }
 
+    if artworkPreviewGame != nil {
+      switch command {
+      case .activate, .back, .showSyncStatus:
+        self.artworkPreviewGame = nil
+      case .up, .down, .pageUp, .pageDown, .playFromBeginning,
+        .openGameOptions, .cycleSort, .exit:
+        break
+      }
+      return
+    }
+
     if command == .showSyncStatus {
-      guard actionProgress?.isBackgrounded != false, !isPreparingPlayback else {
+      guard
+        actionProgress?.isBackgrounded != false,
+        !isPreparingPlayback,
+        actionNotice == nil,
+        optionsGame == nil,
+        optionsSystem == nil,
+        settingsConfirmation == nil,
+        playbackErrorMessage == nil
+      else {
         return
       }
-      actionNotice = nil
-      optionsGame = nil
-      optionsSystem = nil
-      playbackErrorMessage = nil
-      isShowingSyncStatus.toggle()
+      switch BigPictureSelectAction.resolve(
+        isHome: page == .home,
+        hasSelectedGame: selectedGame != nil,
+        hasArtwork: selectedGame?.coverURL != nil
+      ) {
+      case .showSyncStatus:
+        actionNotice = nil
+        optionsGame = nil
+        optionsSystem = nil
+        playbackErrorMessage = nil
+        isShowingSyncStatus.toggle()
+      case .previewArtwork:
+        artworkPreviewGame = selectedGame
+      case .ignore:
+        break
+      }
       return
     }
 
@@ -3767,6 +3868,23 @@ enum BigPictureCommand: Equatable, Sendable {
   case showSyncStatus
   case back
   case exit
+}
+
+enum BigPictureSelectAction: Equatable, Sendable {
+  case showSyncStatus
+  case previewArtwork
+  case ignore
+
+  static func resolve(
+    isHome: Bool,
+    hasSelectedGame: Bool,
+    hasArtwork: Bool
+  ) -> Self {
+    if isHome {
+      return .showSyncStatus
+    }
+    return hasSelectedGame && hasArtwork ? .previewArtwork : .ignore
+  }
 }
 
 enum BigPictureSyncStatusPresentation {
