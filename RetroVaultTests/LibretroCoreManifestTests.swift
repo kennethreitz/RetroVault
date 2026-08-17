@@ -390,21 +390,15 @@ struct LibretroCoreManifestTests {
         #expect(supports("Nintendo GameCube"))
         #expect(supports("PlayStation Portable"))
         #expect(supports("Virtual Boy"))
+        #expect(supports("Pico-8"))
         // Offered only by experimental cores.
         #expect(!supports("Dreamcast"))
-        #expect(!supports("Pico-8"))
         #expect(!manifest.supportsSystem(named: "PlayStation 2"))
 
-        // With experimental cores switched on, both systems become playable.
+        // With experimental cores switched on, Dreamcast becomes playable.
         #expect(
             manifest.supportsSystem(
                 named: "Dreamcast",
-                includingExperimental: true
-            )
-        )
-        #expect(
-            manifest.supportsSystem(
-                named: "Pico-8",
                 includingExperimental: true
             )
         )
@@ -647,13 +641,6 @@ struct LibretroCoreManifestTests {
                 systemName: "Pico-8",
                 fileExtension: "p8",
                 includingExperimental: false
-            ) == nil
-        )
-        #expect(
-            manifest.compatibleCore(
-                systemName: "Pico-8",
-                fileExtension: "p8",
-                includingExperimental: true
             )?.id == "libretro-fake08"
         )
         #expect(
@@ -787,8 +774,8 @@ struct LibretroCoreManifestTests {
         }
     }
 
-    @Test("Keeps Pico-8 experimental with an older artifact manifest")
-    func overridesStalePico8Availability() throws {
+    @Test("Keeps bundled Pico-8 available without experimental cores")
+    func offersBundledPico8() throws {
         let core = try JSONDecoder().decode(
             LibretroCoreManifest.Core.self,
             from: Data(
@@ -807,8 +794,8 @@ struct LibretroCoreManifestTests {
             )
         )
 
-        #expect(core.availabilityStatus == .experimental)
-        #expect(!core.isOffered(includingExperimental: false))
+        #expect(core.availabilityStatus == .bundled)
+        #expect(core.isOffered(includingExperimental: false))
         #expect(core.isOffered(includingExperimental: true))
     }
 

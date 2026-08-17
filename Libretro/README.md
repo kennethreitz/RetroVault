@@ -3,8 +3,8 @@
 `CoreManifest.json` is the reviewed source of truth for every libretro binary
 that may ship with RetroVault.
 
-The manifest includes a content-free 2048 pipeline test, 25 reviewed
-user-facing cores, and 2 experimental cores. The current catalog supports Game Boy, Game Boy Color,
+The manifest includes a content-free 2048 pipeline test, 26 reviewed
+user-facing cores, and 1 experimental core. The current catalog supports Game Boy, Game Boy Color,
 Game Boy Advance, NES, SNES, Master System, Game Gear, SG-1000, Atari 2600,
 Atari 5200, Atari 7800, ColecoVision, Nintendo 64, Arcade, Virtual Boy, Neo Geo
 Pocket and Pocket Color, WonderSwan and WonderSwan Color, Pokémon Mini,

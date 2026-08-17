@@ -15,6 +15,11 @@ rather than being a list of every commit.
   Lua-parser submodule is initialized, and its smoke test waits long enough to
   detect delayed launcher fallback.
 
+### Changed
+
+- Promoted Pico-8 and FAKE-08 from experimental to supported after validating
+  real cartridge startup and Pico-8-compatible long-comment parsing.
+
 ## 2026.8.14 (2026-08-14)
 
 ### Added

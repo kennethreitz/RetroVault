@@ -35,16 +35,8 @@ struct LibretroCoreManifest: Decodable, Sendable {
         let capabilities: [String]
         let firmware: [Firmware]
 
-        /// Core artifacts keep the manifest snapshot they were built with.
-        /// Safety downgrades must still take effect when an existing binary
-        /// bundle is reused instead of rebuilt.
         var availabilityStatus: Status {
-            switch id {
-            case "libretro-fake08":
-                .experimental
-            default:
-                status
-            }
+            status
         }
 
         func isOffered(includingExperimental: Bool) -> Bool {

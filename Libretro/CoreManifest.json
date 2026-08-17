@@ -1083,7 +1083,7 @@
     {
       "id": "libretro-fake08",
       "displayName": "FAKE-08",
-      "status": "experimental",
+      "status": "bundled",
       "binaryName": "fake08_libretro.dylib",
       "systems": [
         "pico-8"

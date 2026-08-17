@@ -98,7 +98,7 @@ same library, controller, and save workflows.
 | Virtual Boy | Beetle VB | Libretro |
 | Pokemon Mini | PokeMini | Libretro |
 | Arduboy | Arduous | Libretro |
-| Pico-8 | FAKE-08 | Libretro, experimental |
+| Pico-8 | FAKE-08 | Libretro |
 
 Exact core revisions, licenses, hashes, and build requirements are recorded in
 [`Libretro/CoreManifest.json`](Libretro/CoreManifest.json). RetroVault does not
