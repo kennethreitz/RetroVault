@@ -147,6 +147,14 @@ struct LibretroKeyboardInputStateTests {
 
 @Suite("Libretro mouse input state")
 struct LibretroMouseInputStateTests {
+    @Test("Frontend advertises mouse and pointer device classes")
+    func frontendDeviceCapabilitiesIncludePointingDevices() {
+        let capabilities = LibretroInputState.supportedDeviceCapabilities
+
+        #expect(capabilities & (UInt64(1) << 2) != 0) // mouse
+        #expect(capabilities & (UInt64(1) << 6) != 0) // pointer
+    }
+
     @Test("Relative motion is reported for one input poll")
     func relativeMotionIsConsumedOnce() {
         let input = LibretroInputState()

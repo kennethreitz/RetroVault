@@ -863,6 +863,16 @@ struct LibretroFastForwardLatch: Equatable, Sendable {
 }
 
 final class LibretroInputState: @unchecked Sendable {
+    /// Libretro device classes handled by `inputValue(port:device:index:id:)`.
+    /// Cores such as FAKE-08 query this mask before requesting optional mouse
+    /// or pointer input.
+    static let supportedDeviceCapabilities: UInt64 =
+        (UInt64(1) << LibretroABI.joypadDevice)
+        | (UInt64(1) << LibretroABI.mouseDevice)
+        | (UInt64(1) << LibretroABI.keyboardDevice)
+        | (UInt64(1) << LibretroABI.analogDevice)
+        | (UInt64(1) << LibretroABI.pointerDevice)
+
     struct KeyEvent: Equatable, Sendable {
         let key: UInt32
         let pressed: Bool
@@ -2198,6 +2208,7 @@ private enum LibretroABI {
     static let analogXID: UInt32 = 0
     static let analogYID: UInt32 = 1
     static let mouseDevice: UInt32 = 2
+    static let keyboardDevice: UInt32 = 3
     static let mouseXID: UInt32 = 0
     static let mouseYID: UInt32 = 1
     static let mouseLeftID: UInt32 = 2
@@ -2247,6 +2258,7 @@ private enum LibretroABI {
         case setSupportNoGame = 18
         case setFrameTimeCallback = 21
         case getRumbleInterface = 23
+        case getInputDeviceCapabilities = 24
         case getLogInterface = 27
         case getCoreAssetsDirectory = 30
         case getSaveDirectory = 31
@@ -3277,6 +3289,17 @@ private final class LibretroEnvironment {
                 ),
                 as: RetroRumbleInterface.self
             )
+            return true
+        case .getInputDeviceCapabilities:
+            guard let data else {
+                return false
+            }
+            // Advertise every input class that RetroVault's callback handles.
+            // FAKE-08 consults this mask while a cartridge has PICO-8 devkit
+            // input enabled; without it, mouse-aware carts never ask for the
+            // pointer events already collected by the Metal game view.
+            let capabilities = LibretroInputState.supportedDeviceCapabilities
+            data.storeBytes(of: capabilities, as: UInt64.self)
             return true
         case .getLogInterface:
             guard let data else {

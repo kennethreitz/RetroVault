@@ -11,6 +11,8 @@ rather than being a list of every commit.
 - Pico-8 cartridges whose source contains nested-looking long-comment markers
   now follow Pico-8's non-nesting comment semantics instead of being rejected
   and silently replaced by FAKE-08's built-in launcher.
+- Pico-8 cartridges that enable devkit mouse input now receive pointer movement
+  and clicks from the macOS game window.
 - FAKE-08's compatibility patch is now applied reproducibly after its pinned
   Lua-parser submodule is initialized, and its smoke test waits long enough to
   detect delayed launcher fallback.
@@ -19,22 +21,6 @@ rather than being a list of every commit.
 
 - Promoted Pico-8 and FAKE-08 from experimental to supported after validating
   real cartridge startup and Pico-8-compatible long-comment parsing.
-
-## 2026.8.14 (2026-08-14)
-
-### Added
-
-- Completed RetroVault's native macOS menu bar with contextual Library and
-  Game commands for Big Picture, Libretro, Vita3K, and Cemu sessions.
-- Added native gameplay commands for pause, mute, reset, quick save, quick
-  load, fullscreen, and stopping the active game, with conflict-free keyboard
-  shortcuts and live command availability.
-
-### Fixed
-
-- Pico-8 cartridges now load through FAKE-08's stable file-path interface
-  instead of its unsafe deferred in-memory loader, preventing valid carts from
-  falling through to the emulator REPL.
 
 ## 2026.8.14 (2026-08-14)
 
@@ -59,6 +45,9 @@ rather than being a list of every commit.
 
 ### Fixed
 
+- Pico-8 cartridges now load through FAKE-08's stable file-path interface
+  instead of its unsafe deferred in-memory loader, preventing valid carts from
+  falling through to the emulator REPL.
 - Restored window chrome when leaving fullscreen gameplay and resolved
   shortcut collisions between library sync, logs, reset, and quick-load
   commands.

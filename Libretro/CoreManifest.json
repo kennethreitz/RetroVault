@@ -1096,6 +1096,8 @@
         "softwareVideo",
         "audio",
         "retropad",
+        "mouse",
+        "pointer",
         "serialization"
       ],
       "firmware": [],
