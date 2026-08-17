@@ -1259,6 +1259,7 @@ struct BigPictureCatalogTests {
 
   @Test("Artwork presentation toggles between standard and half")
   func cyclesArtworkPresentation() {
+    #expect(BigPictureScene.showsGameListBoxArtByDefault)
     #expect(BigPictureArtworkPresentationMode.standard.next == .half)
     #expect(BigPictureArtworkPresentationMode.half.next == .standard)
     #expect(BigPictureArtworkPresentationMode.standard.nextActionLabel == "HALF ART")

@@ -10,9 +10,9 @@ rather than being a list of every commit.
 
 - Select toggles game lists between the standard layout and a 50% right-side
   cover view while retaining Sync Status on the home screen.
-- Added an opt-in box-art mode for controller-first game lists. Small covers
-  load only for visible rows through the existing image cache; the lightweight
-  text list remains the default.
+- Added box art to controller-first game lists by default. Small covers load
+  only for visible rows through the existing image cache, and the setting can
+  still be disabled for a text-only list.
 - Documented a deliberately tabled Apple TV feasibility boundary and a small
   physical-device prototype milestone.
 

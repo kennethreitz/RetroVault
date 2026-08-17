@@ -12,7 +12,7 @@ enum BigPictureScene {
     "big-picture.ignored-system-ids.v1"
   static let showsGameListBoxArtPreferenceKey =
     "big-picture.game-list-box-art.v1"
-  static let showsGameListBoxArtByDefault = false
+  static let showsGameListBoxArtByDefault = true
 }
 
 struct BigPictureSynchronizationFooterPresentation:
