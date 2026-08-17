@@ -1257,14 +1257,12 @@ struct BigPictureCatalogTests {
     )
   }
 
-  @Test("Artwork presentation cycles through full, side, and hidden")
+  @Test("Artwork presentation toggles between standard and half")
   func cyclesArtworkPresentation() {
-    #expect(BigPictureArtworkPresentationMode.hidden.next == .full)
-    #expect(BigPictureArtworkPresentationMode.full.next == .rightSide)
-    #expect(BigPictureArtworkPresentationMode.rightSide.next == .hidden)
-    #expect(BigPictureArtworkPresentationMode.hidden.nextActionLabel == "FULL ART")
-    #expect(BigPictureArtworkPresentationMode.full.nextActionLabel == "SIDE ART")
-    #expect(BigPictureArtworkPresentationMode.rightSide.nextActionLabel == "HIDE ART")
+    #expect(BigPictureArtworkPresentationMode.standard.next == .half)
+    #expect(BigPictureArtworkPresentationMode.half.next == .standard)
+    #expect(BigPictureArtworkPresentationMode.standard.nextActionLabel == "HALF ART")
+    #expect(BigPictureArtworkPresentationMode.half.nextActionLabel == "STANDARD")
   }
 
   @Test("Routes X from sync status to Settings")

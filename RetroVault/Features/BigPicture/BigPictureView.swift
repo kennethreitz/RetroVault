@@ -267,7 +267,7 @@ struct BigPictureView: View {
   @State private var actionNotice: BigPictureActionNotice?
   @State private var settingsConfirmation: BigPictureSetting?
   @State private var isShowingSyncStatus = false
-  @State private var artworkPresentationMode = BigPictureArtworkPresentationMode.hidden
+  @State private var artworkPresentationMode = BigPictureArtworkPresentationMode.standard
   @Namespace private var selectionHighlight
   @FocusState private var hasInterfaceFocus: Bool
 
@@ -374,11 +374,6 @@ struct BigPictureView: View {
         actionNoticeOverlay(actionNotice)
       } else if isShowingSyncStatus {
         syncStatusOverlay
-      } else if artworkPresentationMode == .full,
-        let selectedGame,
-        selectedGame.coverURL != nil
-      {
-        artworkPreviewOverlay(selectedGame)
       }
     }
     .foregroundStyle(.white)
@@ -549,7 +544,7 @@ struct BigPictureView: View {
           .foregroundStyle(.white.opacity(0.55))
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else if artworkPresentationMode == .rightSide,
+    } else if artworkPresentationMode == .half,
       let selectedGame,
       selectedGame.coverURL != nil
     {
@@ -924,62 +919,6 @@ struct BigPictureView: View {
         .stroke(.white.opacity(0.18), lineWidth: 1)
     }
     .shadow(color: .black.opacity(0.8), radius: 50)
-  }
-
-  private func artworkPreviewOverlay(_ game: GameSummary) -> some View {
-    GeometryReader { geometry in
-      let imageHeight = min(max(geometry.size.height - 210, 280), 760)
-      let imageWidth = min(imageHeight * 0.82, geometry.size.width - 120)
-
-      VStack(spacing: 16) {
-        RomMImageView(
-          url: game.coverURL,
-          session: model.session,
-          service: model.service,
-          targetSize: CGSize(width: 960, height: 1_280),
-          contentMode: .fit,
-          placeholderSystemImage: "photo",
-          cornerRadius: 14,
-          imagePadding: 4
-        )
-        .frame(width: imageWidth, height: imageHeight)
-        .shadow(color: .black.opacity(0.8), radius: 40)
-
-        Text(game.name)
-          .font(.system(size: 22, weight: .black, design: .rounded))
-          .lineLimit(1)
-          .frame(maxWidth: imageWidth)
-
-        HStack(spacing: 12) {
-          actionHint(
-            key:
-              controllerState.isConnected
-              ? controllerState.syncStatusButtonPrompt.label
-              : "SELECT",
-            systemImage:
-              controllerState.isConnected
-              ? controllerState.syncStatusButtonPrompt.systemImage
-              : nil,
-            label: artworkPresentationMode.nextActionLabel
-          )
-          actionHint(
-            key: controllerState.backButtonPrompt.label,
-            systemImage: controllerState.backButtonPrompt.systemImage,
-            label: "BACK"
-          )
-        }
-      }
-      .padding(28)
-      .background(
-        .black.opacity(0.97),
-        in: RoundedRectangle(cornerRadius: 28)
-      )
-      .overlay {
-        RoundedRectangle(cornerRadius: 28)
-          .stroke(.white.opacity(0.18), lineWidth: 1)
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
   }
 
   private func artworkSidePanel(_ game: GameSummary) -> some View {
@@ -3918,29 +3857,24 @@ enum BigPictureSelectAction: Equatable, Sendable {
 }
 
 enum BigPictureArtworkPresentationMode: Equatable, Sendable {
-  case hidden
-  case full
-  case rightSide
+  case standard
+  case half
 
   var next: Self {
     switch self {
-    case .hidden:
-      .full
-    case .full:
-      .rightSide
-    case .rightSide:
-      .hidden
+    case .standard:
+      .half
+    case .half:
+      .standard
     }
   }
 
   var nextActionLabel: String {
     switch next {
-    case .hidden:
-      "HIDE ART"
-    case .full:
-      "FULL ART"
-    case .rightSide:
-      "SIDE ART"
+    case .standard:
+      "STANDARD"
+    case .half:
+      "HALF ART"
     }
   }
 }
