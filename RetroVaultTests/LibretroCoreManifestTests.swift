@@ -5,6 +5,28 @@ import Testing
 
 @Suite("Bundled Libretro cores")
 struct LibretroCoreManifestTests {
+    @Test("Keeps FAKE-08 cartridge data alive through its deferred load")
+    func loadsFake08CartridgesByPath() {
+        #expect(
+            LibretroContentLoadingPolicy.needsFullPath(
+                coreID: "libretro-fake08",
+                reportedByCore: false
+            )
+        )
+        #expect(
+            !LibretroContentLoadingPolicy.needsFullPath(
+                coreID: "libretro-gambatte",
+                reportedByCore: false
+            )
+        )
+        #expect(
+            LibretroContentLoadingPolicy.needsFullPath(
+                coreID: "libretro-dolphin",
+                reportedByCore: true
+            )
+        )
+    }
+
     @Test("Checkpoints once per interval without catching up repeatedly")
     func checkpointsAtBoundedCadence() {
         var cadence = LibretroCheckpointCadence(

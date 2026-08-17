@@ -14,6 +14,22 @@ rather than being a list of every commit.
   load, fullscreen, and stopping the active game, with conflict-free keyboard
   shortcuts and live command availability.
 
+### Fixed
+
+- Pico-8 cartridges now load through FAKE-08's stable file-path interface
+  instead of its unsafe deferred in-memory loader, preventing valid carts from
+  falling through to the emulator REPL.
+
+## 2026.8.14 (2026-08-14)
+
+### Added
+
+- Completed RetroVault's native macOS menu bar with contextual Library and
+  Game commands for Big Picture, Libretro, Vita3K, and Cemu sessions.
+- Added native gameplay commands for pause, mute, reset, quick save, quick
+  load, fullscreen, and stopping the active game, with conflict-free keyboard
+  shortcuts and live command availability.
+
 ### Changed
 
 - Libretro rewind snapshots are now compressed with LZFSE away from the

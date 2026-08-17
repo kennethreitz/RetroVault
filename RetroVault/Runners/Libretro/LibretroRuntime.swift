@@ -306,6 +306,21 @@ enum LibretroContentIdentity {
     }
 }
 
+/// Chooses how game content is handed to a Libretro core.
+///
+/// Most cores accurately report whether they require a file path. FAKE-08 is
+/// an exception: its in-memory loader retains Libretro's borrowed data pointer
+/// and reads it on a later frame. Supplying a path keeps the cartridge bytes
+/// valid until FAKE-08 has finished loading them.
+enum LibretroContentLoadingPolicy {
+    static func needsFullPath(
+        coreID: String,
+        reportedByCore: Bool
+    ) -> Bool {
+        reportedByCore || coreID == "libretro-fake08"
+    }
+}
+
 enum LibretroRewindPolicy {
     static func isEnabled(forCoreID coreID: String) -> Bool {
         let normalizedCoreID = coreID.lowercased()
@@ -3951,13 +3966,17 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             let systemInfo = try loadedCore.systemInfo()
             loadedCore.initialize()
             initialized = true
+            let needsFullPath = LibretroContentLoadingPolicy.needsFullPath(
+                coreID: request.coreID,
+                reportedByCore: systemInfo.needsFullPath
+            )
             stagedContent = try LibretroStagedContent.prepare(
                 contentURL: request.contentURL,
-                needsFullPath: systemInfo.needsFullPath
+                needsFullPath: needsFullPath
             )
             try loadedCore.loadGame(
                 contentURL: stagedContent?.contentURL,
-                needsFullPath: systemInfo.needsFullPath
+                needsFullPath: needsFullPath
             )
             loaded = true
 
