@@ -10,6 +10,9 @@ enum BigPictureScene {
     "big-picture.system-game-sort.v1"
   static let ignoredSystemIDsPreferenceKey =
     "big-picture.ignored-system-ids.v1"
+  static let showsGameListBoxArtPreferenceKey =
+    "big-picture.game-list-box-art.v1"
+  static let showsGameListBoxArtByDefault = false
 }
 
 struct BigPictureSynchronizationFooterPresentation:
@@ -199,6 +202,9 @@ struct BigPictureView: View {
     BigPictureSystemGameSort.defaultSort.rawValue
   @AppStorage(BigPictureScene.ignoredSystemIDsPreferenceKey)
   private var ignoredSystemIDsRawValue = ""
+  @AppStorage(BigPictureScene.showsGameListBoxArtPreferenceKey)
+  private var showsGameListBoxArt =
+    BigPictureScene.showsGameListBoxArtByDefault
   @AppStorage(LibretroTransportPreferences.enablesFastForwardKey)
   private var enablesR3FastForward =
     LibretroTransportPreferences.enabledByDefault
@@ -557,6 +563,23 @@ struct BigPictureView: View {
             activate(row)
           } label: {
             HStack(spacing: 16) {
+              if showsGameListBoxArt, page.isGameList,
+                let game = game(for: row)
+              {
+                RomMImageView(
+                  url: game.coverURL,
+                  session: model.session,
+                  service: model.service,
+                  targetSize: CGSize(width: 76, height: 96),
+                  contentMode: .fit,
+                  placeholderSystemImage: "gamecontroller",
+                  cornerRadius: 5,
+                  imagePadding: 1
+                )
+                .frame(width: 38, height: 48)
+                .accessibilityHidden(true)
+              }
+
               if page == .saveCenter, let item = saveCenterItem(for: row) {
                 Image(systemName: item.status.systemImage)
                   .font(.system(size: 15, weight: .bold))
@@ -1626,7 +1649,7 @@ struct BigPictureView: View {
       "DISCONNECT"
     case .videoFilter, .wiiController,
       .mapsLeftAnalogToDPad, .fastForward, .rewind, .gamesFullScreen,
-      .experimentalCores, .dsuEnabled, .dsuLayout,
+      .gameListBoxArt, .experimentalCores, .dsuEnabled, .dsuLayout,
       .bigPictureFullScreen:
       "CHANGE"
     }
@@ -1698,6 +1721,11 @@ struct BigPictureView: View {
         .gamesFullScreen,
         title: "Open Games in Full Screen",
         detail: onOff(opensGamesInFullScreen)
+      ),
+      settingRow(
+        .gameListBoxArt,
+        title: "Show Box Art in Game Lists",
+        detail: onOff(showsGameListBoxArt)
       ),
       settingRow(
         .experimentalCores,
@@ -2148,7 +2176,10 @@ struct BigPictureView: View {
   }
 
   private var rowHeight: CGFloat {
-    page == .home ? 57 : 50
+    if page == .home {
+      return 57
+    }
+    return page.isGameList && showsGameListBoxArt ? 60 : 50
   }
 
   private var catalogKey: BigPictureCatalogKey {
@@ -2923,6 +2954,9 @@ struct BigPictureView: View {
     case .gamesFullScreen:
       opensGamesInFullScreen.toggle()
       refreshSettingsRowsPreservingSelection()
+    case .gameListBoxArt:
+      showsGameListBoxArt.toggle()
+      refreshSettingsRowsPreservingSelection()
     case .experimentalCores:
       enablesExperimentalCores.toggle()
       refreshSettingsRowsPreservingSelection()
@@ -2992,6 +3026,13 @@ struct BigPictureView: View {
         port: UInt16(clamping: dsuPort)
       ).normalized
     )
+  }
+
+  private func game(for row: BigPictureRow) -> GameSummary? {
+    guard case .play(let game) = row.action else {
+      return nil
+    }
+    return game
   }
 
   private func refreshSettingsRowsPreservingSelection() {
@@ -3777,6 +3818,7 @@ private enum BigPictureSetting: Hashable, Sendable {
   case fastForward
   case rewind
   case gamesFullScreen
+  case gameListBoxArt
   case experimentalCores
   case dsuEnabled
   case dsuEndpoint

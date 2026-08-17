@@ -6,6 +6,14 @@ rather than being a list of every commit.
 
 ## 2026.8.17 (2026-08-17)
 
+### Added
+
+- Added an opt-in box-art mode for controller-first game lists. Small covers
+  load only for visible rows through the existing image cache; the lightweight
+  text list remains the default.
+- Documented a deliberately tabled Apple TV feasibility boundary and a small
+  physical-device prototype milestone.
+
 ### Fixed
 
 - Pico-8 cartridges whose source contains nested-looking long-comment markers

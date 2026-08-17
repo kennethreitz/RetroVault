@@ -6,6 +6,9 @@ struct SettingsView: View {
     @AppStorage(BigPictureScene.opensInFullScreenPreferenceKey)
     private var opensBigPictureInFullScreen =
         BigPictureScene.opensInFullScreenByDefault
+    @AppStorage(BigPictureScene.showsGameListBoxArtPreferenceKey)
+    private var showsGameListBoxArt =
+        BigPictureScene.showsGameListBoxArtByDefault
     @AppStorage(LibretroTransportPreferences.enablesFastForwardKey)
     private var enablesR3FastForward =
         LibretroTransportPreferences.enabledByDefault
@@ -58,6 +61,17 @@ struct SettingsView: View {
             }
 
             Section("Library") {
+                Toggle(
+                    "Show Box Art in Game Lists",
+                    isOn: $showsGameListBoxArt
+                )
+
+                Text(
+                    "Loads small cached covers only for visible game rows."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
                 if let libraryModel = model.libraryModel {
                     Button {
                         Task {
