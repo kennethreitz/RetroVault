@@ -8,8 +8,9 @@ rather than being a list of every commit.
 
 ### Added
 
-- Select opens a large cover-art preview for the highlighted game while
-  retaining Sync Status on the home screen.
+- Select cycles highlighted games between a full cover preview, a 50%
+  right-side cover view, and no artwork while retaining Sync Status on the
+  home screen.
 - Added an opt-in box-art mode for controller-first game lists. Small covers
   load only for visible rows through the existing image cache; the lightweight
   text list remains the default.

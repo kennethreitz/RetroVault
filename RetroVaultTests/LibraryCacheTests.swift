@@ -1232,7 +1232,7 @@ struct BigPictureCatalogTests {
     #expect(navigation.command(for: select, at: 21.1) == nil)
   }
 
-  @Test("Select previews game artwork outside the home page")
+  @Test("Select cycles game artwork outside the home page")
   func resolvesContextualSelectAction() {
     #expect(
       BigPictureSelectAction.resolve(
@@ -1246,7 +1246,7 @@ struct BigPictureCatalogTests {
         isHome: false,
         hasSelectedGame: true,
         hasArtwork: true
-      ) == .previewArtwork
+      ) == .cycleArtwork
     )
     #expect(
       BigPictureSelectAction.resolve(
@@ -1255,6 +1255,16 @@ struct BigPictureCatalogTests {
         hasArtwork: false
       ) == .ignore
     )
+  }
+
+  @Test("Artwork presentation cycles through full, side, and hidden")
+  func cyclesArtworkPresentation() {
+    #expect(BigPictureArtworkPresentationMode.hidden.next == .full)
+    #expect(BigPictureArtworkPresentationMode.full.next == .rightSide)
+    #expect(BigPictureArtworkPresentationMode.rightSide.next == .hidden)
+    #expect(BigPictureArtworkPresentationMode.hidden.nextActionLabel == "FULL ART")
+    #expect(BigPictureArtworkPresentationMode.full.nextActionLabel == "SIDE ART")
+    #expect(BigPictureArtworkPresentationMode.rightSide.nextActionLabel == "HIDE ART")
   }
 
   @Test("Routes X from sync status to Settings")

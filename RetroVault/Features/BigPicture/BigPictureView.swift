@@ -267,7 +267,7 @@ struct BigPictureView: View {
   @State private var actionNotice: BigPictureActionNotice?
   @State private var settingsConfirmation: BigPictureSetting?
   @State private var isShowingSyncStatus = false
-  @State private var artworkPreviewGame: GameSummary?
+  @State private var artworkPresentationMode = BigPictureArtworkPresentationMode.hidden
   @Namespace private var selectionHighlight
   @FocusState private var hasInterfaceFocus: Bool
 
@@ -374,8 +374,11 @@ struct BigPictureView: View {
         actionNoticeOverlay(actionNotice)
       } else if isShowingSyncStatus {
         syncStatusOverlay
-      } else if let artworkPreviewGame {
-        artworkPreviewOverlay(artworkPreviewGame)
+      } else if artworkPresentationMode == .full,
+        let selectedGame,
+        selectedGame.coverURL != nil
+      {
+        artworkPreviewOverlay(selectedGame)
       }
     }
     .foregroundStyle(.white)
@@ -546,6 +549,22 @@ struct BigPictureView: View {
           .foregroundStyle(.white.opacity(0.55))
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
+    } else if artworkPresentationMode == .rightSide,
+      let selectedGame,
+      selectedGame.coverURL != nil
+    {
+      GeometryReader { geometry in
+        let columnWidth = max((geometry.size.width - 28) * 0.5, 1)
+
+        HStack(spacing: 28) {
+          menuRows
+            .frame(width: columnWidth)
+
+          artworkSidePanel(selectedGame)
+            .frame(width: columnWidth)
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
     } else {
       menuRows
         .frame(maxWidth: 1_080)
@@ -689,7 +708,7 @@ struct BigPictureView: View {
               controllerState.isConnected
               ? controllerState.syncStatusButtonPrompt.systemImage
               : nil,
-            label: "ARTWORK"
+            label: artworkPresentationMode.nextActionLabel
           )
         }
 
@@ -941,7 +960,7 @@ struct BigPictureView: View {
               controllerState.isConnected
               ? controllerState.syncStatusButtonPrompt.systemImage
               : nil,
-            label: "CLOSE"
+            label: artworkPresentationMode.nextActionLabel
           )
           actionHint(
             key: controllerState.backButtonPrompt.label,
@@ -961,6 +980,28 @@ struct BigPictureView: View {
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+  }
+
+  private func artworkSidePanel(_ game: GameSummary) -> some View {
+    VStack(spacing: 14) {
+      RomMImageView(
+        url: game.coverURL,
+        session: model.session,
+        service: model.service,
+        targetSize: CGSize(width: 900, height: 1_200),
+        contentMode: .fit,
+        placeholderSystemImage: "photo",
+        cornerRadius: 12,
+        imagePadding: 4
+      )
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+      Text(game.name)
+        .font(.system(size: 18, weight: .black, design: .rounded))
+        .lineLimit(1)
+        .frame(maxWidth: .infinity)
+    }
+    .padding(.vertical, 8)
   }
 
   private func gameOptionsOverlay(_ game: GameSummary) -> some View {
@@ -2343,17 +2384,6 @@ struct BigPictureView: View {
       return
     }
 
-    if artworkPreviewGame != nil {
-      switch command {
-      case .activate, .back, .showSyncStatus:
-        self.artworkPreviewGame = nil
-      case .up, .down, .pageUp, .pageDown, .playFromBeginning,
-        .openGameOptions, .cycleSort, .exit:
-        break
-      }
-      return
-    }
-
     if command == .showSyncStatus {
       guard
         actionProgress?.isBackgrounded != false,
@@ -2377,8 +2407,8 @@ struct BigPictureView: View {
         optionsSystem = nil
         playbackErrorMessage = nil
         isShowingSyncStatus.toggle()
-      case .previewArtwork:
-        artworkPreviewGame = selectedGame
+      case .cycleArtwork:
+        artworkPresentationMode = artworkPresentationMode.next
       case .ignore:
         break
       }
@@ -3872,7 +3902,7 @@ enum BigPictureCommand: Equatable, Sendable {
 
 enum BigPictureSelectAction: Equatable, Sendable {
   case showSyncStatus
-  case previewArtwork
+  case cycleArtwork
   case ignore
 
   static func resolve(
@@ -3883,7 +3913,35 @@ enum BigPictureSelectAction: Equatable, Sendable {
     if isHome {
       return .showSyncStatus
     }
-    return hasSelectedGame && hasArtwork ? .previewArtwork : .ignore
+    return hasSelectedGame && hasArtwork ? .cycleArtwork : .ignore
+  }
+}
+
+enum BigPictureArtworkPresentationMode: Equatable, Sendable {
+  case hidden
+  case full
+  case rightSide
+
+  var next: Self {
+    switch self {
+    case .hidden:
+      .full
+    case .full:
+      .rightSide
+    case .rightSide:
+      .hidden
+    }
+  }
+
+  var nextActionLabel: String {
+    switch next {
+    case .hidden:
+      "HIDE ART"
+    case .full:
+      "FULL ART"
+    case .rightSide:
+      "SIDE ART"
+    }
   }
 }
 
