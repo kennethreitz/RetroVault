@@ -5,6 +5,18 @@ for additional releases on the same day. This changelog records notable
 user-facing and architectural changes and is intentionally curated rather than
 being a list of every commit.
 
+## Unreleased
+
+### Added
+
+- Get Info shows the RetroAchievements set RomM stored for a matched ROM,
+  including points, badges, and a link to the game on RetroAchievements.
+  When the RomM user has a RetroAchievements username, the same view shows
+  the unlocks RomM last synced. Unmatched ROMs and unlocks for users without
+  a username stay hidden.
+- The library and Big Picture show a game's synced RetroAchievements
+  progress, such as `12/75`, after a library sync.
+
 ## 2026.8.17.1 (2026-08-17)
 
 ### Added

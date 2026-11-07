@@ -63,6 +63,9 @@ also publishes a SHA-256 checksum.
   [switch2bridge-macos](https://github.com/kennethreitz/switch2bridge-macos).
 - A controller-friendly Save Center for local, remote, pending, and failed
   save synchronization.
+- RetroAchievements sets and unlock progress that RomM already stores, shown
+  in Get Info and the library when a ROM is matched and the RomM user has a
+  RetroAchievements username.
 
 ## Emulation
 
@@ -103,6 +106,19 @@ same library, controller, and save workflows.
 Exact core revisions, licenses, hashes, and build requirements are recorded in
 [`Libretro/CoreManifest.json`](Libretro/CoreManifest.json). RetroVault does not
 bundle games, firmware, BIOS files, or cryptographic keys.
+
+## RetroAchievements
+
+When the RomM server has a RetroAchievements API key, Get Info shows the
+achievement set RomM stored for a matched ROM, including a link to the game
+on RetroAchievements. If that RomM user also has a RetroAchievements username,
+Get Info, the library, and Big Picture show the unlock progress from RomM's
+last sync. A ROM with no match stays blank. Unlocks stay hidden until a
+username is set on the RomM profile and a sync has run.
+
+Playing a game in RetroVault does not submit unlocks. RomM does not store a
+RetroAchievements password or login token, and hardcore credit requires an
+emulator RetroAchievements has verified.
 
 ## Preservation
 

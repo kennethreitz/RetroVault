@@ -35,6 +35,8 @@
 		A20000000000000000000002 /* SwiftDataLibraryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* SwiftDataLibraryCache.swift */; };
 		A20000000000000000000003 /* LibraryCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* LibraryCacheTests.swift */; };
 		A10000000000000000000001 /* GameDetailsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* GameDetailsModels.swift */; };
+		RA1000000000000000000002 /* RetroAchievements.swift in Sources */ = {isa = PBXBuildFile; fileRef = RA1000000000000000000001 /* RetroAchievements.swift */; };
+		RA2000000000000000000002 /* RetroAchievementsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = RA2000000000000000000001 /* RetroAchievementsTests.swift */; };
 		A10000000000000000000002 /* GameDetailsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* GameDetailsModel.swift */; };
 		A10000000000000000000003 /* GameInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* GameInfoView.swift */; };
 		099606899B62ABB6D739ACF9 /* ServerConnectionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3C9E07B1356C2C0E592CE86 /* ServerConnectionServiceTests.swift */; };
@@ -122,6 +124,8 @@
 		B20000000000000000000002 /* SwiftDataLibraryCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SwiftDataLibraryCache.swift; sourceTree = "<group>"; };
 		B20000000000000000000003 /* LibraryCacheTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryCacheTests.swift; sourceTree = "<group>"; };
 		B10000000000000000000001 /* GameDetailsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameDetailsModels.swift; sourceTree = "<group>"; };
+		RA1000000000000000000001 /* RetroAchievements.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RetroAchievements.swift; sourceTree = "<group>"; };
+		RA2000000000000000000001 /* RetroAchievementsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RetroAchievementsTests.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* GameDetailsModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameDetailsModel.swift; sourceTree = "<group>"; };
 		B10000000000000000000003 /* GameInfoView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameInfoView.swift; sourceTree = "<group>"; };
 		0BABBE07DF488BF436DC84BF /* RetroVault.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = RetroVault.entitlements; sourceTree = "<group>"; };
@@ -430,6 +434,7 @@
 				F10000000000000000000001 /* SaveCenterModels.swift */,
 				A82F533028A891EA05B14D94 /* PairingCode.swift */,
 				78703ACD9FFA7196CE7A4676 /* RemoteServerConfiguration.swift */,
+				RA1000000000000000000001 /* RetroAchievements.swift */,
 				375D8CAB07FFA049DFF04051 /* RomMUser.swift */,
 				65C2ECA13F21C22AED001571 /* ServerSession.swift */,
 				A18322AC8C3864BFC99511E4 /* ServerURL.swift */,
@@ -451,6 +456,7 @@
 				B30000000000000000000004 /* LibretroCoreManifestTests.swift */,
 				D00000000000000000000006 /* LibretroDSUInputTests.swift */,
 				7CE0812D0EFD1CE66AA1BF4E /* PairingValueTests.swift */,
+				RA2000000000000000000001 /* RetroAchievementsTests.swift */,
 				B40000000000000000000004 /* SaveBundleArchiveTests.swift */,
 				F10000000000000000000002 /* SaveCenterTests.swift */,
 				A3C9E07B1356C2C0E592CE86 /* ServerConnectionServiceTests.swift */,
@@ -697,6 +703,7 @@
 				51FBF3CA058AFE735403D05E /* SettingsView.swift in Sources */,
 				259E8DB9776D33F818A7B4D8 /* ClientToken.swift in Sources */,
 				A10000000000000000000001 /* GameDetailsModels.swift in Sources */,
+				RA1000000000000000000002 /* RetroAchievements.swift in Sources */,
 				200C1AC3DF053D405EC0EE4B /* LibraryModels.swift in Sources */,
 				E10000000000000000000001 /* SaveCenterModels.swift in Sources */,
 				09AB210B6FCFB9F8B78F2845 /* PairingCode.swift in Sources */,
@@ -747,6 +754,7 @@
 				D0000000000000000000002F /* LibretroKeyboardTests.swift in Sources */,
 				D0000000000000000000002E /* LibretroInternalResolutionTests.swift in Sources */,
 				FE03EEAF3465F1282D358BA8 /* PairingValueTests.swift in Sources */,
+				RA2000000000000000000002 /* RetroAchievementsTests.swift in Sources */,
 				A40000000000000000000005 /* SaveBundleArchiveTests.swift in Sources */,
 				E10000000000000000000002 /* SaveCenterTests.swift in Sources */,
 				099606899B62ABB6D739ACF9 /* ServerConnectionServiceTests.swift in Sources */,

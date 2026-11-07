@@ -38,6 +38,8 @@ struct GameDetails: Codable, Identifiable, Hashable, Sendable {
   let states: [GameSaveDataItem]
   let contentCounts: GameContentCounts
   let providerIdentifiers: [GameProviderIdentifier]
+  /// Achievement set RomM stored for this ROM. Nil when it has no match.
+  let retroAchievements: RetroAchievementsCatalog?
 
   var gameSummary: GameSummary {
     var calendar = Calendar(identifier: .gregorian)
@@ -64,7 +66,13 @@ struct GameDetails: Codable, Identifiable, Hashable, Sendable {
       isIdentified: isIdentified,
       isMissingFromFileSystem: isMissingFromFileSystem,
       createdAt: createdAt,
-      updatedAt: updatedAt
+      updatedAt: updatedAt,
+      retroAchievementsID: retroAchievements?.gameID,
+      retroAchievementsCount: retroAchievements.map {
+        $0.achievements.count
+      },
+      retroAchievementsEarnedCount: nil,
+      retroAchievementsHardcoreEarnedCount: nil
     )
   }
 
@@ -143,7 +151,8 @@ struct GameDetails: Codable, Identifiable, Hashable, Sendable {
         collections: 0,
         notes: 0
       ),
-      providerIdentifiers: []
+      providerIdentifiers: [],
+      retroAchievements: nil
     )
   }
 }

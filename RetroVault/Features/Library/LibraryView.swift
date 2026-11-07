@@ -2316,6 +2316,15 @@ private struct LibraryTableView: View {
               .foregroundStyle(.yellow)
               .accessibilityLabel("Favorite")
           }
+
+          if let progress = game.retroAchievementsProgressLabel {
+            Label(progress, systemImage: "trophy.fill")
+              .font(.caption.monospacedDigit())
+              .foregroundStyle(.secondary)
+              .labelStyle(.titleAndIcon)
+              .help("RetroAchievements unlocked, from the progress RomM last synced")
+              .accessibilityLabel("RetroAchievements \(progress)")
+          }
         }
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
@@ -2449,6 +2458,27 @@ private struct LibraryTableView: View {
           .width(min: 92, ideal: 110)
           .customizationID("updated")
           .defaultVisibility(.hidden)
+
+        TableColumn(
+          "Achievements",
+          value: \GameSummary.retroAchievementsSortValue
+        ) { game in
+          Text(game.retroAchievementsColumnValue)
+            .monospacedDigit()
+            .foregroundStyle(
+              game.retroAchievementsProgressLabel == nil
+                ? Color.secondary
+                : Color.primary
+            )
+            .help(
+              game.retroAchievementsProgressLabel == nil
+                ? "No RetroAchievements progress for this ROM"
+                : "RetroAchievements unlocked, from the progress RomM last synced"
+            )
+        }
+        .width(min: 96, ideal: 120)
+        .customizationID("achievements")
+        .defaultVisibility(.hidden)
       }
 
       TableColumn("When Played", value: \GameSummary.whenPlayedSortValue) { game in
@@ -3888,10 +3918,16 @@ private struct LibraryGridView: View {
   }
 
   private func cardSecondaryText(for game: GameSummary) -> String {
+    let base: String
     if case .system = model.selection {
-      return game.releaseYear.map(String.init) ?? "Unknown Year"
+      base = game.releaseYear.map(String.init) ?? "Unknown Year"
+    } else {
+      base = game.systemName
     }
-    return game.systemName
+    guard let progress = game.retroAchievementsProgressLabel else {
+      return base
+    }
+    return "\(base) · \(progress)"
   }
 
   private func play(

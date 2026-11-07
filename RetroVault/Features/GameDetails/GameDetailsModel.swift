@@ -37,6 +37,8 @@ final class GameDetailsModel {
     private(set) var playbackErrorMessage: String?
     private(set) var isUpdatingUserMetadata = false
     private(set) var userMetadataErrorMessage: String?
+    private(set) var retroAchievements: RetroAchievementsPresentation?
+    private var retroAchievementsProfileState: RetroAchievementsProfileState = .unknown
 
     private var hasLoaded = false
     private let libretroInstallation: LibretroInstallation?
@@ -92,6 +94,20 @@ final class GameDetailsModel {
     }
 
     private func reload(
+        refreshesFromServer: Bool,
+        stopsAfterFindingLocalGame: Bool
+    ) async {
+        async let profileUpdate: Void = loadRetroAchievementsProfile(
+            allowsRemoteAccess: refreshesFromServer
+        )
+        await loadDetails(
+            refreshesFromServer: refreshesFromServer,
+            stopsAfterFindingLocalGame: stopsAfterFindingLocalGame
+        )
+        _ = await profileUpdate
+    }
+
+    private func loadDetails(
         refreshesFromServer: Bool,
         stopsAfterFindingLocalGame: Bool
     ) async {
@@ -561,6 +577,7 @@ final class GameDetailsModel {
         // Read here rather than left to `compatibleCore`'s default, so the
         // core set this resolves against is the one in effect when the game
         // was opened.
+        publishRetroAchievements()
         if let resolvedCore = libretroInstallation?.compatibleCore(
             systemName: details.systemName,
             fileExtension: details.fileExtension,
@@ -575,5 +592,33 @@ final class GameDetailsModel {
         ) {
             playbackCore = resolvedCore
         }
+    }
+
+    private func loadRetroAchievementsProfile(allowsRemoteAccess: Bool) async {
+        guard allowsRemoteAccess else {
+            retroAchievementsProfileState = .notRequested
+            publishRetroAchievements()
+            return
+        }
+
+        do {
+            let profile = try await service.retroAchievementsProfile(in: session)
+            retroAchievementsProfileState = .loaded(profile)
+        } catch is CancellationError {
+            return
+        } catch {
+            retroAchievementsProfileState = .failed
+            RetroVaultLog.library.error(
+                "Could not read RetroAchievements progress: \(error.localizedDescription)"
+            )
+        }
+        publishRetroAchievements()
+    }
+
+    private func publishRetroAchievements() {
+        retroAchievements = RetroAchievementsPresentation.make(
+            catalog: details?.retroAchievements,
+            profileState: retroAchievementsProfileState
+        )
     }
 }
