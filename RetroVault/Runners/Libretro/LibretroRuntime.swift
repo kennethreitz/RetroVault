@@ -4131,9 +4131,19 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             runtimeEnvironment.seedAspectRatio(avInfo.aspectRatio)
             try audioOutput.configure(sampleRate: avInfo.sampleRate)
             restoreSaveMemory(into: loadedCore)
+            // Staged content is what the core actually opened. Its URL is
+            // optional, and so is the request URL, so a missing path skips
+            // achievements and still launches the game.
+            let achievementContentPath: String?
+            if let stagedURL = stagedContent?.contentURL {
+                achievementContentPath = stagedURL.path
+            } else if let requestURL = request.contentURL {
+                achievementContentPath = requestURL.path
+            } else {
+                achievementContentPath = nil
+            }
             let achievementSession = RetroAchievementsPlaySession.make(
-                contentPath: stagedContent?.contentURL.path
-                    ?? request.contentURL?.path,
+                contentPath: achievementContentPath,
                 systemName: request.systemName,
                 coreID: request.coreID,
                 hardcore: RetroAchievementsHardcore.isEnabled()
