@@ -19,7 +19,7 @@ struct RetroAchievementsSettingsSection: View {
       caption(Self.sessionExplanation)
     }
     .task {
-      loadAccount(account)
+      await loadAccount(achievementsAccount)
     }
   }
 
