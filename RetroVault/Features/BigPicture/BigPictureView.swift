@@ -1469,7 +1469,8 @@ struct BigPictureView: View {
             systemName:
               scope == .favorites || scope == .recentlyPlayed
               ? game.systemName
-              : nil
+              : nil,
+            retroAchievements: game.retroAchievementsProgressLabel
           ),
           isFavorite: catalog.favoriteGameIDs.contains(game.id),
           action: .play(game)
@@ -2156,7 +2157,8 @@ struct BigPictureView: View {
         detail: BigPictureGameRowPresentation.detail(
           releaseYear: game.releaseYear,
           isDownloaded: downloadedGameIDs.contains(game.id),
-          systemName: showsSystemName ? game.systemName : nil
+          systemName: showsSystemName ? game.systemName : nil,
+          retroAchievements: game.retroAchievementsProgressLabel
         ),
         isFavorite: favoriteGameIDs.contains(game.id),
         action: .play(game)
@@ -4062,12 +4064,14 @@ enum BigPictureGameRowPresentation {
   static func detail(
     releaseYear: Int?,
     isDownloaded: Bool,
-    systemName: String? = nil
+    systemName: String? = nil,
+    retroAchievements: String? = nil
   ) -> String? {
     let components = [
       isDownloaded ? "LOCAL" : nil,
       systemName,
       releaseYear.map(String.init),
+      retroAchievements.map { "RA \($0)" },
     ]
     .compactMap { $0 }
     return components.isEmpty ? nil : components.joined(separator: " · ")

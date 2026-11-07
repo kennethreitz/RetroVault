@@ -117,6 +117,8 @@ struct LibretroGameView: View {
         LibretroPlayerPreferences.opensInFullScreenByDefault
     @AppStorage(LibretroVideoPreferences.filterKey)
     private var videoFilter = LibretroVideoPreferences.defaultFilter
+    @AppStorage(RetroAchievementsHardcore.enabledKey)
+    private var hardcoreMode = false
     @State private var hasRequestedFullScreen = false
     private let onCloseRequested: (@MainActor () -> Void)?
 
@@ -203,6 +205,17 @@ struct LibretroGameView: View {
                     .frame(width: 1, height: 1)
                     .opacity(0.001)
 
+                if case .running = session.phase {
+                    RetroAchievementsOverlay(
+                        toasts: session.achievementToasts,
+                        progressTitle: session.achievementProgressTitle,
+                        progressDetail: session.achievementProgressDetail,
+                        leaderboard: session.achievementLeaderboard,
+                        richPresence: session.achievementPresence,
+                        onDismiss: session.dismissAchievementToast
+                    )
+                }
+
                 playbackStatusOverlay
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -240,6 +253,9 @@ struct LibretroGameView: View {
             configureTransportControls()
         }
         .onChange(of: enablesL3Rewind) {
+            configureTransportControls()
+        }
+        .onChange(of: hardcoreMode) {
             configureTransportControls()
         }
         .onDisappear {
@@ -363,7 +379,7 @@ struct LibretroGameView: View {
                     .help(
                         session.allowsRewind
                             ? "Step backward; hold for continuous rewind"
-                            : "Rewind is disabled for Nintendo 64 games"
+                            : "Rewind is off for this session"
                     )
 
                     Menu {
@@ -374,7 +390,9 @@ struct LibretroGameView: View {
                         Button("Load Quick State") {
                             session.loadQuickState()
                         }
-                        .disabled(!session.hasQuickState)
+                        .disabled(
+                            !session.hasQuickState || !session.allowsQuickStateLoading
+                        )
                     } label: {
                         Label("State", systemImage: "clock.arrow.circlepath")
                     }
@@ -560,7 +578,7 @@ struct LibretroGameView: View {
             canRewind: session.canRewind,
             canSaveQuickState: session.allowsQuickStates,
             canLoadQuickState:
-                session.allowsQuickStates && session.hasQuickState,
+                session.allowsQuickStateLoading && session.hasQuickState,
             isFullScreen: isFullScreen,
             togglePause: session.togglePause,
             toggleMute: session.toggleMute,
@@ -634,9 +652,16 @@ struct LibretroGameView: View {
     }
 
     private func configureTransportControls() {
+        let hardcore = RetroAchievementsHardcore.isEnabled()
         session.setTransportControlsEnabled(
-            rewind: enablesL3Rewind,
+            rewind: enablesL3Rewind
+                && RetroAchievementsHardcorePolicy.allowsRewind(
+                    hardcoreEnabled: hardcore
+                ),
             fastForward: enablesR3FastForward
+                && RetroAchievementsHardcorePolicy.allowsFastForward(
+                    hardcoreEnabled: hardcore
+                )
         )
     }
 

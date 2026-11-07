@@ -23,6 +23,7 @@ let package = Package(
             name: "RetroVault",
             dependencies: [
                 "RetroVaultLibretroLogShim",
+                "RCheevos",
                 .product(name: "Nuke", package: "Nuke"),
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ],
@@ -34,6 +35,27 @@ let package = Package(
             ],
             resources: [
                 .process("Resources"),
+            ]
+        ),
+        .target(
+            name: "RCheevos",
+            path: "ThirdParty/rcheevos",
+            exclude: [
+                "LICENSE",
+            ],
+            sources: [
+                "src",
+                "bridge",
+            ],
+            publicHeadersPath: "bridge",
+            cSettings: [
+                .headerSearchPath("include"),
+                .headerSearchPath("src"),
+                .headerSearchPath("compat"),
+                .define("RC_CLIENT_SUPPORTS_HASH"),
+            ],
+            linkerSettings: [
+                .linkedLibrary("pthread"),
             ]
         ),
         .target(

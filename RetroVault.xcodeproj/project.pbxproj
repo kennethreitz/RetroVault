@@ -35,6 +35,8 @@
 		A20000000000000000000002 /* SwiftDataLibraryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* SwiftDataLibraryCache.swift */; };
 		A20000000000000000000003 /* LibraryCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* LibraryCacheTests.swift */; };
 		A10000000000000000000001 /* GameDetailsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* GameDetailsModels.swift */; };
+		RA1000000000000000000002 /* RetroAchievements.swift in Sources */ = {isa = PBXBuildFile; fileRef = RA1000000000000000000001 /* RetroAchievements.swift */; };
+		RA2000000000000000000002 /* RetroAchievementsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = RA2000000000000000000001 /* RetroAchievementsTests.swift */; };
 		A10000000000000000000002 /* GameDetailsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* GameDetailsModel.swift */; };
 		A10000000000000000000003 /* GameInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* GameInfoView.swift */; };
 		099606899B62ABB6D739ACF9 /* ServerConnectionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3C9E07B1356C2C0E592CE86 /* ServerConnectionServiceTests.swift */; };
@@ -82,6 +84,48 @@
 		D00000000000000000000030 /* LibretroVideoLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000011 /* LibretroVideoLayoutTests.swift */; };
 		D0000000000000000000002F /* LibretroKeyboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0000000000000000000000F /* LibretroKeyboardTests.swift */; };
 		D0000000000000000000002E /* LibretroInternalResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0000000000000000000000E /* LibretroInternalResolutionTests.swift */; };
+		RC000000000000000000000000000002 /* rvra_bridge.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000001 /* rvra_bridge.c */; };
+		RC000000000000000000000000000004 /* rc_api_common.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000003 /* rc_api_common.c */; };
+		RC000000000000000000000000000006 /* rc_api_editor.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000005 /* rc_api_editor.c */; };
+		RC000000000000000000000000000008 /* rc_api_info.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000007 /* rc_api_info.c */; };
+		RC00000000000000000000000000000A /* rc_api_runtime.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000009 /* rc_api_runtime.c */; };
+		RC00000000000000000000000000000C /* rc_api_user.c in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000000B /* rc_api_user.c */; };
+		RC00000000000000000000000000000E /* rc_client.c in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000000D /* rc_client.c */; };
+		RC000000000000000000000000000010 /* rc_client_external.c in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000000F /* rc_client_external.c */; };
+		RC000000000000000000000000000012 /* rc_compat.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000011 /* rc_compat.c */; };
+		RC000000000000000000000000000014 /* alloc.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000013 /* alloc.c */; };
+		RC000000000000000000000000000016 /* condition.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000015 /* condition.c */; };
+		RC000000000000000000000000000018 /* condset.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000017 /* condset.c */; };
+		RC00000000000000000000000000001A /* consoleinfo.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000019 /* consoleinfo.c */; };
+		RC00000000000000000000000000001C /* format.c in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000001B /* format.c */; };
+		RC00000000000000000000000000001E /* lboard.c in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000001D /* lboard.c */; };
+		RC000000000000000000000000000020 /* memref.c in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000001F /* memref.c */; };
+		RC000000000000000000000000000022 /* operand.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000021 /* operand.c */; };
+		RC000000000000000000000000000024 /* rc_validate.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000023 /* rc_validate.c */; };
+		RC000000000000000000000000000026 /* richpresence.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000025 /* richpresence.c */; };
+		RC000000000000000000000000000028 /* runtime.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000027 /* runtime.c */; };
+		RC00000000000000000000000000002A /* runtime_progress.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000029 /* runtime_progress.c */; };
+		RC00000000000000000000000000002C /* trigger.c in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000002B /* trigger.c */; };
+		RC00000000000000000000000000002E /* value.c in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000002D /* value.c */; };
+		RC000000000000000000000000000030 /* rc_libretro.c in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000002F /* rc_libretro.c */; };
+		RC000000000000000000000000000032 /* rc_util.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000031 /* rc_util.c */; };
+		RC000000000000000000000000000034 /* rc_version.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000033 /* rc_version.c */; };
+		RC000000000000000000000000000036 /* aes.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000035 /* aes.c */; };
+		RC000000000000000000000000000038 /* cdreader.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000037 /* cdreader.c */; };
+		RC00000000000000000000000000003A /* hash.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000039 /* hash.c */; };
+		RC00000000000000000000000000003C /* hash_disc.c in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000003B /* hash_disc.c */; };
+		RC00000000000000000000000000003E /* hash_encrypted.c in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000003D /* hash_encrypted.c */; };
+		RC000000000000000000000000000040 /* hash_rom.c in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000003F /* hash_rom.c */; };
+		RC000000000000000000000000000042 /* hash_zip.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000041 /* hash_zip.c */; };
+		RC000000000000000000000000000044 /* md5.c in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000043 /* md5.c */; };
+		RC000000000000000000000000000046 /* RetroAchievementsAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000045 /* RetroAchievementsAccount.swift */; };
+		RC000000000000000000000000000048 /* RetroAchievementsConsole.swift in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000047 /* RetroAchievementsConsole.swift */; };
+		RC00000000000000000000000000004A /* RetroAchievementsHardcore.swift in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000049 /* RetroAchievementsHardcore.swift */; };
+		RC00000000000000000000000000004C /* RetroAchievementsKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000004B /* RetroAchievementsKeychain.swift */; };
+		RC00000000000000000000000000004E /* RetroAchievementsOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000004D /* RetroAchievementsOverlay.swift */; };
+		RC000000000000000000000000000050 /* RetroAchievementsPlaySession.swift in Sources */ = {isa = PBXBuildFile; fileRef = RC00000000000000000000000000004F /* RetroAchievementsPlaySession.swift */; };
+		RC000000000000000000000000000052 /* RetroAchievementsSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000051 /* RetroAchievementsSettingsSection.swift */; };
+		RC000000000000000000000000000054 /* RetroAchievementsPlayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = RC000000000000000000000000000053 /* RetroAchievementsPlayTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -122,6 +166,8 @@
 		B20000000000000000000002 /* SwiftDataLibraryCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SwiftDataLibraryCache.swift; sourceTree = "<group>"; };
 		B20000000000000000000003 /* LibraryCacheTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryCacheTests.swift; sourceTree = "<group>"; };
 		B10000000000000000000001 /* GameDetailsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameDetailsModels.swift; sourceTree = "<group>"; };
+		RA1000000000000000000001 /* RetroAchievements.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RetroAchievements.swift; sourceTree = "<group>"; };
+		RA2000000000000000000001 /* RetroAchievementsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RetroAchievementsTests.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* GameDetailsModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameDetailsModel.swift; sourceTree = "<group>"; };
 		B10000000000000000000003 /* GameInfoView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameInfoView.swift; sourceTree = "<group>"; };
 		0BABBE07DF488BF436DC84BF /* RetroVault.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = RetroVault.entitlements; sourceTree = "<group>"; };
@@ -172,6 +218,49 @@
 		D00000000000000000000011 /* LibretroVideoLayoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroVideoLayoutTests.swift; sourceTree = "<group>"; };
 		D0000000000000000000000F /* LibretroKeyboardTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroKeyboardTests.swift; sourceTree = "<group>"; };
 		D0000000000000000000000E /* LibretroInternalResolutionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroInternalResolutionTests.swift; sourceTree = "<group>"; };
+		RC000000000000000000000000000001 /* rvra_bridge.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = rvra_bridge.c; path = ThirdParty/rcheevos/bridge/rvra_bridge.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000003 /* rc_api_common.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = rc_api_common.c; path = ThirdParty/rcheevos/src/rapi/rc_api_common.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000005 /* rc_api_editor.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = rc_api_editor.c; path = ThirdParty/rcheevos/src/rapi/rc_api_editor.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000007 /* rc_api_info.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = rc_api_info.c; path = ThirdParty/rcheevos/src/rapi/rc_api_info.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000009 /* rc_api_runtime.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = rc_api_runtime.c; path = ThirdParty/rcheevos/src/rapi/rc_api_runtime.c; sourceTree = SOURCE_ROOT; };
+		RC00000000000000000000000000000B /* rc_api_user.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = rc_api_user.c; path = ThirdParty/rcheevos/src/rapi/rc_api_user.c; sourceTree = SOURCE_ROOT; };
+		RC00000000000000000000000000000D /* rc_client.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = rc_client.c; path = ThirdParty/rcheevos/src/rc_client.c; sourceTree = SOURCE_ROOT; };
+		RC00000000000000000000000000000F /* rc_client_external.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = rc_client_external.c; path = ThirdParty/rcheevos/src/rc_client_external.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000011 /* rc_compat.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = rc_compat.c; path = ThirdParty/rcheevos/src/rc_compat.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000013 /* alloc.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = alloc.c; path = ThirdParty/rcheevos/src/rcheevos/alloc.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000015 /* condition.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = condition.c; path = ThirdParty/rcheevos/src/rcheevos/condition.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000017 /* condset.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = condset.c; path = ThirdParty/rcheevos/src/rcheevos/condset.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000019 /* consoleinfo.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = consoleinfo.c; path = ThirdParty/rcheevos/src/rcheevos/consoleinfo.c; sourceTree = SOURCE_ROOT; };
+		RC00000000000000000000000000001B /* format.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = format.c; path = ThirdParty/rcheevos/src/rcheevos/format.c; sourceTree = SOURCE_ROOT; };
+		RC00000000000000000000000000001D /* lboard.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = lboard.c; path = ThirdParty/rcheevos/src/rcheevos/lboard.c; sourceTree = SOURCE_ROOT; };
+		RC00000000000000000000000000001F /* memref.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = memref.c; path = ThirdParty/rcheevos/src/rcheevos/memref.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000021 /* operand.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = operand.c; path = ThirdParty/rcheevos/src/rcheevos/operand.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000023 /* rc_validate.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = rc_validate.c; path = ThirdParty/rcheevos/src/rcheevos/rc_validate.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000025 /* richpresence.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = richpresence.c; path = ThirdParty/rcheevos/src/rcheevos/richpresence.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000027 /* runtime.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = runtime.c; path = ThirdParty/rcheevos/src/rcheevos/runtime.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000029 /* runtime_progress.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = runtime_progress.c; path = ThirdParty/rcheevos/src/rcheevos/runtime_progress.c; sourceTree = SOURCE_ROOT; };
+		RC00000000000000000000000000002B /* trigger.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = trigger.c; path = ThirdParty/rcheevos/src/rcheevos/trigger.c; sourceTree = SOURCE_ROOT; };
+		RC00000000000000000000000000002D /* value.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = value.c; path = ThirdParty/rcheevos/src/rcheevos/value.c; sourceTree = SOURCE_ROOT; };
+		RC00000000000000000000000000002F /* rc_libretro.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = rc_libretro.c; path = ThirdParty/rcheevos/src/rc_libretro.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000031 /* rc_util.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = rc_util.c; path = ThirdParty/rcheevos/src/rc_util.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000033 /* rc_version.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = rc_version.c; path = ThirdParty/rcheevos/src/rc_version.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000035 /* aes.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = aes.c; path = ThirdParty/rcheevos/src/rhash/aes.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000037 /* cdreader.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = cdreader.c; path = ThirdParty/rcheevos/src/rhash/cdreader.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000039 /* hash.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = hash.c; path = ThirdParty/rcheevos/src/rhash/hash.c; sourceTree = SOURCE_ROOT; };
+		RC00000000000000000000000000003B /* hash_disc.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = hash_disc.c; path = ThirdParty/rcheevos/src/rhash/hash_disc.c; sourceTree = SOURCE_ROOT; };
+		RC00000000000000000000000000003D /* hash_encrypted.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = hash_encrypted.c; path = ThirdParty/rcheevos/src/rhash/hash_encrypted.c; sourceTree = SOURCE_ROOT; };
+		RC00000000000000000000000000003F /* hash_rom.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = hash_rom.c; path = ThirdParty/rcheevos/src/rhash/hash_rom.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000041 /* hash_zip.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = hash_zip.c; path = ThirdParty/rcheevos/src/rhash/hash_zip.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000043 /* md5.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; name = md5.c; path = ThirdParty/rcheevos/src/rhash/md5.c; sourceTree = SOURCE_ROOT; };
+		RC000000000000000000000000000045 /* RetroAchievementsAccount.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RetroAchievementsAccount.swift; sourceTree = "<group>"; };
+		RC000000000000000000000000000047 /* RetroAchievementsConsole.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RetroAchievementsConsole.swift; sourceTree = "<group>"; };
+		RC000000000000000000000000000049 /* RetroAchievementsHardcore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RetroAchievementsHardcore.swift; sourceTree = "<group>"; };
+		RC00000000000000000000000000004B /* RetroAchievementsKeychain.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RetroAchievementsKeychain.swift; sourceTree = "<group>"; };
+		RC00000000000000000000000000004D /* RetroAchievementsOverlay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RetroAchievementsOverlay.swift; sourceTree = "<group>"; };
+		RC00000000000000000000000000004F /* RetroAchievementsPlaySession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RetroAchievementsPlaySession.swift; sourceTree = "<group>"; };
+		RC000000000000000000000000000051 /* RetroAchievementsSettingsSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RetroAchievementsSettingsSection.swift; sourceTree = "<group>"; };
+		RC000000000000000000000000000053 /* RetroAchievementsPlayTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RetroAchievementsPlayTests.swift; sourceTree = "<group>"; };
+		RC000000000000000000000000000055 /* RetroAchievements-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = RetroAchievements-Bridging-Header.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -323,6 +412,7 @@
 				C30000000000000000000002 /* Libretro */,
 				C31000000000000000000001 /* Vita3K */,
 				C32000000000000000000001 /* Cemu */,
+				RC300000000000000000000000000002 /* RetroAchievements */,
 			);
 			name = Runners;
 			path = Runners;
@@ -392,6 +482,7 @@
 				31500403F17402E85A804015 /* Products */,
 				13DE663C5A18219567ACB1DB /* Frameworks */,
 				279F97D44BD9760204A8BE8B /* RetroVault */,
+				RC300000000000000000000000000001 /* rcheevos */,
 				9F2800C71750F15FE193ABB3 /* RetroVaultTests */,
 			);
 			sourceTree = "<group>";
@@ -430,6 +521,7 @@
 				F10000000000000000000001 /* SaveCenterModels.swift */,
 				A82F533028A891EA05B14D94 /* PairingCode.swift */,
 				78703ACD9FFA7196CE7A4676 /* RemoteServerConfiguration.swift */,
+				RA1000000000000000000001 /* RetroAchievements.swift */,
 				375D8CAB07FFA049DFF04051 /* RomMUser.swift */,
 				65C2ECA13F21C22AED001571 /* ServerSession.swift */,
 				A18322AC8C3864BFC99511E4 /* ServerURL.swift */,
@@ -451,11 +543,13 @@
 				B30000000000000000000004 /* LibretroCoreManifestTests.swift */,
 				D00000000000000000000006 /* LibretroDSUInputTests.swift */,
 				7CE0812D0EFD1CE66AA1BF4E /* PairingValueTests.swift */,
+				RA2000000000000000000001 /* RetroAchievementsTests.swift */,
 				B40000000000000000000004 /* SaveBundleArchiveTests.swift */,
 				F10000000000000000000002 /* SaveCenterTests.swift */,
 				A3C9E07B1356C2C0E592CE86 /* ServerConnectionServiceTests.swift */,
 				D00000000000000000000007 /* ServerReachabilityTests.swift */,
 				A21459D026178CE9B0974A8E /* ServerURLTests.swift */,
+				RC000000000000000000000000000053 /* RetroAchievementsPlayTests.swift */,
 			);
 			name = RetroVaultTests;
 			path = RetroVaultTests;
@@ -489,6 +583,63 @@
 			);
 			name = DSU;
 			path = DSU;
+			sourceTree = "<group>";
+		};
+		RC300000000000000000000000000001 /* rcheevos */ = {
+			isa = PBXGroup;
+			children = (
+				RC000000000000000000000000000001 /* rvra_bridge.c */,
+				RC000000000000000000000000000003 /* rc_api_common.c */,
+				RC000000000000000000000000000005 /* rc_api_editor.c */,
+				RC000000000000000000000000000007 /* rc_api_info.c */,
+				RC000000000000000000000000000009 /* rc_api_runtime.c */,
+				RC00000000000000000000000000000B /* rc_api_user.c */,
+				RC00000000000000000000000000000D /* rc_client.c */,
+				RC00000000000000000000000000000F /* rc_client_external.c */,
+				RC000000000000000000000000000011 /* rc_compat.c */,
+				RC000000000000000000000000000013 /* alloc.c */,
+				RC000000000000000000000000000015 /* condition.c */,
+				RC000000000000000000000000000017 /* condset.c */,
+				RC000000000000000000000000000019 /* consoleinfo.c */,
+				RC00000000000000000000000000001B /* format.c */,
+				RC00000000000000000000000000001D /* lboard.c */,
+				RC00000000000000000000000000001F /* memref.c */,
+				RC000000000000000000000000000021 /* operand.c */,
+				RC000000000000000000000000000023 /* rc_validate.c */,
+				RC000000000000000000000000000025 /* richpresence.c */,
+				RC000000000000000000000000000027 /* runtime.c */,
+				RC000000000000000000000000000029 /* runtime_progress.c */,
+				RC00000000000000000000000000002B /* trigger.c */,
+				RC00000000000000000000000000002D /* value.c */,
+				RC00000000000000000000000000002F /* rc_libretro.c */,
+				RC000000000000000000000000000031 /* rc_util.c */,
+				RC000000000000000000000000000033 /* rc_version.c */,
+				RC000000000000000000000000000035 /* aes.c */,
+				RC000000000000000000000000000037 /* cdreader.c */,
+				RC000000000000000000000000000039 /* hash.c */,
+				RC00000000000000000000000000003B /* hash_disc.c */,
+				RC00000000000000000000000000003D /* hash_encrypted.c */,
+				RC00000000000000000000000000003F /* hash_rom.c */,
+				RC000000000000000000000000000041 /* hash_zip.c */,
+				RC000000000000000000000000000043 /* md5.c */,
+			);
+			name = rcheevos;
+			sourceTree = "<group>";
+		};
+		RC300000000000000000000000000002 /* RetroAchievements */ = {
+			isa = PBXGroup;
+			children = (
+				RC000000000000000000000000000045 /* RetroAchievementsAccount.swift */,
+				RC000000000000000000000000000047 /* RetroAchievementsConsole.swift */,
+				RC000000000000000000000000000049 /* RetroAchievementsHardcore.swift */,
+				RC00000000000000000000000000004B /* RetroAchievementsKeychain.swift */,
+				RC00000000000000000000000000004D /* RetroAchievementsOverlay.swift */,
+				RC00000000000000000000000000004F /* RetroAchievementsPlaySession.swift */,
+				RC000000000000000000000000000051 /* RetroAchievementsSettingsSection.swift */,
+				RC000000000000000000000000000055 /* RetroAchievements-Bridging-Header.h */,
+			);
+			name = RetroAchievements;
+			path = RetroAchievements;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -697,6 +848,7 @@
 				51FBF3CA058AFE735403D05E /* SettingsView.swift in Sources */,
 				259E8DB9776D33F818A7B4D8 /* ClientToken.swift in Sources */,
 				A10000000000000000000001 /* GameDetailsModels.swift in Sources */,
+				RA1000000000000000000002 /* RetroAchievements.swift in Sources */,
 				200C1AC3DF053D405EC0EE4B /* LibraryModels.swift in Sources */,
 				E10000000000000000000001 /* SaveCenterModels.swift in Sources */,
 				09AB210B6FCFB9F8B78F2845 /* PairingCode.swift in Sources */,
@@ -729,6 +881,47 @@
 				DABBCD69D1B0CDEE8B5BB01F /* ServerConnectionService.swift in Sources */,
 				A60000000000000000000001 /* LiquidGlass.swift in Sources */,
 				A50000000000000000000001 /* RetroVaultDiagnostics.swift in Sources */,
+				RC000000000000000000000000000002 /* rvra_bridge.c in Sources */,
+				RC000000000000000000000000000004 /* rc_api_common.c in Sources */,
+				RC000000000000000000000000000006 /* rc_api_editor.c in Sources */,
+				RC000000000000000000000000000008 /* rc_api_info.c in Sources */,
+				RC00000000000000000000000000000A /* rc_api_runtime.c in Sources */,
+				RC00000000000000000000000000000C /* rc_api_user.c in Sources */,
+				RC00000000000000000000000000000E /* rc_client.c in Sources */,
+				RC000000000000000000000000000010 /* rc_client_external.c in Sources */,
+				RC000000000000000000000000000012 /* rc_compat.c in Sources */,
+				RC000000000000000000000000000014 /* alloc.c in Sources */,
+				RC000000000000000000000000000016 /* condition.c in Sources */,
+				RC000000000000000000000000000018 /* condset.c in Sources */,
+				RC00000000000000000000000000001A /* consoleinfo.c in Sources */,
+				RC00000000000000000000000000001C /* format.c in Sources */,
+				RC00000000000000000000000000001E /* lboard.c in Sources */,
+				RC000000000000000000000000000020 /* memref.c in Sources */,
+				RC000000000000000000000000000022 /* operand.c in Sources */,
+				RC000000000000000000000000000024 /* rc_validate.c in Sources */,
+				RC000000000000000000000000000026 /* richpresence.c in Sources */,
+				RC000000000000000000000000000028 /* runtime.c in Sources */,
+				RC00000000000000000000000000002A /* runtime_progress.c in Sources */,
+				RC00000000000000000000000000002C /* trigger.c in Sources */,
+				RC00000000000000000000000000002E /* value.c in Sources */,
+				RC000000000000000000000000000030 /* rc_libretro.c in Sources */,
+				RC000000000000000000000000000032 /* rc_util.c in Sources */,
+				RC000000000000000000000000000034 /* rc_version.c in Sources */,
+				RC000000000000000000000000000036 /* aes.c in Sources */,
+				RC000000000000000000000000000038 /* cdreader.c in Sources */,
+				RC00000000000000000000000000003A /* hash.c in Sources */,
+				RC00000000000000000000000000003C /* hash_disc.c in Sources */,
+				RC00000000000000000000000000003E /* hash_encrypted.c in Sources */,
+				RC000000000000000000000000000040 /* hash_rom.c in Sources */,
+				RC000000000000000000000000000042 /* hash_zip.c in Sources */,
+				RC000000000000000000000000000044 /* md5.c in Sources */,
+				RC000000000000000000000000000046 /* RetroAchievementsAccount.swift in Sources */,
+				RC000000000000000000000000000048 /* RetroAchievementsConsole.swift in Sources */,
+				RC00000000000000000000000000004A /* RetroAchievementsHardcore.swift in Sources */,
+				RC00000000000000000000000000004C /* RetroAchievementsKeychain.swift in Sources */,
+				RC00000000000000000000000000004E /* RetroAchievementsOverlay.swift in Sources */,
+				RC000000000000000000000000000050 /* RetroAchievementsPlaySession.swift in Sources */,
+				RC000000000000000000000000000052 /* RetroAchievementsSettingsSection.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -747,10 +940,12 @@
 				D0000000000000000000002F /* LibretroKeyboardTests.swift in Sources */,
 				D0000000000000000000002E /* LibretroInternalResolutionTests.swift in Sources */,
 				FE03EEAF3465F1282D358BA8 /* PairingValueTests.swift in Sources */,
+				RA2000000000000000000002 /* RetroAchievementsTests.swift in Sources */,
 				A40000000000000000000005 /* SaveBundleArchiveTests.swift in Sources */,
 				E10000000000000000000002 /* SaveCenterTests.swift in Sources */,
 				099606899B62ABB6D739ACF9 /* ServerConnectionServiceTests.swift in Sources */,
 				FFAD3767D2311D56DA00F120 /* ServerURLTests.swift in Sources */,
+				RC000000000000000000000000000054 /* RetroAchievementsPlayTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -844,6 +1039,17 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 2026.8.17.1;
 				ONLY_ACTIVE_ARCH = NO;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"RC_CLIENT_SUPPORTS_HASH",
+				);
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/ThirdParty/rcheevos/include",
+					"$(SRCROOT)/ThirdParty/rcheevos/src",
+					"$(SRCROOT)/ThirdParty/rcheevos/compat",
+					"$(SRCROOT)/ThirdParty/rcheevos/bridge",
+				);
+				SWIFT_OBJC_BRIDGING_HEADER = RetroVault/Runners/RetroAchievements/RetroAchievements-Bridging-Header.h;
 				PRODUCT_BUNDLE_IDENTIFIER = org.kennethreitz.RetroVault;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -872,6 +1078,17 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 2026.8.17.1;
 				ONLY_ACTIVE_ARCH = YES;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"RC_CLIENT_SUPPORTS_HASH",
+				);
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/ThirdParty/rcheevos/include",
+					"$(SRCROOT)/ThirdParty/rcheevos/src",
+					"$(SRCROOT)/ThirdParty/rcheevos/compat",
+					"$(SRCROOT)/ThirdParty/rcheevos/bridge",
+				);
+				SWIFT_OBJC_BRIDGING_HEADER = RetroVault/Runners/RetroAchievements/RetroAchievements-Bridging-Header.h;
 				PRODUCT_BUNDLE_IDENTIFIER = org.kennethreitz.RetroVault;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;

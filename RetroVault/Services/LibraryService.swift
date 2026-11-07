@@ -42,6 +42,9 @@ protocol LibraryServing: Sendable {
   ) async throws -> GamePage
   func systemHasArtwork(_ systemID: Int, in session: ServerSession) async throws -> Bool
   func gameDetails(for gameID: Int, in session: ServerSession) async throws -> GameDetails
+  func retroAchievementsProfile(
+    in session: ServerSession
+  ) async throws -> RetroAchievementsProfile
   func updateUserMetadata(
     _ metadata: GameUserMetadata,
     for game: GameDetails,
@@ -172,6 +175,12 @@ extension LibraryServing {
     in session: ServerSession
   ) async throws -> GameDetails? {
     nil
+  }
+
+  func retroAchievementsProfile(
+    in session: ServerSession
+  ) async throws -> RetroAchievementsProfile {
+    .unlinked
   }
 
   func downloadedGameIDs(in session: ServerSession) async -> Set<Int> {
@@ -609,6 +618,11 @@ actor RomMLibraryService: LibraryServing {
         hasState: stateGameIDs.contains(game.id)
       )
     }
+    allGames = await annotateRetroAchievements(
+      allGames,
+      serverURL: session.serverURL,
+      token: token
+    )
 
     let memberships = try await collectionMemberships(
       for: remoteCollections,
@@ -736,7 +750,11 @@ actor RomMLibraryService: LibraryServing {
         mergedGamesByID[changedGame.id] = changedGame
       }
     }
-    let allGames = mergedGamesByID.values.sorted { $0.id < $1.id }
+    let allGames = await annotateRetroAchievements(
+      mergedGamesByID.values.sorted { $0.id < $1.id },
+      serverURL: session.serverURL,
+      token: token
+    )
     let memberships = try await collectionMemberships(
       for: remoteCollections,
       session: session,
@@ -1143,6 +1161,16 @@ actor RomMLibraryService: LibraryServing {
       }
       offset += page.games.count
     }
+  }
+
+  func retroAchievementsProfile(
+    in session: ServerSession
+  ) async throws -> RetroAchievementsProfile {
+    let user = try await api.currentUser(
+      at: session.serverURL,
+      token: authenticationToken()
+    )
+    return user.retroAchievements
   }
 
   func gameDetails(for gameID: Int, in session: ServerSession) async throws -> GameDetails {
@@ -2451,6 +2479,39 @@ actor RomMLibraryService: LibraryServing {
       "Synchronized local Favorites with RomM; \(state.pendingChanges.count, privacy: .public) changes remain pending"
     )
     return snapshot.applyingFavoriteGameIDs(state.gameIDs)
+  }
+
+  /// Stamps synced unlocks onto library rows. A failed profile read keeps the
+  /// counts already cached for the same RetroAchievements id.
+  private func annotateRetroAchievements(
+    _ games: [GameSummary],
+    serverURL: ServerURL,
+    token: ClientToken
+  ) async -> [GameSummary] {
+    let previousGames = (try? await cache.snapshot(for: serverURL))?.games ?? []
+    let previousByID = Dictionary(
+      uniqueKeysWithValues: previousGames.map { ($0.id, $0) }
+    )
+    let preserved = games.map { game in
+      guard let previous = previousByID[game.id] else {
+        return game
+      }
+      return game.preservingRetroAchievementsProgress(from: previous)
+    }
+
+    do {
+      let user = try await api.currentUser(at: serverURL, token: token)
+      return preserved.map {
+        $0.applyingRetroAchievementsProgress(user.retroAchievements)
+      }
+    } catch is CancellationError {
+      return preserved
+    } catch {
+      RetroVaultLog.library.error(
+        "Could not read RetroAchievements progress: \(error.localizedDescription)"
+      )
+      return preserved
+    }
   }
 
   private func authenticationToken() async throws -> ClientToken {

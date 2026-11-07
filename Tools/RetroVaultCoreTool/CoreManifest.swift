@@ -42,6 +42,7 @@ extension CoreManifest {
         case audio
         case retropad
         case keyboard
+        case mouse
         case pointer
         case serialization
         case diskControl
@@ -115,9 +116,31 @@ enum ManifestLoader {
 
         do {
             return try JSONDecoder().decode(CoreManifest.self, from: data)
+        } catch let error as DecodingError {
+            throw CoreToolError.invalidJSON(reason: describe(error))
         } catch {
-            throw CoreToolError.invalidJSON(reason: error.localizedDescription)
+            throw CoreToolError.invalidJSON(reason: String(describing: error))
         }
+    }
+
+    private static func describe(_ error: DecodingError) -> String {
+        switch error {
+        case let .keyNotFound(key, context):
+            "Missing key \(key.stringValue) at \(codingPath(context)). \(context.debugDescription)"
+        case let .typeMismatch(type, context):
+            "Type mismatch for \(type) at \(codingPath(context)). \(context.debugDescription)"
+        case let .valueNotFound(type, context):
+            "Missing \(type) value at \(codingPath(context)). \(context.debugDescription)"
+        case let .dataCorrupted(context):
+            "Corrupt value at \(codingPath(context)). \(context.debugDescription)"
+        @unknown default:
+            String(describing: error)
+        }
+    }
+
+    private static func codingPath(_ context: DecodingError.Context) -> String {
+        let path = context.codingPath.map(\.stringValue).joined(separator: ".")
+        return path.isEmpty ? "<root>" : path
     }
 }
 

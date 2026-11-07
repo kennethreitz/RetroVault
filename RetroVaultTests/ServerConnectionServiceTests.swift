@@ -2902,7 +2902,8 @@ func mockGameDetails(
             collections: 0,
             notes: 0
         ),
-        providerIdentifiers: []
+        providerIdentifiers: [],
+        retroAchievements: nil
     )
 }
 
