@@ -152,8 +152,9 @@ private final class RetroAchievementsLoginAttempt: @unchecked Sendable {
     }
     URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
       let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-      self?.queue.async {
-        self?.complete(id: id, status: status, body: data)
+      let body = data
+      self?.queue.async { [weak self] in
+        self?.complete(id: id, status: status, body: body)
       }
     }.resume()
   }
@@ -177,8 +178,9 @@ private final class RetroAchievementsLoginAttempt: @unchecked Sendable {
     guard let client else {
       return
     }
-    switch rvra_login_state(client) {
-    case RVRA_LOGIN_SUCCEEDED:
+    let state = rvra_login_state(client)
+    switch state {
+    case RetroAchievementsBridgeCode.loginSucceeded:
       var token = [CChar](repeating: 0, count: 128)
       var name = [CChar](repeating: 0, count: 64)
       rvra_session_token(client, &token, token.count)
@@ -192,7 +194,7 @@ private final class RetroAchievementsLoginAttempt: @unchecked Sendable {
         return
       }
       finish(.success(credential))
-    case RVRA_LOGIN_FAILED:
+    case RetroAchievementsBridgeCode.loginFailed:
       var message = [CChar](repeating: 0, count: 256)
       rvra_login_error(client, &message, message.count)
       let text = String(cString: message)

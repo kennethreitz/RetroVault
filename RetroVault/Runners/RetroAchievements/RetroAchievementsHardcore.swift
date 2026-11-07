@@ -1,5 +1,30 @@
 import Foundation
 
+/// Numeric values from `rvra_bridge.h`.
+///
+/// The Clang importer brings those anonymous C constants in as `Int`, while
+/// `rvra_login_state` and the notice kind are `Int32`. Comparing the Swift
+/// values avoids that mismatch.
+enum RetroAchievementsBridgeCode {
+  static let loginIdle: Int32 = 0
+  static let loginPending: Int32 = 1
+  static let loginSucceeded: Int32 = 2
+  static let loginFailed: Int32 = 3
+
+  static let gameIdle: Int32 = 0
+  static let gameLoading: Int32 = 1
+  static let gameLoaded: Int32 = 2
+  static let gameUnsupported: Int32 = 3
+  static let gameFailed: Int32 = 4
+
+  static let noticeUnlock: Int32 = 1
+  static let noticeMastery: Int32 = 2
+  static let noticeSubset: Int32 = 3
+  static let noticeLeaderboard: Int32 = 4
+  static let noticeProgress: Int32 = 5
+  static let noticeReset: Int32 = 6
+}
+
 /// The player-facing Hardcore switch.
 ///
 /// RetroVault is not a RetroAchievements-verified emulator, so this stays off

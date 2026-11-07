@@ -104,9 +104,9 @@ final class RetroAchievementsPlaySession: @unchecked Sendable {
   }
 
   func frame() {
-    withClient { client in
-      let state = rvra_login_state(client)
-      if state == RVRA_LOGIN_SUCCEEDED, !didStartLoad {
+    withClient { (client: OpaquePointer) -> Void in
+      let state: Int32 = rvra_login_state(client)
+      if state == RetroAchievementsBridgeCode.loginSucceeded, !didStartLoad {
         didStartLoad = true
         rvra_begin_load_game(client, consoleID, contentPath)
       }
@@ -156,7 +156,11 @@ final class RetroAchievementsPlaySession: @unchecked Sendable {
   }
 
   func gameState() -> Int32 {
-    withClient { rvra_game_state($0) } ?? RVRA_GAME_IDLE
+    guard let client = lockedClient() else {
+      return RetroAchievementsBridgeCode.gameIdle
+    }
+    let state: Int32 = rvra_game_state(client)
+    return state
   }
 
   func summary() -> (unlocked: Int, total: Int) {
@@ -164,14 +168,18 @@ final class RetroAchievementsPlaySession: @unchecked Sendable {
     var total = Int32(0)
     var unlockedPoints = Int32(0)
     var possiblePoints = Int32(0)
-    withClient {
-      rvra_game_summary($0, &unlocked, &total, &unlockedPoints, &possiblePoints)
+    withClient { (client: OpaquePointer) -> Void in
+      rvra_game_summary(client, &unlocked, &total, &unlockedPoints, &possiblePoints)
     }
     return (Int(unlocked), Int(total))
   }
 
   func loginResult() -> Int32 {
-    withClient { rvra_login_state($0) } ?? RVRA_LOGIN_IDLE
+    guard let client = lockedClient() else {
+      return RetroAchievementsBridgeCode.loginIdle
+    }
+    let state: Int32 = rvra_login_state(client)
+    return state
   }
 
   func loginError() -> String {
@@ -286,11 +294,13 @@ private func retroAchievementsHTTP(
   }
   let session = Unmanaged<RetroAchievementsPlaySession>.fromOpaque(userdata)
     .takeUnretainedValue()
+  let postBody: String? = post.map { String(cString: $0) }
+  let contentTypeValue: String? = contentType.map { String(cString: $0) }
   session.performHTTP(
     id: requestID,
     url: String(cString: url),
-    post: post.map { String(cString: $0) },
-    contentType: contentType.map { String(cString: $0) }
+    post: postBody,
+    contentType: contentTypeValue
   )
 }
 
@@ -301,9 +311,9 @@ private func retroAchievementsMemoryData(
   guard let userdata else {
     return nil
   }
-  return Unmanaged<RetroAchievementsPlaySession>.fromOpaque(userdata)
+  let session = Unmanaged<RetroAchievementsPlaySession>.fromOpaque(userdata)
     .takeUnretainedValue()
-    .memoryData(id: memoryID)
+  return session.memoryData(id: memoryID)
 }
 
 private func retroAchievementsMemorySize(
@@ -313,9 +323,9 @@ private func retroAchievementsMemorySize(
   guard let userdata else {
     return 0
   }
-  return Unmanaged<RetroAchievementsPlaySession>.fromOpaque(userdata)
+  let session = Unmanaged<RetroAchievementsPlaySession>.fromOpaque(userdata)
     .takeUnretainedValue()
-    .memorySize(id: memoryID)
+  return session.memorySize(id: memoryID)
 }
 
 extension RetroAchievementsPlayNotice {
@@ -328,17 +338,17 @@ extension RetroAchievementsPlayNotice {
     hardcore: Bool
   ) {
     switch rawKind {
-    case RVRA_NOTICE_UNLOCK:
+    case RetroAchievementsBridgeCode.noticeUnlock:
       kind = .unlock
-    case RVRA_NOTICE_MASTERY:
+    case RetroAchievementsBridgeCode.noticeMastery:
       kind = .mastery
-    case RVRA_NOTICE_SUBSET:
+    case RetroAchievementsBridgeCode.noticeSubset:
       kind = .subset
-    case RVRA_NOTICE_LEADERBOARD:
+    case RetroAchievementsBridgeCode.noticeLeaderboard:
       kind = .leaderboard
-    case RVRA_NOTICE_PROGRESS:
+    case RetroAchievementsBridgeCode.noticeProgress:
       kind = .progress
-    case RVRA_NOTICE_RESET:
+    case RetroAchievementsBridgeCode.noticeReset:
       kind = .reset
     default:
       kind = .message

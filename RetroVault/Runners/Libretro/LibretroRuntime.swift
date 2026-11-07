@@ -4420,7 +4420,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     from: achievements,
                     using: loadedCore
                 )
-                if achievements?.gameState() == RVRA_GAME_LOADED, !didAnnounceAchievements {
+                if achievements?.gameState() == RetroAchievementsBridgeCode.gameLoaded,
+                    !didAnnounceAchievements
+                {
                     didAnnounceAchievements = true
                     let summary = achievements?.summary() ?? (0, 0)
                     if summary.1 > 0 {
@@ -4439,7 +4441,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                             )
                         )
                     }
-                } else if achievements?.gameState() == RVRA_GAME_UNSUPPORTED {
+                } else if achievements?.gameState()
+                    == RetroAchievementsBridgeCode.gameUnsupported
+                {
                     didAnnounceAchievements = true
                 }
                 presenceFrame += 1
@@ -4528,7 +4532,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         guard let session else {
             return
         }
-        if session.loginResult() == RVRA_LOGIN_FAILED, !didReportAchievementLoginFailure {
+        if session.loginResult() == RetroAchievementsBridgeCode.loginFailed,
+            !didReportAchievementLoginFailure
+        {
             didReportAchievementLoginFailure = true
             let message = session.loginError()
             emit(
