@@ -116,9 +116,12 @@ Get Info, the library, and Big Picture show the unlock progress from RomM's
 last sync. A ROM with no match stays blank. Unlocks stay hidden until a
 username is set on the RomM profile and a sync has run.
 
-Playing a game in RetroVault does not submit unlocks. RomM does not store a
-RetroAchievements password or login token, and hardcore credit requires an
-emulator RetroAchievements has verified.
+Settings can also sign in to RetroAchievements directly. The password is used
+once to obtain a session token, and only that token is kept in the Keychain.
+While a supported game is running, RetroVault uses rcheevos to hash the ROM,
+read core memory, and submit softcore unlocks. Hardcore mode is a separate
+switch that is off until you turn it on. RetroAchievements does not accept
+hardcore credit until it verifies RetroVault.
 
 ## Preservation
 

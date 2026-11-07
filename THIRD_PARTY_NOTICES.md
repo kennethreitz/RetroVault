@@ -14,6 +14,40 @@ Some reviewed Libretro cores impose noncommercial-use conditions. Those
 conditions continue to apply even though RetroVault itself is free software.
 The RetroVault Core Linking Exception does not relax any third-party license.
 
+## RetroAchievements
+
+- [rcheevos 12.4.0](https://github.com/RetroAchievements/rcheevos/tree/v12.4.0)
+  (`2ad0b8672f68a48148620164510b963039e49eb1`) — MIT License. Vendored under
+  `ThirdParty/rcheevos`. RetroVault links this code to evaluate achievements
+  while a game is running. The network requests and the player session stay
+  in RetroVault.
+
+### rcheevos license
+
+```text
+MIT License
+
+Copyright (c) 2018 RetroAchievements.org
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## Swift packages
 
 - [Nuke 13.0.6](https://github.com/kean/Nuke/tree/13.0.6) — MIT License

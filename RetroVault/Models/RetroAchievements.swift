@@ -4,10 +4,8 @@ import Foundation
 ///
 /// RomM keeps a server API key, each user's RetroAchievements username, the
 /// matched game id, the achievement set, and that user's synced unlocks. It
-/// does not store a RetroAchievements password or login token. RetroVault
-/// therefore only displays this data. Unlocking during play is separate:
-/// RetroVault runs the emulator, hardcore mode needs RetroAchievements to
-/// verify that emulator, and a player login would have to live in the Keychain.
+/// does not store a RetroAchievements password or login token. In-game
+/// unlocking uses a separate player session whose token lives in the Keychain.
 struct RetroAchievementsProfile: Equatable, Sendable {
   /// RetroAchievements username saved on the RomM user. Nil when none is set.
   let username: String?

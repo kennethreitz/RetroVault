@@ -1739,10 +1739,31 @@ final class LibretroSession {
 
     var allowsRewind: Bool {
         request.allowsRewind
+            && RetroAchievementsHardcorePolicy.allowsRewind(
+                hardcoreEnabled: RetroAchievementsHardcore.isEnabled()
+            )
     }
 
     var allowsQuickStates: Bool {
         request.allowsQuickStates
+    }
+
+    /// Hardcore mode may write a state for debugging, and must not load one.
+    var allowsQuickStateLoading: Bool {
+        allowsQuickStates
+            && RetroAchievementsHardcorePolicy.allowsSaveStateLoading(
+                hardcoreEnabled: RetroAchievementsHardcore.isEnabled()
+            )
+    }
+
+    private(set) var achievementToasts: [RetroAchievementsToast] = []
+    private(set) var achievementProgressTitle: String?
+    private(set) var achievementProgressDetail: String?
+    private(set) var achievementLeaderboard: String?
+    private(set) var achievementPresence: String?
+
+    func dismissAchievementToast(_ id: RetroAchievementsToast.ID) {
+        achievementToasts.removeAll { $0.id == id }
     }
 
     private let engine: LibretroEngine
@@ -1850,6 +1871,10 @@ final class LibretroSession {
         guard case .running = phase, hasQuickState else {
             return
         }
+        guard allowsQuickStateLoading else {
+            message = "Hardcore mode does not load save states."
+            return
+        }
         engine.loadQuickState()
     }
 
@@ -1925,6 +1950,53 @@ final class LibretroSession {
         synchronizeCartridgeSave()
     }
 
+    private func present(_ notice: RetroAchievementsPlayNotice) {
+        switch notice.kind {
+        case .progress:
+            achievementProgressTitle = notice.title.isEmpty ? nil : notice.title
+            achievementProgressDetail = notice.detail.isEmpty ? nil : notice.detail
+        case .reset:
+            message = "Hardcore mode reset the game."
+        case .loaded:
+            enqueueToast(notice, style: .loaded)
+        case .unlock:
+            enqueueToast(notice, style: .unlock)
+        case .mastery, .subset:
+            enqueueToast(notice, style: .mastery)
+        case .leaderboard:
+            enqueueToast(notice, style: .leaderboard)
+        case .message:
+            enqueueToast(notice, style: .message)
+        }
+    }
+
+    private func enqueueToast(
+        _ notice: RetroAchievementsPlayNotice,
+        style: RetroAchievementsToast.Style
+    ) {
+        achievementToasts.append(
+            RetroAchievementsToast(
+                style: style,
+                title: notice.title,
+                detail: notice.detail,
+                badgeURL: notice.badgeURL,
+                points: notice.points > 0 ? notice.points : nil,
+                hardcore: notice.hardcore
+            )
+        )
+        if achievementToasts.count > 3 {
+            achievementToasts.removeFirst(achievementToasts.count - 3)
+        }
+    }
+
+    private func clearAchievementPresentation() {
+        achievementToasts = []
+        achievementProgressTitle = nil
+        achievementProgressDetail = nil
+        achievementLeaderboard = nil
+        achievementPresence = nil
+    }
+
     private func receive(_ event: LibretroEngine.Event) {
         switch event {
         case let .running(coreName, framesPerSecond):
@@ -1940,6 +2012,7 @@ final class LibretroSession {
             isMuted = false
             resetTransportState()
             canRewind = false
+            clearAchievementPresentation()
             displaySleep.end()
             if request.saveSync != nil, saveSyncPhase == .idle {
                 synchronizeCartridgeSave()
@@ -1952,6 +2025,7 @@ final class LibretroSession {
             isMuted = false
             resetTransportState()
             canRewind = false
+            clearAchievementPresentation()
             displaySleep.end()
             RetroVaultLog.libretro.error("Libretro session failed: \(error)")
             finishApplicationTerminationIfNeeded()
@@ -1976,6 +2050,12 @@ final class LibretroSession {
             self.isRewinding = isRewinding
             self.isFastForwarding = isFastForwarding
             self.isFastForwardLatched = isFastForwardLatched
+        case let .achievement(notice):
+            present(notice)
+        case let .achievementPresence(text):
+            achievementPresence = text.isEmpty ? nil : text
+        case let .achievementTracker(text):
+            achievementLeaderboard = text.isEmpty ? nil : text
         case let .notice(text):
             message = text
         case .saveMemoryPersisted:
@@ -2742,6 +2822,14 @@ private final class LibretroCore {
         let size = getMemorySizeFunction(LibretroABI.saveRAM)
         guard size > 0, let data = getMemoryDataFunction(LibretroABI.saveRAM) else {
             return nil
+        }
+        return (data, size)
+    }
+
+    func achievementMemory(id: UInt32) -> (data: UnsafeMutableRawPointer?, size: Int) {
+        let size = getMemorySizeFunction(id)
+        guard size > 0, let data = getMemoryDataFunction(id) else {
+            return (nil, 0)
         }
         return (data, size)
     }
@@ -3593,6 +3681,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             isFastForwarding: Bool,
             isFastForwardLatched: Bool
         )
+        case achievement(RetroAchievementsPlayNotice)
+        case achievementPresence(String)
+        case achievementTracker(String)
     }
 
     private enum Command {
@@ -3929,12 +4020,19 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             entryLimit: Self.rewindEntryLimit
         )
         let rewindCompressor = LibretroRewindCompressor()
-        var rewindIsSupported = request.allowsRewind
+        var rewindIsSupported =
+            request.allowsRewind
+            && RetroAchievementsHardcorePolicy.allowsRewind(
+                hardcoreEnabled: RetroAchievementsHardcore.isEnabled()
+            )
         var rewindSnapshotInterval = 1.0 / 60.0
         var rewindStoredStateByteEstimate: Int?
         var didLogRewindCompression = false
 
+        var achievements: RetroAchievementsPlaySession?
         defer {
+            achievements?.close()
+            achievements = nil
             rewindCompressor.removeAll()
             inputState.stopRumble()
             if loaded, let core {
@@ -4033,12 +4131,25 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             runtimeEnvironment.seedAspectRatio(avInfo.aspectRatio)
             try audioOutput.configure(sampleRate: avInfo.sampleRate)
             restoreSaveMemory(into: loadedCore)
+            let achievementSession = RetroAchievementsPlaySession.make(
+                contentPath: stagedContent?.contentURL.path
+                    ?? request.contentURL?.path,
+                systemName: request.systemName,
+                coreID: request.coreID,
+                hardcore: RetroAchievementsHardcore.isEnabled()
+            )
+            achievementSession?.achievementMemoryProvider = { id in
+                loadedCore.achievementMemory(id: id)
+            }
+            achievements = achievementSession
             runtimeEnvironment.makeHardwareContextCurrent()
+            let hardcoreAtLaunch = RetroAchievementsHardcore.isEnabled()
             let quickStateUpdatedAt = try? quickStateURL.resourceValues(
                 forKeys: [.contentModificationDateKey]
             ).contentModificationDate
             let restoresQuickState =
-                hasQuickState
+                !hardcoreAtLaunch
+                && hasQuickState
                 && LibretroQuickStateRestorePolicy.shouldRestore(
                     requestAllowsRestore:
                         request.restoresQuickStateOnLaunch,
@@ -4053,6 +4164,16 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             {
                 RetroVaultLog.libretro.notice(
                     "Skipped a quick state that is unsupported by or incompatible with this core"
+                )
+            } else if
+                hardcoreAtLaunch,
+                hasQuickState,
+                request.restoresQuickStateOnLaunch
+            {
+                emit(
+                    .notice(
+                        "Hardcore mode started from the cartridge instead of a save state."
+                    )
                 )
             } else if
                 request.restoresQuickStateOnLaunch,
@@ -4106,6 +4227,9 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             var checkpointCadence = LibretroCheckpointCadence(
                 startedAt: nextFrame
             )
+            var hardcoreEnabled = hardcoreAtLaunch
+            var didAnnounceAchievements = false
+            var presenceFrame = 0
             var wasFastForwarding = false
             var wasFastForwardLatched = false
             var wasRewinding = false
@@ -4162,15 +4286,37 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 // to offer must therefore never enter the rewinding state, or
                 // holding the button would stall gameplay rather than do
                 // nothing.
+                let hardcoreNow = RetroAchievementsHardcore.isEnabled()
+                if hardcoreNow != hardcoreEnabled {
+                    hardcoreEnabled = hardcoreNow
+                    achievements?.setHardcore(hardcoreNow)
+                    if hardcoreNow {
+                        rewindBuffer.removeAll()
+                        rewindCompressor.removeAll()
+                        rewindIsSupported = false
+                        emit(.rewindAvailabilityChanged(false))
+                    } else if request.allowsRewind {
+                        rewindIsSupported = true
+                    }
+                    deliverAchievementNotices(
+                        from: achievements,
+                        using: loadedCore
+                    )
+                }
                 let isRewinding =
-                    transportControls.isRewinding
+                    !hardcoreNow
+                    && transportControls.isRewinding
                     && rewindIsSupported
                     && !rewindBuffer.isEmpty
                 if !inputState.fastForwardIsEnabled() {
                     fastForwardLatch.reset()
                 }
                 let isFastForwarding =
-                    fastForwardLatch.update(
+                    !hardcoreNow
+                    && RetroAchievementsHardcorePolicy.allowsFastForward(
+                        hardcoreEnabled: hardcoreNow
+                    )
+                    && fastForwardLatch.update(
                         isPressed: transportControls.isFastForwarding,
                         at: now
                     )
@@ -4229,14 +4375,30 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 }
 
                 if paused {
-                    if didRewind {
-                        runtimeEnvironment.makeHardwareContextCurrent()
-                        loadedCore.run()
-                        audioOutput.flush()
+                    if hardcoreNow, achievements?.canPause() == false {
+                        controlLock.lock()
+                        isPaused = false
+                        controlLock.unlock()
+                        emit(
+                            .notice(
+                                "Hardcore mode is still settling, so pause is not available yet."
+                            )
+                        )
+                    } else {
+                        achievements?.idle()
+                        deliverAchievementNotices(
+                            from: achievements,
+                            using: loadedCore
+                        )
+                        if didRewind {
+                            runtimeEnvironment.makeHardwareContextCurrent()
+                            loadedCore.run()
+                            audioOutput.flush()
+                        }
+                        Thread.sleep(forTimeInterval: 0.01)
+                        nextFrame = ProcessInfo.processInfo.systemUptime
+                        continue
                     }
-                    Thread.sleep(forTimeInterval: 0.01)
-                    nextFrame = ProcessInfo.processInfo.systemUptime
-                    continue
                 }
 
                 // Render the frame that first reaches the boundary, then hold
@@ -4253,6 +4415,38 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 }
                 runtimeEnvironment.makeHardwareContextCurrent()
                 loadedCore.run()
+                achievements?.frame()
+                deliverAchievementNotices(
+                    from: achievements,
+                    using: loadedCore
+                )
+                if achievements?.gameState() == RVRA_GAME_LOADED, !didAnnounceAchievements {
+                    didAnnounceAchievements = true
+                    let summary = achievements?.summary() ?? (0, 0)
+                    if summary.1 > 0 {
+                        emit(
+                            .achievement(
+                                RetroAchievementsPlayNotice(
+                                    kind: .loaded,
+                                    title: "Achievements loaded \(summary.0)/\(summary.1)",
+                                    detail: hardcoreNow
+                                        ? "Hardcore rules are on for this session."
+                                        : "Softcore unlocks are on. Save states still work.",
+                                    badgeURL: nil,
+                                    points: 0,
+                                    hardcore: hardcoreNow
+                                )
+                            )
+                        )
+                    }
+                } else if achievements?.gameState() == RVRA_GAME_UNSUPPORTED {
+                    didAnnounceAchievements = true
+                }
+                presenceFrame += 1
+                if presenceFrame % 30 == 0, let achievements {
+                    emit(.achievementPresence(achievements.richPresence()))
+                    emit(.achievementTracker(achievements.leaderboardTracker()))
+                }
                 if
                     !wasRewinding,
                     checkpointCadence.shouldCheckpoint(
@@ -4321,6 +4515,44 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         return isPaused
     }
 
+    private var allowsHardcoreSaveStates: Bool {
+        RetroAchievementsHardcorePolicy.allowsSaveStateLoading(
+            hardcoreEnabled: RetroAchievementsHardcore.isEnabled()
+        )
+    }
+
+    private func deliverAchievementNotices(
+        from session: RetroAchievementsPlaySession?,
+        using core: LibretroCore
+    ) {
+        guard let session else {
+            return
+        }
+        if session.loginResult() == RVRA_LOGIN_FAILED, !didReportAchievementLoginFailure {
+            didReportAchievementLoginFailure = true
+            let message = session.loginError()
+            emit(
+                .notice(
+                    message.isEmpty
+                        ? "RetroAchievements could not use the saved session. Sign in again in Settings."
+                        : message
+                )
+            )
+            if message.localizedCaseInsensitiveContains("expired") {
+                RetroAchievementsTokenStore.delete()
+            }
+        }
+        for notice in session.poll() {
+            if notice.kind == .reset {
+                core.reset()
+                session.acknowledgeReset()
+            }
+            emit(.achievement(notice))
+        }
+    }
+
+    private var didReportAchievementLoginFailure = false
+
     private func processCommands(
         using core: LibretroCore,
         rewindBuffer: inout LibretroRewindBuffer,
@@ -4365,6 +4597,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     guard request.allowsQuickStates else {
                         throw LibretroRuntimeError.stateUnavailable
                     }
+                    guard allowsHardcoreSaveStates else {
+                        emit(.notice("Hardcore mode does not load save states."))
+                        continue
+                    }
                     guard FileManager.default.fileExists(atPath: quickStateURL.path) else {
                         throw LibretroRuntimeError.stateUnavailable
                     }
@@ -4379,7 +4615,12 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     emit(.rewindAvailabilityChanged(false))
                     emit(.quickStateLoaded)
                 case let .rewind(steps):
-                    guard rewindIsSupported else {
+                    guard
+                        rewindIsSupported,
+                        RetroAchievementsHardcorePolicy.allowsRewind(
+                            hardcoreEnabled: RetroAchievementsHardcore.isEnabled()
+                        )
+                    else {
                         continue
                     }
                     guard

@@ -16,6 +16,11 @@ being a list of every commit.
   a username stay hidden.
 - The library and Big Picture show a game's synced RetroAchievements
   progress, such as `12/75`, after a library sync.
+- Settings can sign in to RetroAchievements. The session token is stored in
+  the Keychain, and a running Libretro game can unlock softcore achievements
+  through rcheevos. An in-game toast shows the badge, title, description, and
+  points, with a short chime. Hardcore mode is off until enabled and, while
+  on, disables save states, rewind, and fast-forward.
 
 ## 2026.8.17.1 (2026-08-17)
 

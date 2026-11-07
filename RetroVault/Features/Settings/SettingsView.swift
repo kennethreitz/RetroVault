@@ -60,6 +60,8 @@ struct SettingsView: View {
                 }
             }
 
+            RetroAchievementsSettingsSection(model: model)
+
             Section("Library") {
                 Toggle(
                     "Show Box Art in Game Lists",
