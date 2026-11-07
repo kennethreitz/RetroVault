@@ -19,10 +19,16 @@ entitlements, and public APIs.
 
 ## Platform and distribution
 
-- The deployment target is macOS 26.
+- The deployment target is macOS 15.0 (Sequoia). Revised November 7, 2026
+  from the July 25, 2026 macOS 26 target. Custom Liquid Glass surfaces and
+  prominent buttons are availability-checked: macOS 26 uses `glassEffect`
+  and `.glassProminent`, and macOS 15 uses `.regularMaterial` and
+  `.borderedProminent`. System controls follow the running OS.
 - RetroVault supports Apple silicon only and is built for `arm64`.
-- The minimum macOS version is gated by Apple's supported container
-  technologies, even before local RomM support ships.
+- Milestone 1B's managed RomM stack depends on Apple's Containerization
+  package, which Apple documents as a macOS 26 runtime. That package is not
+  linked yet. Gate it when the milestone lands so the remote-library app
+  can stay on macOS 15.
 - Initial distribution will be a directly downloaded, signed, and notarized
   application.
 - Mac App Store distribution is not an initial target.

@@ -22,7 +22,7 @@ Keychain storage remains required before a release build ships.
 
 ## In scope
 
-- macOS 26, Apple silicon application target
+- macOS 15 (Sequoia) or later, Apple silicon application target
 - Native SwiftUI application shell
 - One remote server configuration
 - HTTPS and explicitly configured local-network HTTP

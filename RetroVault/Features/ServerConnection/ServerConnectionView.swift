@@ -82,7 +82,7 @@ struct ServerConnectionView: View {
                         Text("Connect")
                     }
                 }
-                .buttonStyle(.glassProminent)
+                .openVaultProminentButton()
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canConnect)
             }

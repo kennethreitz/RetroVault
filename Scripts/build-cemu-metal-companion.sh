@@ -79,6 +79,7 @@ git -C "$source_directory" apply --unidiff-zero "$standalone_metal_patch"
 git -C "$source_directory" apply "$dsu_rumble_patch"
 
 sdk_path=$(xcrun --sdk macosx --show-sdk-path)
+# Pin the minimum so a Tahoe build host still produces a Sequoia-loadable app.
 PATH="$(dirname "$cmake"):$(dirname "$ninja"):$PATH" "$cmake" \
   -S "$source_directory" \
   -B "$build_directory" \
@@ -86,6 +87,7 @@ PATH="$(dirname "$cmake"):$(dirname "$ninja"):$PATH" "$cmake" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_MAKE_PROGRAM="$ninja" \
   -DCMAKE_OSX_ARCHITECTURES=arm64 \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
   -DCMAKE_OSX_SYSROOT="$sdk_path" \
   -DMACOS_BUNDLE=ON \
   -DENABLE_OPENGL=OFF \

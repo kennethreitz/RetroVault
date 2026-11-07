@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="MILESTONES/README.md"><img src="https://img.shields.io/badge/status-active_development-7657ff?style=flat-square" alt="Active development"></a>
-  <img src="https://img.shields.io/badge/macOS-26-111827?style=flat-square&logo=apple" alt="macOS 26">
+  <img src="https://img.shields.io/badge/macOS-15%2B-111827?style=flat-square&logo=apple" alt="macOS 15 or later">
   <img src="https://img.shields.io/badge/architecture-Apple_silicon-111827?style=flat-square" alt="Apple silicon">
   <img src="https://img.shields.io/badge/Swift-6.2-f05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 6.2">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--2.0%2B-2563eb?style=flat-square" alt="GPL-2.0-or-later"></a>
@@ -31,9 +31,10 @@ engines.
 ![RetroVault Big Picture library](.github/assets/retrovault-big-picture.png)
 
 > [!IMPORTANT]
-> RetroVault is under active development. It currently requires macOS 26 on
-> Apple silicon and targets the RomM 5.x API. Compatibility and save handling
-> still vary by system and title.
+> RetroVault is under active development. It requires macOS 15 (Sequoia) or
+> later on Apple silicon and targets the RomM 5.x API. macOS 26 draws custom
+> controls with Liquid Glass; macOS 15 uses a standard material. Compatibility
+> and save handling still vary by system and title.
 
 ## Install
 
@@ -119,7 +120,17 @@ playable.
 
 ## Build
 
-Requirements: an Apple-silicon Mac, macOS 26 or later, and Xcode 26 or later.
+Requirements: an Apple-silicon Mac running macOS 15 or later, and Xcode 26
+or later. The build uses the macOS 26 SDK so Liquid Glass can be compiled
+behind an availability check. Xcode 26.0 through 26.3 run on macOS Sequoia
+15.6 or later; the built app still launches on macOS 15.0.
+
+Rebuild bundled Libretro cores, the experimental Vita3K engine, and the Cemu
+Metal companion after this deployment-target change. Those build scripts pin
+`-mmacosx-version-min=15.0` / `CMAKE_OSX_DEPLOYMENT_TARGET=15.0`. Binaries
+produced with the previous 26.0 minimum will not load on macOS 15. The
+official Cemu companion fetched by `Scripts/fetch-cemu-companion.sh` is
+already a macOS 12 build.
 
 ```shell
 open RetroVault.xcodeproj

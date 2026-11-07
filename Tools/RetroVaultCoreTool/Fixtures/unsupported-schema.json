@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "minimumMacOS": "26.0",
+  "minimumMacOS": "15.0",
   "architecture": "arm64",
   "cores": []
 }

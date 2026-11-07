@@ -32,7 +32,7 @@ cmake -S "$source_directory" -B "$build_directory" \
   -DRETROVAULT_EMBEDDED=ON \
   -DUSE_DISCORD_RICH_PRESENCE=OFF \
   -DUSE_LTO=NEVER \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=26.0 \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
   -DCMAKE_BUILD_TYPE=Release
 cmake --build "$build_directory" \
   --target retrovault_vita3k \

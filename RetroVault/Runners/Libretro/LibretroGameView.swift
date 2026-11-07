@@ -177,7 +177,7 @@ struct LibretroGameView: View {
                         Button("Play Again") {
                             session.start()
                         }
-                        .buttonStyle(.glassProminent)
+                        .openVaultProminentButton()
                         .disabled(session.saveSyncPhase == .syncing)
                     }
                     .foregroundStyle(.white)
@@ -194,7 +194,7 @@ struct LibretroGameView: View {
                         Button("Try Again") {
                             session.start()
                         }
-                        .buttonStyle(.glassProminent)
+                        .openVaultProminentButton()
                     }
                     .foregroundStyle(.white)
                 }
