@@ -40,50 +40,62 @@ struct RetroAchievementsOverlay: View {
 
   var body: some View {
     VStack(alignment: .trailing, spacing: 10) {
-      ForEach(toasts.prefix(3)) { toast in
-        RetroAchievementsToastCard(toast: toast)
-          .transition(
-            .asymmetric(
-              insertion: .move(edge: .top).combined(with: .opacity),
-              removal: .opacity
-            )
-          )
-          .task(id: toast.id) {
-            try? await Task.sleep(for: toast.dwells)
-            onDismiss(toast.id)
-          }
-      }
-
-      if let progressTitle, let progressDetail, !progressDetail.isEmpty {
-        RetroAchievementsStatusChip(
-          systemImage: "chart.bar.fill",
-          title: progressTitle,
-          detail: progressDetail
-        )
-      }
-
-      if let leaderboard, !leaderboard.isEmpty {
-        RetroAchievementsStatusChip(
-          systemImage: "flag.checkered",
-          title: "Leaderboard",
-          detail: leaderboard
-        )
-      }
-
-      if let richPresence, !richPresence.isEmpty {
-        Text(richPresence)
-          .font(.caption.weight(.medium))
-          .foregroundStyle(.white.opacity(0.86))
-          .lineLimit(2)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 7)
-          .openVaultGlass(in: Capsule())
-      }
+      toastStack
+      progressChip
+      leaderboardChip
+      presenceChip
     }
     .padding(22)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     .animation(.spring(response: 0.42, dampingFraction: 0.82), value: toasts.map(\.id))
     .allowsHitTesting(false)
+  }
+
+  private var toastStack: some View {
+    ForEach(toasts.prefix(3)) { toast in
+      RetroAchievementsToastCard(toast: toast)
+        .transition(toastTransition)
+        .task(id: toast.id) {
+          try? await Task.sleep(for: toast.dwells)
+          onDismiss(toast.id)
+        }
+    }
+  }
+
+  private var toastTransition: AnyTransition {
+    .asymmetric(
+      insertion: .move(edge: .top).combined(with: .opacity),
+      removal: .opacity
+    )
+  }
+
+  @ViewBuilder
+  private var progressChip: some View {
+    if let progressTitle, let progressDetail, !progressDetail.isEmpty {
+      RetroAchievementsStatusChip(
+        systemImage: "chart.bar.fill",
+        title: progressTitle,
+        detail: progressDetail
+      )
+    }
+  }
+
+  @ViewBuilder
+  private var leaderboardChip: some View {
+    if let leaderboard, !leaderboard.isEmpty {
+      RetroAchievementsStatusChip(
+        systemImage: "flag.checkered",
+        title: "Leaderboard",
+        detail: leaderboard
+      )
+    }
+  }
+
+  @ViewBuilder
+  private var presenceChip: some View {
+    if let richPresence, !richPresence.isEmpty {
+      RetroAchievementsPresenceLine(text: richPresence)
+    }
   }
 }
 
@@ -92,51 +104,71 @@ private struct RetroAchievementsToastCard: View {
   @State private var appeared = false
 
   var body: some View {
+    face
+      .padding(14)
+      .frame(maxWidth: cardWidth, alignment: .leading)
+      .openVaultGlass(tint: accent.opacity(glassOpacity), in: cardShape)
+      .overlay {
+        cardShape.strokeBorder(accent.opacity(0.45), lineWidth: borderWidth)
+      }
+      .scaleEffect(appeared ? 1 : 0.94)
+      .onAppear(perform: appear)
+  }
+
+  @ViewBuilder
+  private var face: some View {
     HStack(alignment: .center, spacing: 14) {
       badge
-
-      VStack(alignment: .leading, spacing: 3) {
-        Text(eyebrow)
-          .font(.caption2.weight(.semibold))
-          .tracking(0.6)
-          .foregroundStyle(accent)
-
-        Text(toast.title)
-          .font(toast.style == .mastery ? .title3.bold() : .headline)
-          .foregroundStyle(.white)
-          .lineLimit(2)
-
-        if !toast.detail.isEmpty {
-          Text(toast.detail)
-            .font(.callout)
-            .foregroundStyle(.white.opacity(0.78))
-            .lineLimit(3)
-        }
-      }
-
-      if let points = toast.points, points > 0, toast.style == .unlock {
-        Text("+\(points)")
+      RetroAchievementsToastText(
+        eyebrow: eyebrow,
+        title: toast.title,
+        detail: toast.detail,
+        titleFont: titleFont,
+        accent: accent
+      )
+      if let pointsLabel {
+        Text(pointsLabel)
           .font(.title3.weight(.bold).monospacedDigit())
           .foregroundStyle(accent)
       }
     }
-    .padding(14)
-    .frame(maxWidth: toast.style == .mastery ? 460 : 420, alignment: .leading)
-    .openVaultGlass(tint: accent.opacity(toast.style == .mastery ? 0.28 : 0.16), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    .overlay {
-      RoundedRectangle(cornerRadius: 18, style: .continuous)
-        .strokeBorder(accent.opacity(0.45), lineWidth: toast.style == .mastery ? 1.5 : 1)
+  }
+
+  private var titleFont: Font {
+    toast.style == .mastery ? .title3.bold() : .headline
+  }
+
+  private var cardWidth: CGFloat {
+    toast.style == .mastery ? 460 : 420
+  }
+
+  private var glassOpacity: Double {
+    toast.style == .mastery ? 0.28 : 0.16
+  }
+
+  private var borderWidth: CGFloat {
+    toast.style == .mastery ? 1.5 : 1
+  }
+
+  private var cardShape: RoundedRectangle {
+    RoundedRectangle(cornerRadius: 18, style: .continuous)
+  }
+
+  private var pointsLabel: String? {
+    guard toast.style == .unlock, let points = toast.points, points > 0 else {
+      return nil
     }
-    .scaleEffect(appeared ? 1 : 0.94)
-    .onAppear {
-      withAnimation(.spring(response: 0.46, dampingFraction: 0.72)) {
-        appeared = true
-      }
-      if toast.style == .unlock {
-        RetroAchievementsChime.playUnlock()
-      } else if toast.style == .mastery {
-        RetroAchievementsChime.playMastery()
-      }
+    return "+\(points)"
+  }
+
+  private func appear() {
+    withAnimation(.spring(response: 0.46, dampingFraction: 0.72)) {
+      appeared = true
+    }
+    if toast.style == .unlock {
+      RetroAchievementsChime.playUnlock()
+    } else if toast.style == .mastery {
+      RetroAchievementsChime.playMastery()
     }
   }
 
@@ -199,6 +231,49 @@ private struct RetroAchievementsToastCard: View {
     case .message:
       "rosette"
     }
+  }
+}
+
+private struct RetroAchievementsToastText: View {
+  let eyebrow: String
+  let title: String
+  let detail: String
+  let titleFont: Font
+  let accent: Color
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      Text(eyebrow)
+        .font(.caption2.weight(.semibold))
+        .tracking(0.6)
+        .foregroundStyle(accent)
+
+      Text(title)
+        .font(titleFont)
+        .foregroundStyle(.white)
+        .lineLimit(2)
+
+      if !detail.isEmpty {
+        Text(detail)
+          .font(.callout)
+          .foregroundStyle(.white.opacity(0.78))
+          .lineLimit(3)
+      }
+    }
+  }
+}
+
+private struct RetroAchievementsPresenceLine: View {
+  let text: String
+
+  var body: some View {
+    Text(text)
+      .font(.caption.weight(.medium))
+      .foregroundStyle(.white.opacity(0.86))
+      .lineLimit(2)
+      .padding(.horizontal, 12)
+      .padding(.vertical, 7)
+      .openVaultGlass(in: Capsule())
   }
 }
 

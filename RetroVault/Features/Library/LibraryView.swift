@@ -2280,226 +2280,16 @@ private struct LibraryTableView: View {
       sortOrder: $sortOrder,
       columnCustomization: $columnCustomization
     ) {
-      TableColumn("Game", value: \.name) { game in
-        HStack(spacing: 7) {
-          Button {
-            play(game)
-          } label: {
-            Group {
-              if preparingGameID == game.id {
-                ProgressView()
-                  .controlSize(.mini)
-              } else {
-                Image(systemName: "play.fill")
-                  .font(.system(size: 8, weight: .bold))
-                  .foregroundStyle(.secondary)
-              }
-            }
-            .frame(width: 10)
-          }
-          .buttonStyle(.plain)
-          .disabled(
-            !isPlayable(game)
-              || (preparingGameID != nil && preparingGameID != game.id)
-          )
-          .opacity(isPlayable(game) ? 1 : 0)
-          .accessibilityLabel("Play \(game.name)")
-
-          Text(game.name)
-            .lineLimit(1)
-
-          if model.prioritizesFavoritesInCurrentView,
-            model.favoriteGameIDs.contains(game.id)
-          {
-            Image(systemName: "star.fill")
-              .font(.system(size: 9, weight: .semibold))
-              .foregroundStyle(.yellow)
-              .accessibilityLabel("Favorite")
-          }
-
-          if let progress = game.retroAchievementsProgressLabel {
-            Label(progress, systemImage: "trophy.fill")
-              .font(.caption.monospacedDigit())
-              .foregroundStyle(.secondary)
-              .labelStyle(.titleAndIcon)
-              .help("RetroAchievements unlocked, from the progress RomM last synced")
-              .accessibilityLabel("RetroAchievements \(progress)")
-          }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-          play(game)
-        }
-      }
-      .width(min: 220, ideal: 380)
-      .customizationID("game")
-      .disabledCustomizationBehavior(.visibility)
+      gameColumn
 
       if !isSingleSystemView {
-        TableColumn("System", value: \.systemName)
-          .width(min: 120, ideal: 170)
-          .customizationID("system")
-          .defaultVisibility(.visible)
+        systemColumn
       }
 
-      TableColumn("Downloaded") { game in
-        AvailabilityCheckbox(
-          value: model.downloadedGameIDs.contains(game.id),
-          availableLabel: "Downloaded",
-          unavailableLabel: "Not downloaded"
-        )
-      }
-      .width(86)
-      .customizationID("downloaded")
-      .defaultVisibility(.visible)
-
-      TableColumn("Save", value: \.saveSortValue) { game in
-        AvailabilityCheckbox(
-          value: game.hasSave,
-          availableLabel: "Has save",
-          unavailableLabel: "No save"
-        )
-      }
-      .width(58)
-      .customizationID("save")
-      .defaultVisibility(.visible)
-
-      TableColumn("State", value: \.stateSortValue) { game in
-        AvailabilityCheckbox(
-          value: game.hasState,
-          availableLabel: "Has save state",
-          unavailableLabel: "No save state"
-        )
-      }
-      .width(58)
-      .customizationID("state")
-      .defaultVisibility(.visible)
-
-      Group {
-        TableColumn("Status", value: \GameSummary.statusColumnValue) { game in
-          Text(game.statusColumnValue)
-        }
-        .width(min: 90, ideal: 120)
-        .customizationID("status")
-        .defaultVisibility(.hidden)
-
-        TableColumn("Completion", value: \GameSummary.completionSortValue) { game in
-          Text("\(game.completionSortValue)%")
-            .monospacedDigit()
-        }
-        .width(88)
-        .customizationID("completion")
-        .defaultVisibility(.hidden)
-
-        TableColumn("Rating", value: \GameSummary.ratingSortValue) { game in
-          Text(game.ratingColumnValue)
-            .monospacedDigit()
-        }
-        .width(70)
-        .customizationID("rating")
-        .defaultVisibility(.hidden)
-
-        TableColumn("Difficulty", value: \GameSummary.difficultySortValue) { game in
-          Text(game.difficultyColumnValue)
-            .monospacedDigit()
-        }
-        .width(76)
-        .customizationID("difficulty")
-        .defaultVisibility(.hidden)
-
-        TableColumn("Region", value: \GameSummary.regionColumnValue)
-          .width(min: 80, ideal: 120)
-          .customizationID("region")
-          .defaultVisibility(.hidden)
-
-        TableColumn("Size", value: \GameSummary.fileSizeSortValue) { game in
-          Text(game.fileSizeColumnValue)
-            .monospacedDigit()
-        }
-        .width(min: 80, ideal: 100)
-        .customizationID("size")
-        .defaultVisibility(.hidden)
-
-        TableColumn("Artwork", value: \GameSummary.artworkSortValue) { game in
-          AvailabilityCheckbox(
-            value: game.coverURL != nil,
-            availableLabel: "Has artwork",
-            unavailableLabel: "No artwork"
-          )
-        }
-        .width(74)
-        .customizationID("artwork")
-        .defaultVisibility(.hidden)
-
-        TableColumn("Identified", value: \GameSummary.identifiedSortValue) { game in
-          AvailabilityCheckbox(
-            value: game.isIdentified,
-            availableLabel: "Identified",
-            unavailableLabel: "Not identified"
-          )
-        }
-        .width(78)
-        .customizationID("identified")
-        .defaultVisibility(.hidden)
-
-        TableColumn("Missing", value: \GameSummary.missingSortValue) { game in
-          AvailabilityCheckbox(
-            value: game.isMissingFromFileSystem,
-            availableLabel: "Missing from RomM",
-            unavailableLabel: "Available in RomM",
-            isWarning: true
-          )
-        }
-        .width(70)
-        .customizationID("missing")
-        .defaultVisibility(.hidden)
-
-        TableColumn("Updated", value: \GameSummary.updatedColumnValue)
-          .width(min: 92, ideal: 110)
-          .customizationID("updated")
-          .defaultVisibility(.hidden)
-
-        TableColumn(
-          "Achievements",
-          value: \GameSummary.retroAchievementsSortValue
-        ) { game in
-          Text(game.retroAchievementsColumnValue)
-            .monospacedDigit()
-            .foregroundStyle(
-              game.retroAchievementsProgressLabel == nil
-                ? Color.secondary
-                : Color.primary
-            )
-            .help(
-              game.retroAchievementsProgressLabel == nil
-                ? "No RetroAchievements progress for this ROM"
-                : "RetroAchievements unlocked, from the progress RomM last synced"
-            )
-        }
-        .width(min: 96, ideal: 120)
-        .customizationID("achievements")
-        .defaultVisibility(.hidden)
-      }
-
-      TableColumn("When Played", value: \GameSummary.whenPlayedSortValue) { game in
-        if let date = game.lastPlayedAt {
-          Text(
-            date,
-            format: .dateTime
-              .month(.abbreviated)
-              .day()
-              .year()
-              .hour()
-              .minute()
-          )
-        } else {
-          Text("Never")
-            .foregroundStyle(.secondary)
-        }
-      }
-      .width(min: 130, ideal: 165)
-      .customizationID("whenPlayed")
-      .defaultVisibility(.hidden)
+      availabilityColumns()
+      catalogColumns()
+      recordColumns()
+      whenPlayedColumn
     }
     .scrollPosition(id: $controllerTableScrollTargetID, anchor: .center)
     .contextMenu(forSelectionType: Int.self) { selectedIDs in
@@ -2573,6 +2363,194 @@ private struct LibraryTableView: View {
       }
     }
     .id(tableIdentity)
+  }
+
+  private var gameColumn: some TableColumnContent<
+    GameSummary,
+    KeyPathComparator<GameSummary>
+  > {
+    TableColumn("Game", value: \.name) { game in
+      LibraryGameNameCell(
+        name: game.name,
+        isPreparing: preparingGameID == game.id,
+        isPlayable: isPlayable(game),
+        isBlocked:
+          preparingGameID != nil && preparingGameID != game.id,
+        showsFavorite:
+          model.prioritizesFavoritesInCurrentView
+          && model.favoriteGameIDs.contains(game.id),
+        achievementProgress: game.retroAchievementsProgressLabel,
+        play: { play(game) }
+      )
+    }
+    .width(min: 220, ideal: 380)
+    .customizationID("game")
+    .disabledCustomizationBehavior(.visibility)
+  }
+
+  private var systemColumn: some TableColumnContent<
+    GameSummary,
+    KeyPathComparator<GameSummary>
+  > {
+    TableColumn("System", value: \.systemName)
+      .width(min: 120, ideal: 170)
+      .customizationID("system")
+      .defaultVisibility(.visible)
+  }
+
+  @TableColumnBuilder<GameSummary, KeyPathComparator<GameSummary>>
+  private func availabilityColumns() -> some TableColumnContent<
+    GameSummary,
+    KeyPathComparator<GameSummary>
+  > {
+    TableColumn("Downloaded") { game in
+      AvailabilityCheckbox(
+        value: model.downloadedGameIDs.contains(game.id),
+        availableLabel: "Downloaded",
+        unavailableLabel: "Not downloaded"
+      )
+    }
+    .width(86)
+    .customizationID("downloaded")
+    .defaultVisibility(.visible)
+
+    TableColumn("Save", value: \.saveSortValue) { game in
+      AvailabilityCheckbox(
+        value: game.hasSave,
+        availableLabel: "Has save",
+        unavailableLabel: "No save"
+      )
+    }
+    .width(58)
+    .customizationID("save")
+    .defaultVisibility(.visible)
+
+    TableColumn("State", value: \.stateSortValue) { game in
+      AvailabilityCheckbox(
+        value: game.hasState,
+        availableLabel: "Has save state",
+        unavailableLabel: "No save state"
+      )
+    }
+    .width(58)
+    .customizationID("state")
+    .defaultVisibility(.visible)
+  }
+
+  @TableColumnBuilder<GameSummary, KeyPathComparator<GameSummary>>
+  private func catalogColumns() -> some TableColumnContent<
+    GameSummary,
+    KeyPathComparator<GameSummary>
+  > {
+    TableColumn("Status", value: \GameSummary.statusColumnValue) { game in
+      Text(game.statusColumnValue)
+    }
+    .width(min: 90, ideal: 120)
+    .customizationID("status")
+    .defaultVisibility(.hidden)
+
+    TableColumn("Completion", value: \GameSummary.completionSortValue) { game in
+      LibraryCompletionColumnCell(percent: game.completionSortValue)
+    }
+    .width(88)
+    .customizationID("completion")
+    .defaultVisibility(.hidden)
+
+    TableColumn("Rating", value: \GameSummary.ratingSortValue) { game in
+      Text(game.ratingColumnValue)
+        .monospacedDigit()
+    }
+    .width(70)
+    .customizationID("rating")
+    .defaultVisibility(.hidden)
+
+    TableColumn("Difficulty", value: \GameSummary.difficultySortValue) { game in
+      Text(game.difficultyColumnValue)
+        .monospacedDigit()
+    }
+    .width(76)
+    .customizationID("difficulty")
+    .defaultVisibility(.hidden)
+
+    TableColumn("Region", value: \GameSummary.regionColumnValue)
+      .width(min: 80, ideal: 120)
+      .customizationID("region")
+      .defaultVisibility(.hidden)
+
+    TableColumn("Size", value: \GameSummary.fileSizeSortValue) { game in
+      Text(game.fileSizeColumnValue)
+        .monospacedDigit()
+    }
+    .width(min: 80, ideal: 100)
+    .customizationID("size")
+    .defaultVisibility(.hidden)
+  }
+
+  @TableColumnBuilder<GameSummary, KeyPathComparator<GameSummary>>
+  private func recordColumns() -> some TableColumnContent<
+    GameSummary,
+    KeyPathComparator<GameSummary>
+  > {
+    TableColumn("Artwork", value: \GameSummary.artworkSortValue) { game in
+      AvailabilityCheckbox(
+        value: game.coverURL != nil,
+        availableLabel: "Has artwork",
+        unavailableLabel: "No artwork"
+      )
+    }
+    .width(74)
+    .customizationID("artwork")
+    .defaultVisibility(.hidden)
+
+    TableColumn("Identified", value: \GameSummary.identifiedSortValue) { game in
+      AvailabilityCheckbox(
+        value: game.isIdentified,
+        availableLabel: "Identified",
+        unavailableLabel: "Not identified"
+      )
+    }
+    .width(78)
+    .customizationID("identified")
+    .defaultVisibility(.hidden)
+
+    TableColumn("Missing", value: \GameSummary.missingSortValue) { game in
+      AvailabilityCheckbox(
+        value: game.isMissingFromFileSystem,
+        availableLabel: "Missing from RomM",
+        unavailableLabel: "Available in RomM",
+        isWarning: true
+      )
+    }
+    .width(70)
+    .customizationID("missing")
+    .defaultVisibility(.hidden)
+
+    TableColumn("Updated", value: \GameSummary.updatedColumnValue)
+      .width(min: 92, ideal: 110)
+      .customizationID("updated")
+      .defaultVisibility(.hidden)
+
+    TableColumn(
+      "Achievements",
+      value: \GameSummary.retroAchievementsSortValue
+    ) { game in
+      LibraryAchievementsColumnCell(game: game)
+    }
+    .width(min: 96, ideal: 120)
+    .customizationID("achievements")
+    .defaultVisibility(.hidden)
+  }
+
+  private var whenPlayedColumn: some TableColumnContent<
+    GameSummary,
+    KeyPathComparator<GameSummary>
+  > {
+    TableColumn("When Played", value: \GameSummary.whenPlayedSortValue) { game in
+      LibraryWhenPlayedCell(date: game.lastPlayedAt)
+    }
+    .width(min: 130, ideal: 165)
+    .customizationID("whenPlayed")
+    .defaultVisibility(.hidden)
   }
 
   private func play(
@@ -3461,6 +3439,132 @@ private struct LibraryTableView: View {
         ? model.favoriteGameIDs
         : []
     )
+  }
+}
+
+private struct LibraryGameNameCell: View {
+  let name: String
+  let isPreparing: Bool
+  let isPlayable: Bool
+  let isBlocked: Bool
+  let showsFavorite: Bool
+  let achievementProgress: String?
+  let play: () -> Void
+
+  var body: some View {
+    HStack(spacing: 7) {
+      playButton
+      Text(name)
+        .lineLimit(1)
+      if showsFavorite {
+        favoriteMark
+      }
+      if let achievementProgress {
+        achievementMark(achievementProgress)
+      }
+    }
+    .contentShape(Rectangle())
+    .onTapGesture(count: 2) {
+      play()
+    }
+  }
+
+  private var playButton: some View {
+    Button(action: play) {
+      Group {
+        if isPreparing {
+          ProgressView()
+            .controlSize(.mini)
+        } else {
+          Image(systemName: "play.fill")
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(.secondary)
+        }
+      }
+      .frame(width: 10)
+    }
+    .buttonStyle(.plain)
+    .disabled(!isPlayable || isBlocked)
+    .opacity(isPlayable ? 1 : 0)
+    .accessibilityLabel("Play \(name)")
+  }
+
+  private var favoriteMark: some View {
+    Image(systemName: "star.fill")
+      .font(.system(size: 9, weight: .semibold))
+      .foregroundStyle(.yellow)
+      .accessibilityLabel("Favorite")
+  }
+
+  private func achievementMark(_ progress: String) -> some View {
+    Label(progress, systemImage: "trophy.fill")
+      .font(.caption.monospacedDigit())
+      .foregroundStyle(.secondary)
+      .labelStyle(.titleAndIcon)
+      .help("RetroAchievements unlocked, from the progress RomM last synced")
+      .accessibilityLabel("RetroAchievements \(progress)")
+  }
+}
+
+private struct LibraryAchievementsColumnCell: View {
+  let game: GameSummary
+
+  private var hasProgress: Bool {
+    game.retroAchievementsProgressLabel != nil
+  }
+
+  private var tint: Color {
+    hasProgress ? .primary : .secondary
+  }
+
+  private var helpText: String {
+    if hasProgress {
+      "RetroAchievements unlocked, from the progress RomM last synced"
+    } else {
+      "No RetroAchievements progress for this ROM"
+    }
+  }
+
+  var body: some View {
+    Text(game.retroAchievementsColumnValue)
+      .monospacedDigit()
+      .foregroundStyle(tint)
+      .help(helpText)
+  }
+}
+
+private struct LibraryCompletionColumnCell: View {
+  let percent: Int
+
+  var body: some View {
+    Text(label)
+      .monospacedDigit()
+  }
+
+  private var label: String {
+    "\(percent)%"
+  }
+}
+
+private struct LibraryWhenPlayedCell: View {
+  let date: Date?
+
+  var body: some View {
+    if let date {
+      Text(date, format: playedFormat)
+    } else {
+      Text("Never")
+        .foregroundStyle(.secondary)
+    }
+  }
+
+  private var playedFormat: Date.FormatStyle {
+    .dateTime
+      .month(.abbreviated)
+      .day()
+      .year()
+      .hour()
+      .minute()
   }
 }
 
