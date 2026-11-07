@@ -20,6 +20,14 @@
  #include <time.h>
 #endif
 
+/* RetroVault: upstream includes this inside rc_client_clock_get_now_millisecs.
+ * Clang modules reject a system header imported from a function body, so the
+ * include lives here. The function still undefines CLOCK_MONOTONIC for
+ * deployment targets older than macOS 10.12 or iOS 10. */
+#if defined(__APPLE__) && defined(__MACH__) && defined(CLOCK_MONOTONIC)
+ #include <AvailabilityMacros.h>
+#endif
+
 #define RC_CLIENT_UNKNOWN_GAME_ID (uint32_t)-1
 #define RC_CLIENT_RECENT_UNLOCK_DELAY_SECONDS (10 * 60) /* ten minutes */
 #define RC_CLIENT_ACHIEVEMENT_WARNING_ID 101000001
@@ -326,8 +334,8 @@ static rc_clock_t rc_client_clock_get_now_millisecs(const rc_client_t* client)
    * On earlier deployment targets (like Leopard 10.5), the symbol doesn't exist
    * in libSystem causing an "undefined reference to clock_gettime" linker error.
    * To get the code to use the #else block below, forcibly undefine CLOCK_MONOTONIC
-   * when targeting earlier versions. */
-  #include <AvailabilityMacros.h>
+   * when targeting earlier versions. AvailabilityMacros.h is included at file
+   * scope so Clang modules can import it. */
   #if (defined(MAC_OS_X_VERSION_MIN_REQUIRED) && MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
    #undef CLOCK_MONOTONIC
   #elif (defined(__IPHONE_OS_VERSION_MIN_REQUIRED) && __IPHONE_OS_VERSION_MIN_REQUIRED < 100000)
