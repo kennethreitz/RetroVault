@@ -2181,7 +2181,7 @@ private struct LibraryTableView: View {
               await model.retry()
             }
           }
-          .buttonStyle(.glassProminent)
+          .openVaultProminentButton()
         }
       } else if model.games.isEmpty {
         if model.searchTerm.isEmpty {
@@ -3783,7 +3783,7 @@ private struct LibraryGridView: View {
               await model.retry()
             }
           }
-          .buttonStyle(.glassProminent)
+          .openVaultProminentButton()
         }
       } else if model.games.isEmpty {
         if model.searchTerm.isEmpty {

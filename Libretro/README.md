@@ -1,7 +1,12 @@
 # Bundled Libretro Cores
 
 `CoreManifest.json` is the reviewed source of truth for every libretro binary
-that may ship with RetroVault.
+that may ship with RetroVault. `minimumMacOS` is `15.0`. Each core repeats
+that floor in its compiler flags (`-mmacosx-version-min=15.0` or
+`-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0`) because those flags override the
+`MACOSX_DEPLOYMENT_TARGET` environment variable the build tool sets from
+`minimumMacOS`. Rebuild cores after changing it; a dylib stamped 26.0 will
+not load on macOS 15.
 
 The manifest includes a content-free 2048 pipeline test, 26 reviewed
 user-facing cores, and 1 experimental core. The current catalog supports Game Boy, Game Boy Color,

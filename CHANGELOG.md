@@ -5,6 +5,18 @@ for additional releases on the same day. This changelog records notable
 user-facing and architectural changes and is intentionally curated rather than
 being a list of every commit.
 
+## Unreleased
+
+### Changed
+
+- The application deployment target is macOS 15.0 (Sequoia). macOS 26 keeps
+  Liquid Glass for custom surfaces and prominent buttons. macOS 15 draws
+  those surfaces with a standard material and uses bordered prominent
+  buttons. System navigation, sidebars, toolbars, menus, and search fields
+  follow the running OS. Libretro cores, the experimental Vita3K engine, and
+  the Cemu Metal companion now compile with a macOS 15.0 minimum and need to
+  be rebuilt before a Sequoia launch.
+
 ## 2026.11.7 (2026-11-07)
 
 ### Added

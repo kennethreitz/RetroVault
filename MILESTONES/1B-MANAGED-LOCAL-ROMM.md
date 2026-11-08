@@ -45,7 +45,9 @@ The container implementation is isolated behind an RetroVault-owned
 - A user can select a ROM directory without copying or reorganizing it.
 - The selected directory is mounted read-only.
 - RetroVault can pull and start the pinned stack on a clean macOS 26 Apple
-  silicon installation without Docker.
+  silicon installation without Docker. The application itself runs on
+  macOS 15; this managed stack uses Apple's Containerization runtime, which
+  Apple supports on macOS 26.
 - RetroVault does not report readiness until MariaDB and RomM are healthy.
 - Once ready, the existing milestone 1A library flow works without a
   local-server-specific UI path.
