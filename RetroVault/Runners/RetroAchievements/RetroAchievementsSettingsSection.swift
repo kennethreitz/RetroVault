@@ -23,7 +23,7 @@ struct RetroAchievementsSettingsSection: View {
     }
   }
 
-  private static let hardcoreExplanation = """
+  static let hardcoreExplanation = """
     Hardcore is off until you turn it on. While it is on, RetroVault \
     will not load save states, rewind, fast-forward, or slow down. A \
     save state can still be written, and it loads only after Hardcore \
@@ -32,7 +32,7 @@ struct RetroAchievementsSettingsSection: View {
     Until that review, the server can still record these unlocks as softcore.
     """
 
-  private static let sessionExplanation = """
+  static let sessionExplanation = """
     The password is sent to RetroAchievements to create a session and is \
     not saved. RetroVault keeps only that session token in the Keychain. \
     Sign-in applies the next time a game starts. Games without a matched \
