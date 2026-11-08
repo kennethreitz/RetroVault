@@ -17,6 +17,26 @@ being a list of every commit.
   the Cemu Metal companion now compile with a macOS 15.0 minimum and need to
   be rebuilt before a Sequoia launch.
 
+## 2026.11.7 (2026-11-07)
+
+### Added
+
+- Get Info shows the RetroAchievements set RomM stored for a matched ROM,
+  including points, badges, and a link to the game on RetroAchievements.
+  When the RomM user has a RetroAchievements username, the same view shows
+  the unlocks RomM last synced. Unmatched ROMs and unlocks for users without
+  a username stay hidden.
+- The library and Big Picture show a game's synced RetroAchievements
+  progress, such as `12/75`, after a library sync.
+- Settings can sign in to RetroAchievements. The session token is stored in
+  the Keychain, and a running Libretro game can unlock softcore achievements
+  through rcheevos. An in-game toast shows the badge, title, description, and
+  points, with a short chime. Hardcore mode is off until enabled and, while
+  on, disables save states, rewind, and fast-forward.
+- Big Picture Settings includes RetroAchievements, showing the signed-in
+  account and status, the shared Hardcore toggle, and sign out from the
+  controller. Sign-in itself stays in the main Settings window.
+
 ## 2026.8.17.1 (2026-08-17)
 
 ### Added

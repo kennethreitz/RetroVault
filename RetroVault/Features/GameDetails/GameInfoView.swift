@@ -60,6 +60,7 @@ struct GameInfoCommands: Commands {
 
 private enum GameInfoTab: String, CaseIterable, Identifiable {
   case general
+  case achievements
   case files
   case saveData
   case metadata
@@ -70,6 +71,8 @@ private enum GameInfoTab: String, CaseIterable, Identifiable {
     switch self {
     case .general:
       "General"
+    case .achievements:
+      "Achievements"
     case .files:
       "Files"
     case .saveData:
@@ -83,6 +86,8 @@ private enum GameInfoTab: String, CaseIterable, Identifiable {
     switch self {
     case .general:
       "info.circle"
+    case .achievements:
+      "trophy"
     case .files:
       "doc.on.doc"
     case .saveData:
@@ -99,6 +104,7 @@ struct GameInfoView: View {
   private let lastLibrarySync: Date?
   @State private var model: GameDetailsModel
   @State private var selectedTab = GameInfoTab.general
+  @State private var showsEarnedAchievementsOnly = false
 
   init(
     request: GameInfoRequest,
@@ -122,7 +128,7 @@ struct GameInfoView: View {
       Divider()
 
       Picker("Game Information", selection: $selectedTab) {
-        ForEach(GameInfoTab.allCases) { tab in
+        ForEach(visibleTabs) { tab in
           Label(tab.title, systemImage: tab.systemImage)
             .tag(tab)
         }
@@ -140,6 +146,17 @@ struct GameInfoView: View {
     .background(.background)
     .task {
       await model.load()
+    }
+    .onChange(of: model.retroAchievements?.gameID) {
+      if selectedTab == .achievements, model.retroAchievements == nil {
+        selectedTab = .general
+      }
+    }
+  }
+
+  private var visibleTabs: [GameInfoTab] {
+    GameInfoTab.allCases.filter { tab in
+      tab != .achievements || model.retroAchievements != nil
     }
   }
 
@@ -223,6 +240,8 @@ struct GameInfoView: View {
               tint: details.states.isEmpty ? .secondary : .purple
             )
           }
+
+          GameInfoAchievementBadge(presentation: model.retroAchievements)
         }
 
         if let refreshErrorMessage = model.refreshErrorMessage {
@@ -244,6 +263,8 @@ struct GameInfoView: View {
         switch selectedTab {
         case .general:
           generalContent(details)
+        case .achievements:
+          achievementsContent(details)
         case .files:
           filesContent(details)
         case .saveData:
@@ -401,6 +422,30 @@ struct GameInfoView: View {
       }
     }
     .padding(.bottom, 24)
+  }
+
+  @ViewBuilder
+  private func achievementsContent(_ details: GameDetails) -> some View {
+    if let presentation = model.retroAchievements {
+      achievementsList(presentation)
+    } else {
+      ContentUnavailableView(
+        "No RetroAchievements Set",
+        systemImage: "trophy",
+        description: Text(
+          "RomM has not matched \(details.name) to a RetroAchievements set."
+        )
+      )
+    }
+  }
+
+  private func achievementsList(
+    _ presentation: RetroAchievementsPresentation
+  ) -> some View {
+    RetroAchievementsList(
+      presentation: presentation,
+      showsEarnedOnly: $showsEarnedAchievementsOnly
+    )
   }
 
   private func filesContent(_ details: GameDetails) -> some View {
@@ -563,6 +608,15 @@ struct GameInfoView: View {
         ) {
           Label("Open in RomM", systemImage: "arrow.up.right.square")
         }
+
+        if let pageURL = details.retroAchievements?.pageURL {
+          Link(destination: pageURL) {
+            Label(
+              "Open on RetroAchievements",
+              systemImage: "trophy"
+            )
+          }
+        }
       }
     }
     .padding(.bottom, 24)
@@ -645,6 +699,277 @@ struct GameInfoView: View {
 
   private func valueOrUnknown(_ value: String?) -> String {
     nonempty(value) ?? "Unknown"
+  }
+}
+
+private struct GameInfoAchievementBadge: View {
+  let presentation: RetroAchievementsPresentation?
+
+  var body: some View {
+    if let presentation {
+      GameInfoBadge(
+        title: title(for: presentation),
+        systemImage: "trophy.fill",
+        tint: tint(for: presentation)
+      )
+      .help(helpText(for: presentation))
+    }
+  }
+
+  private func title(for presentation: RetroAchievementsPresentation) -> String {
+    presentation.progressLabel ?? presentation.setSizeLabel
+  }
+
+  private func tint(for presentation: RetroAchievementsPresentation) -> Color {
+    presentation.showsPersonalProgress ? .yellow : .secondary
+  }
+
+  private func helpText(for presentation: RetroAchievementsPresentation) -> String {
+    if presentation.showsPersonalProgress {
+      "RetroAchievements unlocked"
+    } else {
+      "RetroAchievements set"
+    }
+  }
+}
+
+private struct RetroAchievementsList: View {
+  let presentation: RetroAchievementsPresentation
+  @Binding var showsEarnedOnly: Bool
+
+  private static let hashWarning =
+    "RomM stored this set, but the ROM hash is not in RetroAchievements’ list."
+
+  private var rows: [RetroAchievementsPresentation.Row] {
+    if showsEarnedOnly, presentation.showsPersonalProgress {
+      presentation.rows.filter(\.isEarned)
+    } else {
+      presentation.rows
+    }
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 22) {
+      summary
+      achievementRows
+    }
+    .padding(.bottom, 24)
+  }
+
+  private var summary: some View {
+    GameInfoSection("RetroAchievements", systemImage: "trophy") {
+      VStack(alignment: .leading, spacing: 8) {
+        Text(headline)
+          .font(.title3.bold())
+        progressDetails
+        status
+        hashNote
+      }
+      actions
+    }
+  }
+
+  private var headline: String {
+    let possibleCount = presentation.possibleCount.formatted()
+    let possiblePoints = presentation.possiblePoints.formatted()
+    if presentation.showsPersonalProgress, let earnedCount = presentation.earnedCount {
+      let earnedPoints = presentation.earnedPoints ?? 0
+      return "\(earnedCount.formatted()) of \(possibleCount) · \(earnedPoints) of \(possiblePoints) points"
+    }
+    return "\(possibleCount) achievements · \(possiblePoints) points"
+  }
+
+  @ViewBuilder
+  private var progressDetails: some View {
+    if presentation.showsPersonalProgress {
+      if let hardcore = presentation.hardcoreEarnedCount, hardcore > 0 {
+        Text("\(hardcore.formatted()) hardcore")
+          .foregroundStyle(.secondary)
+      }
+      if let awardTitle = presentation.awardTitle {
+        Text(awardTitle)
+          .foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var status: some View {
+    if let statusMessage = presentation.statusMessage {
+      Text(statusMessage)
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  @ViewBuilder
+  private var hashNote: some View {
+    if presentation.hashMatched == false {
+      Text(Self.hashWarning)
+        .font(.callout)
+        .foregroundStyle(.orange)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  private var actions: some View {
+    HStack(spacing: 16) {
+      Link(destination: presentation.pageURL) {
+        Label(
+          "Open on RetroAchievements",
+          systemImage: "arrow.up.right.square"
+        )
+      }
+
+      if presentation.showsPersonalProgress {
+        Toggle("Earned Only", isOn: $showsEarnedOnly)
+          .toggleStyle(.checkbox)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var achievementRows: some View {
+    if rows.isEmpty {
+      ContentUnavailableView(
+        "No Earned Achievements",
+        systemImage: "trophy",
+        description: Text(
+          "RomM has not synced an unlock in this set yet."
+        )
+      )
+    } else {
+      LazyVStack(alignment: .leading, spacing: 10) {
+        ForEach(rows) { row in
+          RetroAchievementRow(
+            row: row,
+            showsPersonalProgress: presentation.showsPersonalProgress
+          )
+        }
+      }
+    }
+  }
+}
+
+private struct RetroAchievementRow: View {
+  let row: RetroAchievementsPresentation.Row
+  let showsPersonalProgress: Bool
+
+  var body: some View {
+    HStack(alignment: .top, spacing: 12) {
+      badge
+
+      VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Text(row.title)
+            .font(.body.weight(.semibold))
+            .textSelection(.enabled)
+
+          Spacer(minLength: 8)
+
+          Text(pointsLabel)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+        }
+
+        if !row.summary.isEmpty {
+          Text(row.summary)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+        }
+
+        HStack(spacing: 8) {
+          if let kindTitle = row.kindTitle {
+            Text(kindTitle)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+
+          if showsPersonalProgress {
+            Text(earnedLabel)
+              .font(.caption)
+              .foregroundStyle(earnedTint)
+          }
+        }
+      }
+    }
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(.quaternary.opacity(0.55))
+    .clipShape(.rect(cornerRadius: 12))
+    .overlay(alignment: .leading) {
+      if showsPersonalProgress, row.isEarned {
+        UnevenRoundedRectangle(
+          topLeadingRadius: 12,
+          bottomLeadingRadius: 12,
+          bottomTrailingRadius: 0,
+          topTrailingRadius: 0
+        )
+        .fill(row.isHardcore ? Color.yellow : Color.green)
+        .frame(width: 4)
+      }
+    }
+    .accessibilityElement(children: .combine)
+  }
+
+  private var pointsLabel: String {
+    row.points == 1 ? "1 point" : "\(row.points.formatted()) points"
+  }
+
+  private var earnedTint: Color {
+    if row.isHardcore {
+      return .yellow
+    }
+    if row.isEarned {
+      return .green
+    }
+    return .secondary
+  }
+
+  private var earnedLabel: String {
+    guard row.isEarned else {
+      return "Locked"
+    }
+    let mode = row.isHardcore ? "Hardcore" : "Earned"
+    if let earnedAt = row.earnedAt {
+      return mode + " " + earnedAt.formatted(date: .abbreviated, time: .shortened)
+    }
+    if let earnedAtText = row.earnedAtText, !earnedAtText.isEmpty {
+      return mode + " " + earnedAtText
+    }
+    return mode
+  }
+
+  @ViewBuilder
+  private var badge: some View {
+    if let badgeURL = row.badgeURL {
+      AsyncImage(url: badgeURL) { phase in
+        switch phase {
+        case .success(let image):
+          image
+            .resizable()
+            .scaledToFit()
+        default:
+          badgePlaceholder
+        }
+      }
+      .frame(width: 40, height: 40)
+    } else {
+      badgePlaceholder
+        .frame(width: 40, height: 40)
+    }
+  }
+
+  private var badgePlaceholder: some View {
+    Image(systemName: row.isEarned ? "trophy.fill" : "trophy")
+      .font(.title3)
+      .foregroundStyle(row.isEarned ? Color.yellow : Color.secondary)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
   }
 }
 

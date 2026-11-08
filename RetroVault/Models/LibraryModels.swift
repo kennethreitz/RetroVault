@@ -357,6 +357,15 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
   /// library is loaded so list columns can sort without consulting global
   /// mutable state.
   let lastPlayedAt: Date?
+  /// RetroAchievements game id when RomM has matched this ROM. Nil otherwise.
+  let retroAchievementsID: Int?
+  /// Size of the matched achievement set. Nil when RomM has no set stored.
+  let retroAchievementsCount: Int?
+  /// Unlocks RomM synced for the signed-in user. Nil hides personal progress,
+  /// including when that user has no RetroAchievements username.
+  let retroAchievementsEarnedCount: Int?
+  /// Hardcore unlocks included in `retroAchievementsEarnedCount`.
+  let retroAchievementsHardcoreEarnedCount: Int?
 
   init(
     id: Int,
@@ -380,7 +389,11 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
     createdAt: String? = nil,
     updatedAt: String? = nil,
     serverLastPlayed: String? = nil,
-    lastPlayedAt: Date? = nil
+    lastPlayedAt: Date? = nil,
+    retroAchievementsID: Int? = nil,
+    retroAchievementsCount: Int? = nil,
+    retroAchievementsEarnedCount: Int? = nil,
+    retroAchievementsHardcoreEarnedCount: Int? = nil
   ) {
     self.id = id
     self.name = name
@@ -404,6 +417,40 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
     self.updatedAt = updatedAt
     self.serverLastPlayed = serverLastPlayed
     self.lastPlayedAt = lastPlayedAt
+    self.retroAchievementsID = retroAchievementsID
+    self.retroAchievementsCount = retroAchievementsCount
+    self.retroAchievementsEarnedCount = retroAchievementsEarnedCount
+    self.retroAchievementsHardcoreEarnedCount = retroAchievementsHardcoreEarnedCount
+  }
+
+  /// Fraction such as `12/75` when RomM has both a set and synced unlocks.
+  var retroAchievementsProgressLabel: String? {
+    guard
+      let retroAchievementsCount,
+      retroAchievementsCount > 0,
+      let retroAchievementsEarnedCount
+    else {
+      return nil
+    }
+    return
+      "\(retroAchievementsEarnedCount.formatted())/\(retroAchievementsCount.formatted())"
+  }
+
+  var retroAchievementsColumnValue: String {
+    retroAchievementsProgressLabel ?? "—"
+  }
+
+  /// Sorts matched games with known progress ahead of everything else.
+  var retroAchievementsSortValue: Int {
+    guard
+      let retroAchievementsCount,
+      retroAchievementsCount > 0,
+      let retroAchievementsEarnedCount
+    else {
+      return -1
+    }
+    let percent = retroAchievementsEarnedCount * 100 / retroAchievementsCount
+    return percent * 1_000 + min(retroAchievementsEarnedCount, 999)
   }
 
   func withSaveDataAvailability(
@@ -432,7 +479,11 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
       createdAt: createdAt,
       updatedAt: updatedAt,
       serverLastPlayed: serverLastPlayed,
-      lastPlayedAt: lastPlayedAt
+      lastPlayedAt: lastPlayedAt,
+      retroAchievementsID: retroAchievementsID,
+      retroAchievementsCount: retroAchievementsCount,
+      retroAchievementsEarnedCount: retroAchievementsEarnedCount,
+      retroAchievementsHardcoreEarnedCount: retroAchievementsHardcoreEarnedCount
     )
   }
 
@@ -459,7 +510,88 @@ struct GameSummary: Codable, Identifiable, Hashable, Sendable {
       createdAt: createdAt,
       updatedAt: updatedAt,
       serverLastPlayed: serverLastPlayed,
-      lastPlayedAt: date
+      lastPlayedAt: date,
+      retroAchievementsID: retroAchievementsID,
+      retroAchievementsCount: retroAchievementsCount,
+      retroAchievementsEarnedCount: retroAchievementsEarnedCount,
+      retroAchievementsHardcoreEarnedCount: retroAchievementsHardcoreEarnedCount
+    )
+  }
+
+  /// Copies unlock counts forward when a fresh library row has not been
+  /// annotated yet. A changed RetroAchievements id does not keep the old counts.
+  func preservingRetroAchievementsProgress(
+    from previous: GameSummary
+  ) -> GameSummary {
+    guard
+      retroAchievementsEarnedCount == nil,
+      let retroAchievementsID,
+      previous.retroAchievementsID == retroAchievementsID
+    else {
+      return self
+    }
+    return withRetroAchievementsProgress(
+      earnedCount: previous.retroAchievementsEarnedCount,
+      hardcoreEarnedCount: previous.retroAchievementsHardcoreEarnedCount
+    )
+  }
+
+  /// Applies the signed-in user's synced unlocks. An unlinked username clears
+  /// personal progress so the library hides it.
+  func applyingRetroAchievementsProgress(
+    _ profile: RetroAchievementsProfile
+  ) -> GameSummary {
+    let earnedCount: Int?
+    let hardcoreEarnedCount: Int?
+    if profile.isLinked,
+      let retroAchievementsID,
+      let retroAchievementsCount,
+      retroAchievementsCount > 0
+    {
+      let progress = profile.progress(for: retroAchievementsID)
+      earnedCount = progress?.earnedCount ?? 0
+      hardcoreEarnedCount = progress?.earnedHardcoreCount ?? 0
+    } else {
+      earnedCount = nil
+      hardcoreEarnedCount = nil
+    }
+    return withRetroAchievementsProgress(
+      earnedCount: earnedCount,
+      hardcoreEarnedCount: hardcoreEarnedCount
+    )
+  }
+
+  private func withRetroAchievementsProgress(
+    earnedCount: Int?,
+    hardcoreEarnedCount: Int?
+  ) -> GameSummary {
+    GameSummary(
+      id: id,
+      name: name,
+      systemID: systemID,
+      systemName: systemName,
+      coverURL: coverURL,
+      isBIOS: isBIOS,
+      hasSave: hasSave,
+      hasState: hasState,
+      userStatus: userStatus,
+      completion: completion,
+      rating: rating,
+      difficulty: difficulty,
+      genres: genres,
+      releaseYear: releaseYear,
+      regions: regions,
+      fileSizeBytes: fileSizeBytes,
+      isIdentified: isIdentified,
+      isMissingFromFileSystem: isMissingFromFileSystem,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      serverLastPlayed: serverLastPlayed,
+      lastPlayedAt: lastPlayedAt,
+      retroAchievementsID: retroAchievementsID,
+      retroAchievementsCount: retroAchievementsCount,
+      retroAchievementsEarnedCount: earnedCount,
+      retroAchievementsHardcoreEarnedCount: hardcoreEarnedCount
     )
   }
 }

@@ -213,7 +213,8 @@ final class URLSessionRomMClient: RomMClient, @unchecked Sendable {
       return RomMUser(
         id: user.id,
         username: user.username,
-        scopes: Set(user.oauthScopes)
+        scopes: Set(user.oauthScopes),
+        retroAchievements: user.retroAchievementsProfile
       )
     } catch {
       throw RomMAPIError.decoding(error)
@@ -1053,11 +1054,296 @@ private struct UserDTO: Decodable {
   let id: Int
   let username: String
   let oauthScopes: [String]
+  let retroAchievementsUsername: String?
+  /// A malformed progression must not reject the whole user. Pairing only
+  /// needs the account identity, and RetroAchievements is optional.
+  let retroAchievementsProgression: OptionalJSONValue<RetroAchievementsProgressionDTO>?
 
   enum CodingKeys: String, CodingKey {
     case id
     case username
     case oauthScopes = "oauth_scopes"
+    case retroAchievementsUsername = "ra_username"
+    case retroAchievementsProgression = "ra_progression"
+  }
+
+  var retroAchievementsProfile: RetroAchievementsProfile {
+    let username = Self.nonempty(retroAchievementsUsername)
+    let results = retroAchievementsProgression?.value?.gameResults ?? []
+    var games: [Int: RetroAchievementsGameProgress] = [:]
+    for result in results {
+      guard let gameID = result.retroAchievementsID, gameID > 0 else {
+        continue
+      }
+      games[gameID] = result.gameProgress
+    }
+    return RetroAchievementsProfile(
+      username: username,
+      gamesByRetroAchievementsID: games
+    )
+  }
+
+  private static func nonempty(_ value: String?) -> String? {
+    guard let value else {
+      return nil
+    }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+}
+
+/// Decodes a JSON value when it matches `Value`, and becomes nil otherwise.
+private struct OptionalJSONValue<Value: Decodable>: Decodable {
+  let value: Value?
+
+  init(from decoder: Decoder) throws {
+    value = try? Value(from: decoder)
+  }
+}
+
+private struct RetroAchievementsProgressionDTO: Decodable {
+  let results: [OptionalJSONValue<RetroAchievementsGameProgressDTO>]?
+
+  var gameResults: [RetroAchievementsGameProgressDTO] {
+    results?.compactMap(\.value) ?? []
+  }
+}
+
+private struct RetroAchievementsGameProgressDTO: Decodable {
+  let retroAchievementsID: Int?
+  let maximumPoints: Int?
+  let earnedCount: Int?
+  let earnedHardcoreCount: Int?
+  let mostRecentAwardedAt: String?
+  let highestAwardKind: String?
+  let unlocks: [OptionalJSONValue<RetroAchievementsUnlockDTO>]?
+
+  enum CodingKeys: String, CodingKey {
+    case retroAchievementsID = "rom_ra_id"
+    case maximumPoints = "max_possible"
+    case earnedCount = "num_awarded"
+    case earnedHardcoreCount = "num_awarded_hardcore"
+    case mostRecentAwardedAt = "most_recent_awarded_date"
+    case highestAwardKind = "highest_award_kind"
+    case unlocks = "earned_achievements"
+  }
+
+  var gameProgress: RetroAchievementsGameProgress {
+    let decodedUnlocks = unlocks?.compactMap(\.value).map(\.unlock) ?? []
+    return RetroAchievementsGameProgress(
+      earnedCount: earnedCount ?? decodedUnlocks.count,
+      earnedHardcoreCount: earnedHardcoreCount
+        ?? decodedUnlocks.filter { $0.hardcoreEarnedAt != nil }.count,
+      maximumPoints: maximumPoints,
+      highestAwardKind: nonempty(highestAwardKind),
+      mostRecentAwardedAt: nonempty(mostRecentAwardedAt),
+      unlocks: decodedUnlocks
+    )
+  }
+
+  private func nonempty(_ value: String?) -> String? {
+    guard let value else {
+      return nil
+    }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+}
+
+private struct RetroAchievementsUnlockDTO: Decodable {
+  let badgeName: String
+  let achievementID: Int?
+  let earnedAt: String
+  let hardcoreEarnedAt: String?
+
+  enum CodingKeys: String, CodingKey {
+    case badgeName = "id"
+    case achievementID = "ra_id"
+    case earnedAt = "date"
+    case hardcoreEarnedAt = "date_hardcore"
+  }
+
+  var unlock: RetroAchievementsUnlock {
+    RetroAchievementsUnlock(
+      badgeName: badgeName,
+      achievementID: achievementID.flatMap { $0 > 0 ? $0 : nil },
+      earnedAt: earnedAt,
+      hardcoreEarnedAt: hardcoreEarnedAt
+    )
+  }
+}
+
+/// Counts achievements in a library row without retaining the set text.
+private struct RetroAchievementsSetSizeDTO: Decodable {
+  let achievementCount: Int?
+
+  enum CodingKeys: String, CodingKey {
+    case achievements
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    guard
+      container.contains(.achievements),
+      try !container.decodeNil(forKey: .achievements)
+    else {
+      achievementCount = nil
+      return
+    }
+
+    if var achievements = try? container.nestedUnkeyedContainer(forKey: .achievements) {
+      var count = 0
+      while !achievements.isAtEnd {
+        _ = try achievements.decode(DiscardedJSON.self)
+        count += 1
+      }
+      achievementCount = count
+      return
+    }
+
+    if let achievements = try? container.nestedContainer(
+      keyedBy: DiscardedCodingKey.self,
+      forKey: .achievements
+    ) {
+      achievementCount = achievements.allKeys.count
+      return
+    }
+
+    achievementCount = nil
+  }
+}
+
+private struct RetroAchievementsMetadataDTO: Decodable {
+  let hashMatched: Bool?
+  /// A non-array payload is ignored so one unexpected field cannot reject the ROM.
+  let achievements: OptionalJSONValue<[OptionalJSONValue<RetroAchievementDTO>]>?
+
+  enum CodingKeys: String, CodingKey {
+    case hashMatched = "hash_match"
+    case achievements
+  }
+
+  func catalog(gameID: Int?) -> RetroAchievementsCatalog? {
+    guard let gameID, gameID > 0 else {
+      return nil
+    }
+    var syntheticID = -1
+    let decoded = (achievements?.value?.compactMap(\.value) ?? []).map { dto in
+      let achievement = dto.achievement(syntheticID: syntheticID)
+      if achievement.id < 0 {
+        syntheticID -= 1
+      }
+      return achievement
+    }
+    guard !decoded.isEmpty else {
+      return nil
+    }
+    return RetroAchievementsCatalog(
+      gameID: gameID,
+      hashMatched: hashMatched,
+      achievements: decoded
+    )
+  }
+}
+
+private struct RetroAchievementDTO: Decodable {
+  let id: Int?
+  let title: String?
+  let summary: String?
+  let points: Int?
+  let badgeName: String?
+  let lockedBadgeURL: String?
+  let unlockedBadgeURL: String?
+  let displayOrder: Int?
+  let kind: String?
+
+  enum CodingKeys: String, CodingKey {
+    case id = "ra_id"
+    case title
+    case summary = "description"
+    case points
+    case badgeName = "badge_id"
+    case lockedBadgeURL = "badge_url_lock"
+    case unlockedBadgeURL = "badge_url"
+    case displayOrder = "display_order"
+    case kind = "type"
+  }
+
+  func achievement(syntheticID: Int) -> RetroAchievement {
+    RetroAchievement(
+      id: id.flatMap { $0 > 0 ? $0 : nil } ?? syntheticID,
+      title: nonempty(title) ?? "Achievement",
+      summary: nonempty(summary) ?? "",
+      points: points ?? 0,
+      badgeName: nonempty(badgeName),
+      lockedBadgeURL: absoluteURL(lockedBadgeURL),
+      unlockedBadgeURL: absoluteURL(unlockedBadgeURL),
+      displayOrder: displayOrder ?? 0,
+      kind: nonempty(kind)
+    )
+  }
+
+  private func nonempty(_ value: String?) -> String? {
+    guard let value else {
+      return nil
+    }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  private func absoluteURL(_ value: String?) -> URL? {
+    guard let value = nonempty(value), let url = URL(string: value), url.scheme != nil else {
+      return nil
+    }
+    return url
+  }
+}
+
+private struct DiscardedJSON: Decodable {
+  init(from decoder: Decoder) throws {
+    if var array = try? decoder.unkeyedContainer() {
+      while !array.isAtEnd {
+        _ = try array.decode(DiscardedJSON.self)
+      }
+      return
+    }
+    if let keyed = try? decoder.container(keyedBy: DiscardedCodingKey.self) {
+      for key in keyed.allKeys {
+        _ = try keyed.decode(DiscardedJSON.self, forKey: key)
+      }
+      return
+    }
+    let single = try decoder.singleValueContainer()
+    if single.decodeNil() {
+      return
+    }
+    if (try? single.decode(Bool.self)) != nil {
+      return
+    }
+    if (try? single.decode(Double.self)) != nil {
+      return
+    }
+    if (try? single.decode(String.self)) != nil {
+      return
+    }
+    throw DecodingError.dataCorruptedError(
+      in: single,
+      debugDescription: "Unsupported JSON value"
+    )
+  }
+}
+
+private struct DiscardedCodingKey: CodingKey {
+  var stringValue: String
+  var intValue: Int?
+
+  init?(stringValue: String) {
+    self.stringValue = stringValue
+  }
+
+  init?(intValue: Int) {
+    self.intValue = intValue
+    self.stringValue = "\(intValue)"
   }
 }
 
@@ -1143,6 +1429,8 @@ private struct GameDTO: Decodable {
   let isMissingFromFileSystem: Bool?
   let createdAt: String?
   let updatedAt: String?
+  let retroAchievementsID: Int?
+  let mergedRetroAchievements: RetroAchievementsSetSizeDTO?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -1161,6 +1449,8 @@ private struct GameDTO: Decodable {
     case isMissingFromFileSystem = "missing_from_fs"
     case createdAt = "created_at"
     case updatedAt = "updated_at"
+    case retroAchievementsID = "ra_id"
+    case mergedRetroAchievements = "merged_ra_metadata"
   }
 
   func gameSummary(serverURL: ServerURL) -> GameSummary {
@@ -1189,7 +1479,9 @@ private struct GameDTO: Decodable {
       isMissingFromFileSystem: isMissingFromFileSystem,
       createdAt: createdAt,
       updatedAt: updatedAt,
-      serverLastPlayed: userMetadata?.lastPlayed
+      serverLastPlayed: userMetadata?.lastPlayed,
+      retroAchievementsID: retroAchievementsID.flatMap { $0 > 0 ? $0 : nil },
+      retroAchievementsCount: mergedRetroAchievements?.achievementCount
     )
   }
 
@@ -1270,6 +1562,7 @@ private struct GameDetailsDTO: Decodable {
   let howLongToBeatID: Int?
   let gameListID: String?
   let libretroID: String?
+  let mergedRetroAchievements: RetroAchievementsMetadataDTO?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -1326,6 +1619,7 @@ private struct GameDetailsDTO: Decodable {
     case howLongToBeatID = "hltb_id"
     case gameListID = "gamelist_id"
     case libretroID = "libretro_id"
+    case mergedRetroAchievements = "merged_ra_metadata"
   }
 
   func gameDetails(serverURL: ServerURL) -> GameDetails {
@@ -1407,7 +1701,10 @@ private struct GameDetailsDTO: Decodable {
         collections: userCollections?.count ?? 0,
         notes: userNotes?.count ?? 0
       ),
-      providerIdentifiers: providerIdentifiers
+      providerIdentifiers: providerIdentifiers,
+      retroAchievements: mergedRetroAchievements?.catalog(
+        gameID: retroAchievementsID
+      )
     )
   }
 
