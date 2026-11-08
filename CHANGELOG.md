@@ -5,7 +5,7 @@ for additional releases on the same day. This changelog records notable
 user-facing and architectural changes and is intentionally curated rather than
 being a list of every commit.
 
-## Unreleased
+## 2026.11.7 (2026-11-07)
 
 ### Added
 
@@ -21,6 +21,9 @@ being a list of every commit.
   through rcheevos. An in-game toast shows the badge, title, description, and
   points, with a short chime. Hardcore mode is off until enabled and, while
   on, disables save states, rewind, and fast-forward.
+- Big Picture Settings includes RetroAchievements, showing the signed-in
+  account and status, the shared Hardcore toggle, and sign out from the
+  controller. Sign-in itself stays in the main Settings window.
 
 ## 2026.8.17.1 (2026-08-17)
 
