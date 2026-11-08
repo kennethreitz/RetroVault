@@ -229,6 +229,10 @@ struct BigPictureView: View {
   @AppStorage(DSUPreferences.layoutKey)
   private var dsuLayout = DSUPreferences.defaultLayout.rawValue
 
+  @AppStorage(RetroAchievementsHardcore.enabledKey)
+  private var retroAchievementsHardcore = false
+  @State private var achievementsAccount = RetroAchievementsAccount.shared
+
   @State private var catalog = BigPictureCatalog.empty
   @State private var rows: [BigPictureRow] = []
   @State private var isBuildingCatalog = true
@@ -334,6 +338,18 @@ struct BigPictureView: View {
     }
     .task {
       await model.observeReachability()
+    }
+    .task {
+      achievementsAccount.refresh()
+    }
+    .onChange(of: achievementsAccount.signedInUsername) {
+      refreshSettingsRowsPreservingSelection()
+    }
+    .onChange(of: achievementsAccount.statusMessage) {
+      refreshSettingsRowsPreservingSelection()
+    }
+    .onChange(of: retroAchievementsHardcore) {
+      refreshSettingsRowsPreservingSelection()
     }
     .onDisappear {
       playbackTask?.cancel()
@@ -1689,7 +1705,8 @@ struct BigPictureView: View {
 
   private func settingActionLabel(_ setting: BigPictureSetting) -> String {
     switch setting {
-    case .romMServer, .romMUser, .runtime, .dsuEndpoint, .dsuStatus:
+    case .romMServer, .romMUser, .runtime, .dsuEndpoint, .dsuStatus,
+      .retroAchievementsAccount, .retroAchievementsStatus:
       "VIEW"
     case .resynchronizeLibrary:
       "SYNC"
@@ -1697,12 +1714,14 @@ struct BigPictureView: View {
       "PURGE"
     case .openLogs:
       "OPEN"
+    case .retroAchievementsSignOut:
+      "SIGN OUT"
     case .disconnect:
       "DISCONNECT"
     case .videoFilter, .wiiController,
       .mapsLeftAnalogToDPad, .fastForward, .rewind, .gamesFullScreen,
       .gameListBoxArt, .experimentalCores, .dsuEnabled, .dsuLayout,
-      .bigPictureFullScreen:
+      .bigPictureFullScreen, .retroAchievementsHardcore:
       "CHANGE"
     }
   }
@@ -1739,6 +1758,9 @@ struct BigPictureView: View {
         .purgeAndResynchronize,
         title: "Purge Local Cache & Resync"
       ),
+      ]
+      + retroAchievementsSettingsRows
+      + [
       settingRow(
         .runtime,
         title: "Emulation Runtime",
@@ -1799,6 +1821,32 @@ struct BigPictureView: View {
       settingRow(.openLogs, title: "Open Log Viewer"),
       settingRow(.disconnect, title: "Disconnect from RomM"),
       ]
+  }
+
+  // Big Picture has no controller text entry. Account credentials stay in
+  // the main Settings window; these rows use the same account and preference.
+  private var retroAchievementsSettingsRows: [BigPictureRow] {
+    var result = [
+      settingRow(
+        .retroAchievementsAccount,
+        title: "RetroAchievements Account",
+        detail: achievementsAccount.signedInUsername ?? "SIGNED OUT"
+      ),
+      settingRow(
+        .retroAchievementsHardcore,
+        title: "RetroAchievements Hardcore Mode",
+        detail: onOff(retroAchievementsHardcore)
+      ),
+      settingRow(
+        .retroAchievementsStatus,
+        title: "RetroAchievements Status & Help",
+        detail: achievementsAccount.statusMessage ?? "Sign-in applies when a game starts"
+      ),
+    ]
+    if achievementsAccount.signedInUsername != nil {
+      result.append(settingRow(.retroAchievementsSignOut, title: "Sign Out of RetroAchievements"))
+    }
+    return result
   }
 
   private var advancedSettingsRows: [BigPictureRow] {
@@ -2989,6 +3037,31 @@ struct BigPictureView: View {
         message: model.session.username,
         systemImage: "person.crop.circle"
       )
+    case .retroAchievementsAccount:
+      actionNotice = BigPictureActionNotice(
+        title: "RetroAchievements",
+        message: (achievementsAccount.signedInUsername.map { "Signed in as \($0). " } ?? "Signed out. ")
+          + "To sign in, open RetroVault's main Settings window and use the RetroAchievements section. "
+          + "Big Picture does not support controller text entry.",
+        systemImage: "person.crop.circle"
+      )
+    case .retroAchievementsHardcore:
+      retroAchievementsHardcore.toggle()
+      refreshSettingsRowsPreservingSelection()
+    case .retroAchievementsStatus:
+      actionNotice = BigPictureActionNotice(
+        title: "RetroAchievements Status & Help",
+        message: [
+          achievementsAccount.statusMessage,
+          RetroAchievementsSettingsSection.hardcoreExplanation,
+          RetroAchievementsSettingsSection.sessionExplanation,
+        ].compactMap { $0 }.joined(separator: "\n\n"),
+        systemImage: "trophy"
+      )
+    case .retroAchievementsSignOut:
+      guard !achievementsAccount.isWorking else { return }
+      achievementsAccount.signOut()
+      refreshSettingsRowsPreservingSelection()
     case .runtime:
       actionNotice = BigPictureActionNotice(
         title: "Emulation Runtime",
@@ -3919,6 +3992,10 @@ enum BigPictureIgnoredSystems {
 }
 
 private enum BigPictureSetting: Hashable, Sendable {
+  case retroAchievementsAccount
+  case retroAchievementsHardcore
+  case retroAchievementsStatus
+  case retroAchievementsSignOut
   case romMServer
   case romMUser
   case resynchronizeLibrary
