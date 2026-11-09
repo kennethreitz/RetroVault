@@ -5,7 +5,7 @@ for additional releases on the same day. This changelog records notable
 user-facing and architectural changes and is intentionally curated rather than
 being a list of every commit.
 
-## Unreleased
+## 2026.11.9 (2026-11-09)
 
 ### Changed
 
