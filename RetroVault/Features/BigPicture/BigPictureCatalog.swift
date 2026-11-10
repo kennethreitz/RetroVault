@@ -121,6 +121,7 @@ struct BigPictureCatalog: Sendable {
             includingExperimental: includingExperimental
           )
           || CemuInstallation.supports(systemName: $0.name)
+          || SwitchInstallation.supports(systemName: $0.name)
         )
     }
     let supportedSystemIDs = Set(supportedSystems.map(\.id))

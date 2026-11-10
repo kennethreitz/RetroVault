@@ -261,6 +261,7 @@ struct BigPictureView: View {
   @State private var activePlayerRequest: LibretroRunRequest?
   @State private var activeVita3KRequest: Vita3KRunRequest?
   @State private var activeCemuRequest: CemuRunRequest?
+  @State private var activeSwitchRequest: SwitchRunRequest?
   @State private var optionsGame: GameSummary?
   @State private var optionsSystem: LibrarySystem?
   @State private var selectedGameOptionIndex = 0
@@ -295,6 +296,15 @@ struct BigPictureView: View {
         )
         .id(activeCemuRequest)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else if let activeSwitchRequest {
+        SwitchGameView(
+          request: activeSwitchRequest,
+          service: model.service,
+          launchPresentation: switchLaunchPresentation,
+          onCloseRequested: returnToBigPicture
+        )
+        .id(activeSwitchRequest)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if let activePlayerRequest {
         LibretroGameView(
           request: activePlayerRequest,
@@ -316,7 +326,7 @@ struct BigPictureView: View {
       BigPictureWindowProbe(
         isPlaybackActive:
           activePlayerRequest != nil || activeVita3KRequest != nil
-            || activeCemuRequest != nil,
+            || activeCemuRequest != nil || activeSwitchRequest != nil,
         opensInFullScreen: opensInFullScreen,
         onBackspaceRequested: handleEscape
       ) { window in
@@ -1601,7 +1611,8 @@ struct BigPictureView: View {
     guard
       activePlayerRequest == nil,
       activeVita3KRequest == nil,
-      activeCemuRequest == nil
+      activeCemuRequest == nil,
+      activeSwitchRequest == nil
     else {
       return nil
     }
@@ -3663,6 +3674,38 @@ struct BigPictureView: View {
         return
       }
 
+      if SwitchInstallation.supports(systemName: details.systemName) {
+        guard
+          let request = await detailsModel.prepareForSwitch(
+            details,
+            synchronizesWithServer: model.isServerReachable
+          )
+        else {
+          guard !Task.isCancelled else {
+            finishPlaybackPreparation()
+            return
+          }
+          playbackErrorMessage =
+            detailsModel.playbackErrorMessage
+            ?? "RetroVault could not prepare this Switch game for Ryujinx."
+          finishPlaybackPreparation(keepingError: true)
+          return
+        }
+
+        model.recordManagedDownload(gameID: game.id)
+        await model.reloadDownloadedGames(reconcilingDuringDownloads: true)
+        await model.recordPlay(gameID: game.id)
+        activeSwitchRequest = request
+        finishPlaybackPreparation()
+        return
+      }
+
+      if SwitchInstallation.isSwitchSystemName(details.systemName) {
+        playbackErrorMessage = SwitchError.unavailable.localizedDescription
+        finishPlaybackPreparation(keepingError: true)
+        return
+      }
+
       guard
         let request = await detailsModel.prepareToPlay(
           details,
@@ -3700,13 +3743,14 @@ struct BigPictureView: View {
 
   private func returnToBigPicture() {
     guard activePlayerRequest != nil || activeVita3KRequest != nil
-      || activeCemuRequest != nil
+      || activeCemuRequest != nil || activeSwitchRequest != nil
     else {
       return
     }
     activePlayerRequest = nil
     activeVita3KRequest = nil
     activeCemuRequest = nil
+    activeSwitchRequest = nil
     controllerNavigation.synchronize(with: .current)
 
     Task { @MainActor in
@@ -3770,6 +3814,7 @@ struct BigPictureView: View {
         activePlayerRequest == nil,
         activeVita3KRequest == nil,
         activeCemuRequest == nil,
+        activeSwitchRequest == nil,
         NSApplication.shared.keyWindow === bigPictureWindow
       else {
         controllerNavigation.synchronize(with: currentState)
@@ -3796,6 +3841,13 @@ struct BigPictureView: View {
   }
 
   private var cemuLaunchPresentation: CemuLaunchPresentation {
+    .matching(
+      hostWindowIsFullScreen:
+        bigPictureWindow?.styleMask.contains(.fullScreen) == true
+    )
+  }
+
+  private var switchLaunchPresentation: SwitchLaunchPresentation {
     .matching(
       hostWindowIsFullScreen:
         bigPictureWindow?.styleMask.contains(.fullScreen) == true
