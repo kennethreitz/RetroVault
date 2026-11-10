@@ -14,5 +14,12 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<key>com.apple.security.temporary-exception.sbpl</key>
+	<array>
+		<string>(allow ipc-posix-shm)</string>
+		<string>(allow ipc-posix-shm-read-data)</string>
+		<string>(allow ipc-posix-shm-write-data)</string>
+		<string>(allow ipc-posix-shm-read-metadata)</string>
+	</array>
 </dict>
 </plist>

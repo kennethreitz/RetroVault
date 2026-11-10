@@ -12,6 +12,10 @@
 		A32000000000000000000001 /* CemuInstallation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B32000000000000000000001 /* CemuInstallation.swift */; };
 		A32000000000000000000002 /* CemuGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B32000000000000000000002 /* CemuGameView.swift */; };
 		A32000000000000000000003 /* CemuDSURelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B32000000000000000000003 /* CemuDSURelay.swift */; };
+		A33000000000000000000001 /* SwitchInstallation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B33000000000000000000001 /* SwitchInstallation.swift */; };
+		A33000000000000000000002 /* SwitchGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B33000000000000000000002 /* SwitchGameView.swift */; };
+		A33000000000000000000003 /* SwitchSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B33000000000000000000003 /* SwitchSettingsSection.swift */; };
+		A33000000000000000000004 /* SwitchInstallationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B33000000000000000000004 /* SwitchInstallationTests.swift */; };
 		E10000000000000000000001 /* SaveCenterModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000001 /* SaveCenterModels.swift */; };
 		E10000000000000000000002 /* SaveCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* SaveCenterTests.swift */; };
 		A80000000000000000000002 /* BigPictureCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000002 /* BigPictureCatalog.swift */; };
@@ -144,6 +148,10 @@
 		B32000000000000000000001 /* CemuInstallation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CemuInstallation.swift; sourceTree = "<group>"; };
 		B32000000000000000000002 /* CemuGameView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CemuGameView.swift; sourceTree = "<group>"; };
 		B32000000000000000000003 /* CemuDSURelay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CemuDSURelay.swift; sourceTree = "<group>"; };
+		B33000000000000000000001 /* SwitchInstallation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SwitchInstallation.swift; sourceTree = "<group>"; };
+		B33000000000000000000002 /* SwitchGameView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SwitchGameView.swift; sourceTree = "<group>"; };
+		B33000000000000000000003 /* SwitchSettingsSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SwitchSettingsSection.swift; sourceTree = "<group>"; };
+		B33000000000000000000004 /* SwitchInstallationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SwitchInstallationTests.swift; sourceTree = "<group>"; };
 		F10000000000000000000001 /* SaveCenterModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SaveCenterModels.swift; sourceTree = "<group>"; };
 		F10000000000000000000002 /* SaveCenterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SaveCenterTests.swift; sourceTree = "<group>"; };
 		B80000000000000000000002 /* BigPictureCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BigPictureCatalog.swift; sourceTree = "<group>"; };
@@ -322,6 +330,7 @@
 			children = (
 				B50000000000000000000002 /* LogViewerView.swift */,
 				E0788DB2C927FAD920200B5D /* SettingsView.swift */,
+				B33000000000000000000003 /* SwitchSettingsSection.swift */,
 			);
 			name = Settings;
 			path = Settings;
@@ -412,6 +421,7 @@
 				C30000000000000000000002 /* Libretro */,
 				C31000000000000000000001 /* Vita3K */,
 				C32000000000000000000001 /* Cemu */,
+				C33000000000000000000001 /* Switch */,
 				RC300000000000000000000000000002 /* RetroAchievements */,
 			);
 			name = Runners;
@@ -452,6 +462,16 @@
 			);
 			name = Cemu;
 			path = Cemu;
+			sourceTree = "<group>";
+		};
+		C33000000000000000000001 /* Switch */ = {
+			isa = PBXGroup;
+			children = (
+				B33000000000000000000002 /* SwitchGameView.swift */,
+				B33000000000000000000001 /* SwitchInstallation.swift */,
+			);
+			name = Switch;
+			path = Switch;
 			sourceTree = "<group>";
 		};
 		C50000000000000000000001 /* Shared */ = {
@@ -550,6 +570,7 @@
 				D00000000000000000000007 /* ServerReachabilityTests.swift */,
 				A21459D026178CE9B0974A8E /* ServerURLTests.swift */,
 				RC000000000000000000000000000053 /* RetroAchievementsPlayTests.swift */,
+				B33000000000000000000004 /* SwitchInstallationTests.swift */,
 			);
 			name = RetroVaultTests;
 			path = RetroVaultTests;
@@ -673,6 +694,7 @@
 				C0A100000000000000000001 /* Embed Libretro Cores */,
 				C0A200000000000000000001 /* Embed Vita3K Engine */,
 				C0A300000000000000000001 /* Embed Cemu Companion */,
+				C0A400000000000000000001 /* Embed Ryujinx Companion */,
 			);
 			buildRules = (
 			);
@@ -772,6 +794,28 @@
 			shellPath = /bin/sh;
 			shellScript = "\"$SRCROOT/Scripts/embed-cemu-companion.sh\"\n";
 		};
+		C0A400000000000000000001 /* Embed Ryujinx Companion */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Scripts/embed-ryujinx-companion.sh",
+			);
+			name = "Embed Ryujinx Companion";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/Ryujinx.app",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Ryujinx",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/Scripts/embed-ryujinx-companion.sh\"\n";
+		};
 		C0A200000000000000000001 /* Embed Vita3K Engine */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -828,6 +872,9 @@
 				A32000000000000000000001 /* CemuInstallation.swift in Sources */,
 				A32000000000000000000002 /* CemuGameView.swift in Sources */,
 				A32000000000000000000003 /* CemuDSURelay.swift in Sources */,
+				A33000000000000000000001 /* SwitchInstallation.swift in Sources */,
+				A33000000000000000000002 /* SwitchGameView.swift in Sources */,
+				A33000000000000000000003 /* SwitchSettingsSection.swift in Sources */,
 				A80000000000000000000002 /* BigPictureCatalog.swift in Sources */,
 				A80000000000000000000003 /* BigPictureCRTShader.metal in Sources */,
 				A80000000000000000000001 /* BigPictureView.swift in Sources */,
@@ -946,6 +993,7 @@
 				099606899B62ABB6D739ACF9 /* ServerConnectionServiceTests.swift in Sources */,
 				FFAD3767D2311D56DA00F120 /* ServerURLTests.swift in Sources */,
 				RC000000000000000000000000000054 /* RetroAchievementsPlayTests.swift in Sources */,
+				A33000000000000000000004 /* SwitchInstallationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
