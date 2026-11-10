@@ -2326,7 +2326,7 @@ actor RomMLibraryService: LibraryServing {
       }
 
       let saveRAMURL = gameDirectory.appending(path: "SaveRAM.srm")
-      let directoryBundleURLs = ["Cemu", "PPSSPP", "Vita3K"].map {
+      let directoryBundleURLs = ["Cemu", "PPSSPP", "Vita3K", "Ryujinx"].map {
         gameDirectory.appending(path: $0, directoryHint: .isDirectory)
       }
       let storage: CartridgeSaveSyncConfiguration.Storage
@@ -2358,6 +2358,7 @@ actor RomMLibraryService: LibraryServing {
       switch localSaveURL.lastPathComponent {
       case "Cemu": emulator = "Cemu"
       case "Vita3K": emulator = "Vita3K"
+      case "Ryujinx": emulator = "Ryujinx"
       default: emulator = "RetroVault"
       }
       let metadata = loadSaveSyncMetadata(for: localSaveURL)
@@ -2712,6 +2713,8 @@ actor RomMLibraryService: LibraryServing {
         ".cemu.zip"
       } else if coreID.lowercased().contains("vita3k") {
         ".vita3k.zip"
+      } else if coreID.lowercased().contains("ryujinx") {
+        ".ryujinx.zip"
       } else {
         ".ppsspp.zip"
       }
@@ -2728,7 +2731,7 @@ actor RomMLibraryService: LibraryServing {
   ) -> CartridgeSaveSyncConfiguration.Storage {
     let normalized = coreID.lowercased()
     return normalized.contains("ppsspp") || normalized.contains("cemu")
-      || normalized.contains("vita3k")
+      || normalized.contains("vita3k") || normalized.contains("ryujinx")
       ? .directoryBundle
       : .saveRAM
   }
@@ -2740,6 +2743,9 @@ actor RomMLibraryService: LibraryServing {
     }
     if normalized.contains("vita3k") {
       return "Vita3K"
+    }
+    if normalized.contains("ryujinx") {
+      return "Ryujinx"
     }
     return "PPSSPP"
   }

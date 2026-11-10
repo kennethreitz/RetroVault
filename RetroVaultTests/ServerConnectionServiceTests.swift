@@ -367,7 +367,7 @@ struct LibraryTests {
     }
 
     @MainActor
-    @Test("Routes hosted Vita and Cemu saves without Libretro cores")
+    @Test("Routes hosted Vita, Cemu, and Switch saves without Libretro cores")
     func synchronizesHostedEmulatorSaves() async throws {
         let session = ServerSession(
             serverURL: try ServerURL("https://romm.example.com"),
@@ -387,8 +387,15 @@ struct LibraryTests {
             systemName: CemuInstallation.systemName,
             coverURL: nil
         )
+        let switchGame = GameSummary(
+            id: 3,
+            name: "Metroid Dread",
+            systemID: 30,
+            systemName: SwitchInstallation.systemName,
+            coverURL: nil
+        )
         let service = MockLibraryService(
-            allGames: [vita, cemu],
+            allGames: [vita, cemu, switchGame],
             gameDetailsByID: [
                 vita.id: mockGameDetails(
                     id: vita.id,
@@ -400,6 +407,11 @@ struct LibraryTests {
                     fileName: "The Wind Waker HD.wua",
                     systemName: cemu.systemName
                 ),
+                switchGame.id: mockGameDetails(
+                    id: switchGame.id,
+                    fileName: "Metroid Dread [010093801E5A2000][v0].nsp",
+                    systemName: switchGame.systemName
+                ),
             ]
         )
         let model = LibraryModel(session: session, service: service)
@@ -407,6 +419,7 @@ struct LibraryTests {
 
         #expect(await model.synchronizeSave(gameID: vita.id) == .unchanged)
         #expect(await model.synchronizeSave(gameID: cemu.id) == .unchanged)
+        #expect(await model.synchronizeSave(gameID: switchGame.id) == .unchanged)
         #expect(
             await service.recordedSavePreparations()
                 == [
@@ -419,6 +432,11 @@ struct LibraryTests {
                         gameID: cemu.id,
                         emulator: "Cemu",
                         coreID: "cemu"
+                    ),
+                    MockSavePreparation(
+                        gameID: switchGame.id,
+                        emulator: "Ryujinx",
+                        coreID: "ryujinx"
                     ),
                 ]
         )

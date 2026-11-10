@@ -463,6 +463,9 @@ final class LibraryModel {
     {
       return (emulator: "Cemu", coreID: "cemu")
     }
+    if SwitchInstallation.isSwitchSystemName(game.systemName) {
+      return (emulator: "Ryujinx", coreID: "ryujinx")
+    }
 
     guard
       let installation = try? LibretroInstallation.bundled(),
