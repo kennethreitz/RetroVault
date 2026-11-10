@@ -2845,6 +2845,8 @@ func mockGameDetails(
         name: "Game \(id)",
         systemID: 1,
         systemName: systemName,
+        titleID: nil,
+        saveTarget: nil,
         summary: "Test game",
         coverURL: nil,
         screenshotURLs: [],

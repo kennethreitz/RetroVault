@@ -6,6 +6,10 @@ struct GameDetails: Codable, Identifiable, Hashable, Sendable {
   let name: String
   let systemID: Int
   let systemName: String
+  /// RomM's binary identity for Switch files. `saveTarget` is the base title
+  /// ID, which is also the save-data folder name.
+  let titleID: String?
+  let saveTarget: String?
   let summary: String?
   let coverURL: URL?
   let screenshotURLs: [URL]
@@ -94,6 +98,8 @@ struct GameDetails: Codable, Identifiable, Hashable, Sendable {
       name: game.name,
       systemID: game.systemID,
       systemName: game.systemName,
+      titleID: nil,
+      saveTarget: nil,
       summary: nil,
       coverURL: game.coverURL,
       screenshotURLs: [],
