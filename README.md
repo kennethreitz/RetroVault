@@ -25,8 +25,8 @@ library. RomM is developed by the
 
 RomM remains the source of truth. RetroVault adds native macOS presentation,
 Metal video, controller navigation, managed firmware, save synchronization,
-and emulation through bundled Libretro cores plus hosted Cemu and Vita3K
-engines.
+and emulation through bundled Libretro cores plus hosted Cemu, Vita3K, and
+Ryubing engines.
 
 ![RetroVault Big Picture library](.github/assets/retrovault-big-picture.png)
 
@@ -71,9 +71,9 @@ also publishes a SHA-256 checksum.
 ## Emulation
 
 RetroVault bundles Apple-silicon Libretro cores and manages their video, audio,
-input, firmware, and save paths. Cemu and Vita3K are hosted standalone engines:
-RetroVault prepares their private installations and integrates them with the
-same library, controller, and save workflows.
+input, firmware, and save paths. Cemu, Vita3K, and Ryubing are hosted standalone
+engines. RetroVault prepares their private installations and integrates them
+with the same library, controller, and save workflows.
 
 | Systems | Engine | Integration |
 | --- | --- | --- |
@@ -85,6 +85,7 @@ same library, controller, and save workflows.
 | Nintendo DS | melonDS | Libretro |
 | GameCube, Wii | Dolphin | Libretro |
 | Wii U | Cemu | Hosted, experimental; Metal or Vulkan |
+| Nintendo Switch | Ryubing (Ryujinx) | Hosted, experimental; Vulkan via MoltenVK |
 | Master System, Game Gear, SG-1000 | Gearsystem | Libretro |
 | Genesis / Mega Drive, Sega CD / Mega CD | Genesis Plus GX | Libretro |
 | Sega 32X | PicoDrive | Libretro |
@@ -107,6 +108,12 @@ same library, controller, and save workflows.
 Exact core revisions, licenses, hashes, and build requirements are recorded in
 [`Libretro/CoreManifest.json`](Libretro/CoreManifest.json). RetroVault does not
 bundle games, firmware, BIOS files, or cryptographic keys.
+
+Switch support uses an optional external Ryubing install. See
+[`docs/switch-setup.md`](docs/switch-setup.md) for setup.
+
+Do not re-sign the embedded `Ryujinx.app`; its original ad-hoc signature must
+stay intact. The build copies it untouched and signs only the outer app.
 
 ## RetroAchievements
 
@@ -160,8 +167,12 @@ Command-line builds and tests:
 ```shell
 swift build
 swift test
+Scripts/fetch-ryujinx-companion.sh   # optional; enables Switch
 Scripts/build-app.sh
 ```
+
+The Ryubing build phase embeds `Build/RyujinxCompanion/Ryujinx.app` when it is
+present. Switch support is skipped in builds without it.
 
 Project history is recorded in [`CHANGELOG.md`](CHANGELOG.md), and core build
 details live in [`Libretro/README.md`](Libretro/README.md).
