@@ -532,6 +532,122 @@ final class GameDetailsModel {
         }
     }
 
+    /// Prepares a Switch game for Ryubing and links its per-title save folder
+    /// to RetroVault's managed save bundle.
+    ///
+    /// Ryubing has no save states, so the durable projection is the game's own
+    /// save data, matching RomM's Switch capability record.
+    func prepareForSwitch(
+        _ game: GameDetails,
+        synchronizesWithServer: Bool = true,
+        onProgress: (@MainActor (RomMDownloadProgress?) -> Void)? = nil
+    ) async -> SwitchRunRequest? {
+        guard !isPreparingToPlay else {
+            return nil
+        }
+
+        isPreparingToPlay = true
+        playbackDownloadProgress = nil
+        playbackErrorMessage = nil
+        onProgress?(nil)
+        defer {
+            isPreparingToPlay = false
+            playbackDownloadProgress = nil
+            onProgress?(nil)
+        }
+
+        guard let installation = SwitchInstallation.available else {
+            playbackErrorMessage = SwitchError.unavailable.localizedDescription
+            SwitchInstallation.recordDiagnostic("prepare: engine unavailable")
+            return nil
+        }
+        do {
+            try installation.validateReady()
+        } catch {
+            playbackErrorMessage = error.localizedDescription
+            installation.recordDiagnostic("prepare: validation failed: \(error.localizedDescription)")
+            return nil
+        }
+
+        do {
+            async let contentURL = service.prepareGameForPlay(
+                game,
+                in: session,
+                supportedFileExtensions: SwitchInstallation.supportedFileExtensions,
+                loadsArchivesDirectly: false,
+                allowsRemoteAccess: synchronizesWithServer,
+                onProgress: { [weak self] progress in
+                    Task { @MainActor [weak self] in
+                        guard let self, self.isPreparingToPlay else {
+                            return
+                        }
+                        if progress.bytesReceived
+                            >= (self.playbackDownloadProgress?.bytesReceived ?? 0)
+                        {
+                            self.playbackDownloadProgress = progress
+                            onProgress?(progress)
+                        }
+                    }
+                }
+            )
+            async let saveSync = service.prepareCartridgeSaveForPlay(
+                game,
+                in: session,
+                emulator: "Ryujinx",
+                coreID: "ryujinx",
+                allowsRemoteAccess: synchronizesWithServer
+            )
+            let prepared = try await (contentURL, saveSync)
+            guard let saveSync = prepared.1 else {
+                playbackErrorMessage =
+                    "RetroVault could not prepare Ryujinx's Switch save directory."
+                return nil
+            }
+            // RomM details can be unavailable offline and the cached summary has
+            // no file name. The downloaded content still carries the [TITLEID]
+            // token, so resolve from the real file as the final fallback.
+            let contentFileName = prepared.0.lastPathComponent
+            let metadataFileName =
+                game.fileName.isEmpty ? contentFileName : game.fileName
+            guard
+                let titleID = SwitchInstallation.titleID(
+                    saveTarget: game.saveTarget,
+                    titleID: game.titleID,
+                    fileName: metadataFileName
+                ) ?? SwitchInstallation.titleID(
+                    saveTarget: nil,
+                    titleID: nil,
+                    fileName: contentFileName
+                )
+            else {
+                playbackErrorMessage =
+                    SwitchError.invalidTitleID.localizedDescription
+                installation.recordDiagnostic(
+                    "prepare: no title id after download; file=\(contentFileName) metadata=\(metadataFileName)"
+                )
+                return nil
+            }
+            installation.recordDiagnostic(
+                "prepare: titleID=\(titleID) file=\(contentFileName)"
+            )
+            isDownloaded = true
+            isLocallyAvailable = true
+            return SwitchRunRequest(
+                gameID: game.id,
+                title: game.name,
+                contentURL: prepared.0,
+                saveSync: saveSync,
+                titleID: titleID
+            )
+        } catch is CancellationError {
+            return nil
+        } catch {
+            playbackErrorMessage = error.localizedDescription
+            installation.recordDiagnostic("prepare: failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     func dismissPlaybackError() {
         playbackErrorMessage = nil
     }
