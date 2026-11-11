@@ -22,6 +22,8 @@ git -C "$source_directory" submodule update --init --recursive --depth 1
 
 git -C "$source_directory" apply --unidiff-zero \
   "$repository_root/Vita3K/Patches/retrovault-embedded.patch"
+git -C "$source_directory" apply \
+  "$repository_root/Vita3K/Patches/moltenvk-1.4.2.patch"
 
 mkdir -p "$source_directory/vita3k/retrovault"
 cp "$repository_root/Vita3K/Bridge/bridge.cpp" \
@@ -41,7 +43,8 @@ cmake --build "$build_directory" \
 mkdir -p "$artifact_directory/PlugIns" "$artifact_directory/Resources"
 cp "$build_directory/lib/libRetroVaultVita3K.dylib" \
   "$artifact_directory/PlugIns/RetroVaultVita3K.dylib"
-cp "$build_directory/external/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib" \
+"$repository_root/Scripts/fetch-moltenvk.sh"
+cp "$repository_root/Build/MoltenVK/libMoltenVK.dylib" \
   "$artifact_directory/PlugIns/libMoltenVK.dylib"
 ditto "$source_directory/data" "$artifact_directory/Resources/data"
 ditto "$source_directory/vita3k/shaders-builtin" \
