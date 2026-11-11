@@ -2837,8 +2837,21 @@ private final class LibretroCore {
 
 private final class LibretroAudioOutput: @unchecked Sendable {
     private let engine = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
+    private var sourceNode: AVAudioSourceNode?
     private var format: AVAudioFormat?
+    private var sampleRate: Double = 48_000
+
+    /// Interleaved stereo samples between the emulation thread and the audio
+    /// render thread. A small constant cushion keeps the audio clock ahead of
+    /// frame jitter without the player-node scheduling gaps.
+    private let lock = NSLock()
+    private var ring: [Float] = []
+    private var readIndex = 0
+    private var writeIndex = 0
+    private var available = 0
+    private var ringCapacity = 0
+    private static let cushionSeconds = 0.04
+
     private var individualSamples: [Int16] = []
     private var isUserMuted = false
     private var suppressesTransportAudio = false
@@ -2851,21 +2864,36 @@ private final class LibretroAudioOutput: @unchecked Sendable {
         guard sampleRate > 0 else {
             return
         }
-
-        let format = AVAudioFormat(
-            standardFormatWithSampleRate: sampleRate,
-            channels: 2
-        )
-        guard let format else {
+        guard
+            let format = AVAudioFormat(
+                standardFormatWithSampleRate: sampleRate,
+                channels: 2
+            )
+        else {
             throw LibretroRuntimeError.invalidSystemInformation
         }
 
         self.format = format
-        engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: format)
+        self.sampleRate = sampleRate
+        ringCapacity = max(Int(sampleRate) * 4, 4_096)
+        ring = Array(repeating: 0, count: ringCapacity)
+        resetRing(prefill: true)
+
+        let source = AVAudioSourceNode(format: format) {
+            [weak self] _, _, frameCount, audioBufferList in
+            guard let self else {
+                return noErr
+            }
+            return self.render(
+                frameCount: frameCount,
+                audioBufferList: audioBufferList
+            )
+        }
+        sourceNode = source
+        engine.attach(source)
+        engine.connect(source, to: engine.mainMixerNode, format: format)
         engine.prepare()
         try engine.start()
-        player.play()
     }
 
     func append(left: Int16, right: Int16) {
@@ -2876,17 +2904,20 @@ private final class LibretroAudioOutput: @unchecked Sendable {
         individualSamples.append(right)
         if individualSamples.count >= 1_024 {
             individualSamples.withUnsafeBufferPointer {
-                schedule(samples: $0.baseAddress, frames: $0.count / 2)
+                write(
+                    samples: $0.baseAddress,
+                    frames: $0.count / 2
+                )
             }
             individualSamples.removeAll(keepingCapacity: true)
         }
     }
 
     func append(samples: UnsafePointer<Int16>?, frames: Int) {
-        guard !suppressesAudio else {
+        guard !suppressesAudio, let samples, frames > 0 else {
             return
         }
-        schedule(samples: samples, frames: frames)
+        write(samples: samples, frames: frames)
     }
 
     func setTransportAudioSuppressed(_ shouldSuppressAudio: Bool) {
@@ -2907,50 +2938,106 @@ private final class LibretroAudioOutput: @unchecked Sendable {
 
     func discardPendingSamples() {
         individualSamples.removeAll(keepingCapacity: true)
+        resetRing(prefill: false)
     }
 
     func flush() {
         individualSamples.removeAll(keepingCapacity: true)
-        player.stop()
-        if engine.isRunning {
-            player.play()
-        }
+        resetRing(prefill: true)
     }
 
     func stop() {
-        if !individualSamples.isEmpty {
-            individualSamples.withUnsafeBufferPointer {
-                schedule(samples: $0.baseAddress, frames: $0.count / 2)
-            }
-            individualSamples.removeAll()
-        }
+        individualSamples.removeAll()
+        resetRing(prefill: false)
         isUserMuted = false
         suppressesTransportAudio = false
-        player.stop()
         engine.stop()
     }
 
-    private func schedule(samples: UnsafePointer<Int16>?, frames: Int) {
-        guard
-            frames > 0,
-            let samples,
-            let format,
-            let buffer = AVAudioPCMBuffer(
-                pcmFormat: format,
-                frameCapacity: AVAudioFrameCount(frames)
-            ),
-            let channels = buffer.floatChannelData
-        else {
+    private func resetRing(prefill: Bool) {
+        lock.lock()
+        readIndex = 0
+        writeIndex = 0
+        available = 0
+        if prefill, ringCapacity > 0 {
+            let frames = min(
+                Int(sampleRate * Self.cushionSeconds),
+                ringCapacity / 2
+            )
+            available = min(frames * 2, ringCapacity)
+            for index in 0 ..< available {
+                ring[index] = 0
+            }
+            writeIndex = available % ringCapacity
+        }
+        lock.unlock()
+    }
+
+    private func write(
+        samples: UnsafePointer<Int16>?,
+        frames: Int
+    ) {
+        guard let samples, frames > 0, ringCapacity > 0 else {
             return
         }
-
-        buffer.frameLength = AVAudioFrameCount(frames)
+        lock.lock()
         let scale = Float(Int16.max)
-        for index in 0 ..< frames {
-            channels[0][index] = Float(samples[index * 2]) / scale
-            channels[1][index] = Float(samples[index * 2 + 1]) / scale
+        for index in 0 ..< frames * 2 {
+            ring[writeIndex] = Float(samples[index]) / scale
+            writeIndex = (writeIndex + 1) % ringCapacity
+            if available < ringCapacity {
+                available += 1
+            } else {
+                readIndex = (readIndex + 1) % ringCapacity
+            }
         }
-        player.scheduleBuffer(buffer)
+        lock.unlock()
+    }
+
+    private func render(
+        frameCount: AVAudioFrameCount,
+        audioBufferList: UnsafeMutablePointer<AudioBufferList>
+    ) -> OSStatus {
+        let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+        guard
+            buffers.count >= 2,
+            let left = buffers[0].mData?
+                .assumingMemoryBound(to: Float.self),
+            let right = buffers[1].mData?
+                .assumingMemoryBound(to: Float.self)
+        else {
+            return noErr
+        }
+
+        let frames = Int(frameCount)
+        lock.lock()
+        let framesToCopy = min(frames, available / 2)
+        for frame in 0 ..< framesToCopy {
+            let offset = (readIndex + frame * 2) % ringCapacity
+            left[frame] = ring[offset]
+            right[frame] = ring[(offset + 1) % ringCapacity]
+        }
+        if framesToCopy > 0 {
+            readIndex = (readIndex + framesToCopy * 2) % ringCapacity
+            available -= framesToCopy * 2
+        }
+        lock.unlock()
+
+        if framesToCopy < frames {
+            let byteCount = (frames - framesToCopy)
+                * MemoryLayout<Float>.size
+            memset(
+                left.advanced(by: framesToCopy),
+                0,
+                byteCount
+            )
+            memset(
+                right.advanced(by: framesToCopy),
+                0,
+                byteCount
+            )
+        }
+        return noErr
     }
 }
 
