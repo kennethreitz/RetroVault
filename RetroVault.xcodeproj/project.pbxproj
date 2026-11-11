@@ -19,6 +19,9 @@
 		A80000000000000000000003 /* BigPictureCRTShader.metal in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000003 /* BigPictureCRTShader.metal */; };
 		A90000000000000000000001 /* ControllerFaceButtonLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90000000000000000000001 /* ControllerFaceButtonLayout.swift */; };
 		A70000000000000000000001 /* LibretroLogShim.c in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000001 /* LibretroLogShim.c */; };
+		A35000000000000000000001 /* LibretroVulkanContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35000000000000000000001 /* LibretroVulkanContext.swift */; };
+		A35000000000000000000002 /* LibretroVulkanSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35000000000000000000002 /* LibretroVulkanSurface.swift */; };
+		A34000000000000000000001 /* LibretroVulkanBridge.c in Sources */ = {isa = PBXBuildFile; fileRef = B34000000000000000000001 /* LibretroVulkanBridge.c */; };
 		A60000000000000000000001 /* LiquidGlass.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60000000000000000000001 /* LiquidGlass.swift */; };
 		A50000000000000000000002 /* LogViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000002 /* LogViewerView.swift */; };
 		A50000000000000000000001 /* RetroVaultDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000001 /* RetroVaultDiagnostics.swift */; };
@@ -26,6 +29,8 @@
 		A30000000000000000000002 /* LibretroGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000002 /* LibretroGameView.swift */; };
 		A30000000000000000000003 /* LibretroRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000003 /* LibretroRuntime.swift */; };
 		A30000000000000000000004 /* LibretroCoreManifestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000004 /* LibretroCoreManifestTests.swift */; };
+		A37000000000000000000001 /* LibretroVulkanEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37000000000000000000001 /* LibretroVulkanEnvironmentTests.swift */; };
+		A36000000000000000000001 /* LibretroVulkanABITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B36000000000000000000001 /* LibretroVulkanABITests.swift */; };
 		A40000000000000000000001 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 1A7600000000000000000001 /* ZIPFoundation */; };
 		A40000000000000000000002 /* GameArchiveExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000001 /* GameArchiveExtractor.swift */; };
 		A40000000000000000000003 /* GameArchiveExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000002 /* GameArchiveExtractorTests.swift */; };
@@ -151,6 +156,9 @@
 		B80000000000000000000003 /* BigPictureCRTShader.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = BigPictureCRTShader.metal; sourceTree = "<group>"; };
 		B90000000000000000000001 /* ControllerFaceButtonLayout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControllerFaceButtonLayout.swift; sourceTree = "<group>"; };
 		B70000000000000000000001 /* LibretroLogShim.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; path = LibretroLogShim.c; sourceTree = "<group>"; };
+		B35000000000000000000001 /* LibretroVulkanContext.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroVulkanContext.swift; sourceTree = "<group>"; };
+		B35000000000000000000002 /* LibretroVulkanSurface.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroVulkanSurface.swift; sourceTree = "<group>"; };
+		B34000000000000000000001 /* LibretroVulkanBridge.c */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.c; path = Vulkan/LibretroVulkanBridge.c; sourceTree = "<group>"; };
 		B60000000000000000000001 /* LiquidGlass.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiquidGlass.swift; sourceTree = "<group>"; };
 		B50000000000000000000002 /* LogViewerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LogViewerView.swift; sourceTree = "<group>"; };
 		B50000000000000000000001 /* RetroVaultDiagnostics.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RetroVaultDiagnostics.swift; sourceTree = "<group>"; };
@@ -158,6 +166,8 @@
 		B30000000000000000000002 /* LibretroGameView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroGameView.swift; sourceTree = "<group>"; };
 		B30000000000000000000003 /* LibretroRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroRuntime.swift; sourceTree = "<group>"; };
 		B30000000000000000000004 /* LibretroCoreManifestTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroCoreManifestTests.swift; sourceTree = "<group>"; };
+		B37000000000000000000001 /* LibretroVulkanEnvironmentTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroVulkanEnvironmentTests.swift; sourceTree = "<group>"; };
+		B36000000000000000000001 /* LibretroVulkanABITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibretroVulkanABITests.swift; sourceTree = "<group>"; };
 		B40000000000000000000001 /* GameArchiveExtractor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameArchiveExtractor.swift; sourceTree = "<group>"; };
 		B40000000000000000000002 /* GameArchiveExtractorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameArchiveExtractorTests.swift; sourceTree = "<group>"; };
 		B40000000000000000000003 /* SaveBundleArchive.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SaveBundleArchive.swift; sourceTree = "<group>"; };
@@ -425,6 +435,9 @@
 				D00000000000000000000004 /* LibretroDSUInput.swift */,
 				B30000000000000000000002 /* LibretroGameView.swift */,
 				B30000000000000000000003 /* LibretroRuntime.swift */,
+				B35000000000000000000001 /* LibretroVulkanContext.swift */,
+				B35000000000000000000002 /* LibretroVulkanSurface.swift */,
+				B34000000000000000000001 /* LibretroVulkanBridge.c */,
 				D0000000000000000000000B /* LibretroVideoFilter.swift */,
 				D0000000000000000000000C /* LibretroInternalResolution.swift */,
 				D0000000000000000000000D /* LibretroKeyboard.swift */,
@@ -541,6 +554,8 @@
 				B40000000000000000000002 /* GameArchiveExtractorTests.swift */,
 				B20000000000000000000003 /* LibraryCacheTests.swift */,
 				B30000000000000000000004 /* LibretroCoreManifestTests.swift */,
+				B37000000000000000000001 /* LibretroVulkanEnvironmentTests.swift */,
+				B36000000000000000000001 /* LibretroVulkanABITests.swift */,
 				D00000000000000000000006 /* LibretroDSUInputTests.swift */,
 				7CE0812D0EFD1CE66AA1BF4E /* PairingValueTests.swift */,
 				RA2000000000000000000001 /* RetroAchievementsTests.swift */,
@@ -667,6 +682,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 05816E2460084915D96D05FA /* Build configuration list for PBXNativeTarget "RetroVault" */;
 			buildPhases = (
+				C0A500000000000000000001 /* Fetch MoltenVK */,
 				6636297A7F863ECAEB190CFB /* Sources */,
 				782B37780E00AF14F838410D /* Frameworks */,
 				D92E97EBA0145E0C941E4407 /* Resources */,
@@ -749,6 +765,26 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		C0A500000000000000000001 /* Fetch MoltenVK */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Scripts/fetch-moltenvk.sh",
+			);
+			name = "Fetch MoltenVK";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/Scripts/fetch-moltenvk.sh\"\n";
+		};
 		C0A300000000000000000001 /* Embed Cemu Companion */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -875,6 +911,9 @@
 				A30000000000000000000001 /* LibretroCoreManifest.swift in Sources */,
 				A30000000000000000000002 /* LibretroGameView.swift in Sources */,
 				A30000000000000000000003 /* LibretroRuntime.swift in Sources */,
+				A35000000000000000000001 /* LibretroVulkanContext.swift in Sources */,
+				A35000000000000000000002 /* LibretroVulkanSurface.swift in Sources */,
+				A34000000000000000000001 /* LibretroVulkanBridge.c in Sources */,
 				A40000000000000000000002 /* GameArchiveExtractor.swift in Sources */,
 				C482072FDFB5DCB0FF807D6C /* LibraryService.swift in Sources */,
 				A40000000000000000000004 /* SaveBundleArchive.swift in Sources */,
@@ -932,6 +971,8 @@
 				A40000000000000000000003 /* GameArchiveExtractorTests.swift in Sources */,
 				A20000000000000000000003 /* LibraryCacheTests.swift in Sources */,
 				A30000000000000000000004 /* LibretroCoreManifestTests.swift in Sources */,
+				A37000000000000000000001 /* LibretroVulkanEnvironmentTests.swift in Sources */,
+				A36000000000000000000001 /* LibretroVulkanABITests.swift in Sources */,
 				D00000000000000000000025 /* DSUProtocolTests.swift in Sources */,
 				D00000000000000000000026 /* LibretroDSUInputTests.swift in Sources */,
 				D00000000000000000000027 /* ServerReachabilityTests.swift in Sources */,
@@ -1044,6 +1085,9 @@
 					"RC_CLIENT_SUPPORTS_HASH",
 				);
 				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/RetroVault/Runners/Libretro/Vulkan/include",
+					"$(SRCROOT)/Build/MoltenVK/include",
+					"$(SRCROOT)/Build/MoltenVK/include/libretro",
 					"$(SRCROOT)/ThirdParty/rcheevos/include",
 					"$(SRCROOT)/ThirdParty/rcheevos/src",
 					"$(SRCROOT)/ThirdParty/rcheevos/compat",
@@ -1083,6 +1127,9 @@
 					"RC_CLIENT_SUPPORTS_HASH",
 				);
 				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/RetroVault/Runners/Libretro/Vulkan/include",
+					"$(SRCROOT)/Build/MoltenVK/include",
+					"$(SRCROOT)/Build/MoltenVK/include/libretro",
 					"$(SRCROOT)/ThirdParty/rcheevos/include",
 					"$(SRCROOT)/ThirdParty/rcheevos/src",
 					"$(SRCROOT)/ThirdParty/rcheevos/compat",
@@ -1101,9 +1148,16 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/ThirdParty/rcheevos/include",
+					"$(SRCROOT)/ThirdParty/rcheevos/src",
+					"$(SRCROOT)/ThirdParty/rcheevos/compat",
+					"$(SRCROOT)/ThirdParty/rcheevos/bridge",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.kennethreitz.RetroVaultTests;
 				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = RetroVault/Runners/RetroAchievements/RetroAchievements-Bridging-Header.h;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RetroVault.app/Contents/MacOS/RetroVault";
 			};
 			name = Release;
@@ -1177,9 +1231,16 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/ThirdParty/rcheevos/include",
+					"$(SRCROOT)/ThirdParty/rcheevos/src",
+					"$(SRCROOT)/ThirdParty/rcheevos/compat",
+					"$(SRCROOT)/ThirdParty/rcheevos/bridge",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.kennethreitz.RetroVaultTests;
 				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = RetroVault/Runners/RetroAchievements/RetroAchievements-Bridging-Header.h;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RetroVault.app/Contents/MacOS/RetroVault";
 			};
 			name = Debug;

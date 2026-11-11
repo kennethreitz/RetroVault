@@ -105,6 +105,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Vulkan runtime
+
+- [MoltenVK 1.4.2](https://github.com/KhronosGroup/MoltenVK/releases/tag/v1.4.2)
+  (2026-07-24) — Apache-2.0. `Scripts/fetch-moltenvk.sh` downloads the
+  `MoltenVK-macos.tar` release (SHA-256
+  `f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e`), thins
+  it to arm64, and `Scripts/embed-moltenvk.sh` embeds
+  `libMoltenVK.dylib` at `Contents/Frameworks`, re-signed with the app's
+  identity. Its `LICENSE` is copied to
+  `Contents/Resources/Acknowledgements/MoltenVK-LICENSE.txt`.
+- `Scripts/fetch-moltenvk.sh` also fetches the compile-time Khronos Vulkan
+  headers from the MoltenVK 1.4.2 tarball (`vulkan/`, Apache-2.0 OR MIT,
+  Vulkan header version 357) and the Libretro headers from
+  `libretro-common` at `d9597c359a5ca8399a4e244f816e7e975a92a2aa`
+  (`libretro.h`) and `a0403d4273fbd5ce6971f6f41c90c6df2b02e14b`
+  (`libretro_vulkan.h`), both MIT. They are fetched into
+  `Build/MoltenVK/include`, not committed or shipped as runtime code.
+
 ## Hosted emulators
 
 - [Cemu 2.6](https://github.com/cemu-project/Cemu/tree/v2.6) and the reviewed
