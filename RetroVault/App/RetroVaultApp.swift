@@ -129,6 +129,22 @@ struct RetroVaultApp: App {
         .defaultSize(width: 900, height: 720)
         .windowResizability(.contentMinSize)
 
+        WindowGroup("RetroVault Switch", for: SwitchRunRequest.self) { $request in
+            if let request {
+                SwitchPlayerWindow(
+                    request: request,
+                    service: model.libraryService
+                )
+            } else {
+                ContentUnavailableView(
+                    "No Switch Game Selected",
+                    systemImage: "gamecontroller"
+                )
+            }
+        }
+        .defaultSize(width: 900, height: 720)
+        .windowResizability(.contentMinSize)
+
         WindowGroup("Game Information", for: GameInfoRequest.self) { $request in
             if
                 let request,

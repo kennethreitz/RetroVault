@@ -367,6 +367,10 @@ private enum LibraryGamePlayability {
       return false
     }
 
+    if SwitchInstallation.supports(systemName: game.systemName) {
+      return true
+    }
+
     return bundledLibretroManifest?
       .supportsSystem(
         named: game.systemName,
@@ -399,8 +403,13 @@ private struct LibraryAlert: Identifiable {
   var fileURLs: [URL] = []
 }
 
+private enum LibraryPlayback {
+  case libretro(LibretroRunRequest)
+  case switchGame(SwitchRunRequest)
+}
+
 private enum LibraryPlaybackPreparation {
-  case ready(LibretroRunRequest)
+  case ready(LibraryPlayback)
   case failed(LibraryAlert)
   case cancelled
 
@@ -444,6 +453,39 @@ private enum LibraryPlaybackPreparation {
       )
     }
 
+    if SwitchInstallation.supports(systemName: details.systemName) {
+      guard
+        let request = await detailsModel.prepareForSwitch(
+          details,
+          synchronizesWithServer: model.isServerReachable,
+          onProgress: onProgress
+        )
+      else {
+        return .failed(
+          LibraryAlert(
+            title: "Couldn’t Start Game",
+            message:
+              detailsModel.playbackErrorMessage
+              ?? "RetroVault couldn’t prepare this Switch game for Ryujinx."
+          )
+        )
+      }
+
+      model.recordManagedDownload(gameID: game.id)
+      await model.reloadDownloadedGames(reconcilingDuringDownloads: true)
+      await model.recordPlay(gameID: game.id)
+      return .ready(.switchGame(request))
+    }
+
+    if SwitchInstallation.isSwitchSystemName(details.systemName) {
+      return .failed(
+        LibraryAlert(
+          title: "Couldn’t Start Game",
+          message: SwitchError.unavailable.localizedDescription
+        )
+      )
+    }
+
     guard detailsModel.playbackCore != nil else {
       return .failed(
         LibraryAlert(
@@ -474,7 +516,7 @@ private enum LibraryPlaybackPreparation {
     model.recordManagedDownload(gameID: game.id)
     await model.reloadDownloadedGames(reconcilingDuringDownloads: true)
     await model.recordPlay(gameID: game.id)
-    return .ready(request)
+    return .ready(.libretro(request))
   }
 }
 
@@ -963,7 +1005,10 @@ struct LibraryView: View {
   }
 
   private func isSystemSupported(_ system: LibrarySystem) -> Bool {
-    Self.bundledLibretroManifest?
+    if SwitchInstallation.supports(systemName: system.name) {
+      return true
+    }
+    return Self.bundledLibretroManifest?
       .supportsSystem(
         named: system.name,
         includingExperimental: enablesExperimentalCores
@@ -2576,10 +2621,12 @@ private struct LibraryTableView: View {
           preparingProgress = progress
         }
       ) {
-      case let .ready(request):
+      case let .ready(.libretro(request)):
         openWindow(
           value: fromBeginning ? request.startingFresh() : request
         )
+      case let .ready(.switchGame(request)):
+        openWindow(value: request)
       case let .failed(alert):
         playbackAlert = alert
       case .cancelled:
@@ -4057,10 +4104,12 @@ private struct LibraryGridView: View {
           preparingProgress = progress
         }
       ) {
-      case let .ready(request):
+      case let .ready(.libretro(request)):
         openWindow(
           value: fromBeginning ? request.startingFresh() : request
         )
+      case let .ready(.switchGame(request)):
+        openWindow(value: request)
       case let .failed(alert):
         playbackAlert = alert
       case .cancelled:

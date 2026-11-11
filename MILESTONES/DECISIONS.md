@@ -496,6 +496,21 @@ The Apple Containerization package is deferred until milestone 1B.
   headers, or response bodies. Dynamic error details remain private in unified
   logging unless explicitly classified as safe.
 
+## Hosted Nintendo Switch engine
+
+Added November 10, 2026.
+
+- Nintendo Switch uses Ryubing (the maintained Ryujinx fork) as a hosted,
+  user-installed companion, not a Libretro core. The companion is embedded in
+  `Contents/PlugIns/Ryujinx.app` and launched with a private data root.
+- The embedded companion keeps its original ad-hoc signature. Re-signing its
+  nested frameworks with `codesign --deep` makes Ryujinx hang after
+  `Loading sdk`; the build signs only the outer app.
+- App Sandbox needs a scoped `ipc-posix-shm` exception for Ryujinx’s guest RAM.
+- Saves project both title save data and matching device save data through the
+  existing directory-bundle sync.
+- Save states and Switch 2 are out of scope.
+
 ## Deferred capabilities
 
 The following are intentionally outside milestone 1A and remain deferred unless

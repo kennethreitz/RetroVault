@@ -236,6 +236,8 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
             }
 
+            SwitchSettingsSection()
+
             Section("Advanced") {
                 DisclosureGroup("DSU Controller Server") {
                     Toggle(

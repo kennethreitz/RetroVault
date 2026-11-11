@@ -1511,6 +1511,8 @@ private struct GameDetailsDTO: Decodable {
   let id: Int
   let systemID: Int?
   let systemName: String?
+  let titleID: String?
+  let saveTarget: String?
   let fileName: String?
   let fileNameWithoutExtension: String?
   let fileExtension: String?
@@ -1568,6 +1570,8 @@ private struct GameDetailsDTO: Decodable {
     case id
     case systemID = "platform_id"
     case systemName = "platform_display_name"
+    case titleID = "title_id"
+    case saveTarget = "save_target"
     case fileName = "fs_name"
     case fileNameWithoutExtension = "fs_name_no_ext"
     case fileExtension = "fs_extension"
@@ -1637,6 +1641,8 @@ private struct GameDetailsDTO: Decodable {
       name: displayName,
       systemID: systemID ?? 0,
       systemName: Self.nonempty(systemName) ?? "Unknown System",
+      titleID: Self.nonempty(titleID),
+      saveTarget: Self.nonempty(saveTarget),
       summary: Self.nonempty(summary),
       coverURL: serverURL.resourceURL(for: coverPath),
       screenshotURLs: (screenshotPaths ?? []).compactMap(serverURL.resourceURL(for:)),
