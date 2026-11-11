@@ -39,6 +39,7 @@ extension CoreManifest {
     enum Capability: String, Codable, CaseIterable, Sendable {
         case softwareVideo
         case hardwareVideo
+        case vulkanVideo
         case audio
         case retropad
         case keyboard

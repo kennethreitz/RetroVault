@@ -23,6 +23,7 @@ let package = Package(
             name: "RetroVault",
             dependencies: [
                 "RetroVaultLibretroLogShim",
+                "LibretroVulkanBridge",
                 "RCheevos",
                 .product(name: "Nuke", package: "Nuke"),
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
@@ -32,6 +33,7 @@ let package = Package(
                 "App/Info.plist",
                 "App/RetroVault.entitlements",
                 "Shared/LibretroLogShim",
+                "Runners/Libretro/Vulkan",
             ],
             resources: [
                 .process("Resources"),
@@ -62,6 +64,18 @@ let package = Package(
             name: "RetroVaultLibretroLogShim",
             path: "RetroVault/Shared/LibretroLogShim",
             publicHeadersPath: "include"
+        ),
+        .target(
+            name: "LibretroVulkanBridge",
+            path: "RetroVault/Runners/Libretro/Vulkan",
+            exclude: ["README.md"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("../../../../Build/MoltenVK/include"),
+                .headerSearchPath(
+                    "../../../../Build/MoltenVK/include/libretro"
+                ),
+            ]
         ),
         .testTarget(
             name: "RetroVaultTests",

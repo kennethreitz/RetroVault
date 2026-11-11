@@ -16,6 +16,10 @@ mkdir -p -- "$acknowledgements_directory"
 ditto "$SRCROOT/THIRD_PARTY_NOTICES.md" \
     "$acknowledgements_directory/THIRD_PARTY_NOTICES.md"
 
+# MoltenVK is embedded even when no core artifacts exist, so a development
+# build that only uses the test core still gets a Vulkan runtime.
+"$SRCROOT/Scripts/embed-moltenvk.sh"
+
 if [ ! -d "$artifact_directory/Cores" ]; then
     if [ "${CONFIGURATION:-Debug}" = "Release" ]; then
         echo "error: Release builds require bundled core artifacts." >&2
