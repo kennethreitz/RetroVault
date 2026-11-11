@@ -163,6 +163,21 @@ struct LibretroVulkanEnvironmentTests {
                 defaults: defaults
             )
         )
+        #expect(
+            !LibretroPPSSPPPreferences.buffersFrames(defaults: defaults)
+        )
+        #expect(
+            LibretroPPSSPPPreferences.inflightFrames(defaults: defaults)
+                == "No buffer"
+        )
+        defaults.set(
+            true,
+            forKey: LibretroPPSSPPPreferences.buffersFramesKey
+        )
+        #expect(
+            LibretroPPSSPPPreferences.inflightFrames(defaults: defaults)
+                == "Up to 1"
+        )
     }
 
     @Test("A Vulkan frame can be acquired and presented")

@@ -57,9 +57,26 @@ RETROVAULT_MOLTENVK_PATH="$PWD/Build/MoltenVK/libMoltenVK.dylib" \
 developer fixture for manual harness work. The fixture is not listed in the
 catalog and is not exposed in the app.
 
+PPSSPP is the first real-core target. It already selects its backend from
+`GET_PREFERRED_HW_RENDER`, so enabling the preference and using a PSP ISO is
+enough; no PPSSPP core option is forced. Build its core with
+`Scripts/build-libretro-cores.sh --core libretro-ppsspp`.
+
+PPSSPP is pinned to `39205d99ad2ede48be878659f4021fda9e5ec858` (2026-10-16)
+rather than the previous v1.20.4 release. v1.20.4 still used the old
+`libretro_vulkan.cpp` wrapper and called `vk->InitSwapchain`; its render
+manager then entered `vkCmdBeginRenderPass` with no backbuffer and crashed in
+MoltenVK. The newer `LibretroVulkanPresentation` backend implements the
+shared-context contract this runtime provides: `get_sync_index`/
+`set_image` on the frontend's queue, with the acquire before `retro_run`.
+
 Settings → Emulation → **Lowest latency (may tear)** disables display vsync
 on the Vulkan layer. It removes roughly one frame of input latency at the
 cost of possible tearing; restart the game after changing it.
+
+Settings → Emulation → **Buffer PPSSPP frames** restores PPSSPP's upstream
+one-frame render-ahead buffer. It is off by default for lower input latency;
+turning it on can be smoother on demanding titles. Restart the game.
 
 ## Not done (Phase 2+)
 

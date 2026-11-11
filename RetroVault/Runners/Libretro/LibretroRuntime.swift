@@ -3246,6 +3246,28 @@ private final class LibretroCStringStore {
     }
 }
 
+/// PPSSPP's render-ahead buffer.
+///
+/// "No buffer" lowers controller-to-photon latency; "Up to 1" restores the
+/// upstream one-frame buffer, which can be smoother on demanding titles.
+enum LibretroPPSSPPPreferences {
+    static let buffersFramesKey = "libretro.ppsspp.buffer-frames.v1"
+    static let buffersFramesByDefault = false
+
+    static func buffersFrames(
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        defaults.object(forKey: buffersFramesKey) as? Bool
+            ?? buffersFramesByDefault
+    }
+
+    static func inflightFrames(
+        defaults: UserDefaults = .standard
+    ) -> String {
+        buffersFrames(defaults: defaults) ? "Up to 1" : "No buffer"
+    }
+}
+
 enum LibretroCoreOptionPreferences {
     private static let values = [
         // DOSBox Pure's ARM64 dynamic recompiler allocates its code cache with
@@ -3307,6 +3329,9 @@ enum LibretroCoreOptionPreferences {
         availableValues: [String] = [],
         internalResolution: LibretroInternalResolution = .native
     ) -> String {
+        if key == "ppsspp_inflight_frames" {
+            return LibretroPPSSPPPreferences.inflightFrames()
+        }
         if let override = values[key] {
             return override
         }
