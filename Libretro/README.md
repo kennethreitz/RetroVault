@@ -19,12 +19,11 @@ Sega CD / Mega CD, Sega 32X, DOS, Arduboy, Pico-8, GameCube, Wii, and PSP.
 Dreamcast is experimental and stays hidden until experimental cores are
 enabled in Settings.
 
-Nintendo 3DS is not supported. The only maintained libretro core, Azahar,
-ships Vulkan and software renderers and has dropped OpenGL; its Vulkan path
-asks the frontend for a Vulkan hardware context that this runtime does not
-provide, and being refused makes the core fail to load the game at all.
-Restoring 3DS support means adding a Vulkan render path, not re-adding the
-core.
+Nintendo 3DS is not supported yet. The maintained Azahar core ships Vulkan
+and software renderers and has dropped OpenGL on Apple platforms; the runtime
+now provides the Vulkan hardware context it needs behind the Vulkan
+preference, but Azahar is not in the catalog and its firmware, system-file,
+and input work is not done. Adding 3DS is a separate core-integration step.
 
 The test core proves source pinning, ARM64 compilation, license collection,
 hashing, signing, and the frontend lifecycle. User-facing cores additionally
@@ -196,8 +195,31 @@ RetroVault's reviewed integration patch records that expected condition in the
 Libretro log instead of drawing a long-lived warning over the game.
 
 PPSSPP provides PSP playback through the same hardware-rendering frontend and
-accepts ISO, CSO, PBP, CHD, ELF, and PRX content. Its pinned `assets` tree is
+accepts ISO, CSO, PBP, CHD, ELF, and PRX content. It also supports the Vulkan
+path described below: enable Settings → Emulation → "Prefer Vulkan for
+Vulkan-capable cores" to let it use MoltenVK instead of OpenGL. Its pinned `assets` tree is
 bundled under `System/PPSSPP`; these are redistributable emulator runtime
 assets, not PSP firmware or game content. The stable source pin carries
 PPSSPP's upstream macOS Core-profile context fix so its GLSL shaders and
 framebuffer presentation are correct on Apple silicon.
+
+## Vulkan cores
+
+A core that wants the Vulkan hardware path declares the `vulkanVideo`
+capability in its manifest entry. Only those cores are offered
+`RETRO_HW_CONTEXT_VULKAN` from `GET_PREFERRED_HW_RENDER`; existing OpenGL
+cores keep their current context. The runtime embeds MoltenVK 1.4.2 at
+`Contents/Frameworks/libMoltenVK.dylib`, creates the swapchain on the
+player's `CAMetalLayer`, and presents the core's `set_image` frame with
+`vkCmdBlitImage`. The MTKView is not created for a Vulkan session.
+
+The content-free smoke core under `Tests/Fixtures/VulkanTestCore` is a
+development fixture built by `Scripts/build-vulkan-test-core.sh`. It is not
+listed in the catalog and is not exposed in the app; the runtime tests use
+it for manual harness work.
+
+Phase 1 limits: 8-bit RGBA/BGRA images only, nearest or linear blit (the
+Metal video filters are not applied), no cross-queue-family image handover,
+and no `create_device2` negotiation. `set_command_buffers`,
+`wait_sync_index`, queue locking, and signal semaphores are implemented, but
+the scoped cores currently use `set_image`.
