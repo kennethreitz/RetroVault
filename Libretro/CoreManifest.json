@@ -1155,13 +1155,13 @@
       "firmware": [],
       "source": {
         "repository": "https://github.com/libretro/parallel-n64.git",
-        "revision": "39819865868231319f185b741466b9bb2203620d",
+        "revision": "2f3bf60dcd969ae13e60731eab681504256272db",
         "licenseFile": "mupen64plus-core/LICENSES"
       },
       "license": {
         "spdx": "GPL-2.0-only",
         "redistributionStatus": "approved",
-        "noticeURL": "https://github.com/libretro/parallel-n64/blob/39819865868231319f185b741466b9bb2203620d/mupen64plus-core/LICENSES"
+        "noticeURL": "https://github.com/libretro/parallel-n64/blob/2f3bf60dcd969ae13e60731eab681504256272db/mupen64plus-core/LICENSES"
       },
       "build": {
         "workingDirectory": ".",

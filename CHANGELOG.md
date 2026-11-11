@@ -5,6 +5,19 @@ for additional releases on the same day. This changelog records notable
 user-facing and architectural changes and is intentionally curated rather than
 being a list of every commit.
 
+## Unreleased
+
+### Fixed
+
+- N64 games no longer crash while restoring a quick state, and N64 Resume
+  works again. ParaLLEl-N64's dynamic recompiler left its JIT code cache in
+  write mode when a save state invalidated it, so the first block it
+  dispatched was fetched from a page it could not execute and the app died
+  with a `SIGBUS` instead of loading. The core is updated to `2f3bf60d`,
+  which restores the caller's write/execute mode after a cache flush, so
+  quick states, Resume, and the dynamic recompiler all keep working. Battery
+  saves, RomM save sync, and rewind are unchanged.
+
 ## 2026.11.9 (2026-11-09)
 
 ### Changed
