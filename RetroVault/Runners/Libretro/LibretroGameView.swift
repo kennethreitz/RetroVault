@@ -141,26 +141,35 @@ struct LibretroGameView: View {
                 Color.black
                     .ignoresSafeArea()
 
+                // Exists from the first layout: a Vulkan core asks for its
+                // context during load, before the phase becomes `.running`.
+                LibretroVulkanSurfaceView(surface: session.vulkanSurface)
+                    .ignoresSafeArea(
+                        edges: isFullScreen ? .all : []
+                    )
+
                 switch session.phase {
                 case .idle, .starting:
                     ProgressView("Starting \(session.request.title)…")
                         .controlSize(.large)
                         .foregroundStyle(.white)
                 case .running:
-                    LibretroMetalView(
-                        videoBuffer: session.videoBuffer,
-                        input: session.input,
-                        filter: videoFilter.resolved(
-                            forSystemName: session.request.systemName
+                    if !session.usesVulkanPresentation {
+                        LibretroMetalView(
+                            videoBuffer: session.videoBuffer,
+                            input: session.input,
+                            filter: videoFilter.resolved(
+                                forSystemName: session.request.systemName
+                            )
                         )
-                    )
-                    // Keep windowed gameplay inside the native content area
-                    // so the title bar never covers the picture. Fullscreen
-                    // still extends beneath the hover-only toolbar to avoid
-                    // resizing the drawable when the controls appear.
-                    .ignoresSafeArea(
-                        edges: isFullScreen ? .all : []
-                    )
+                        // Keep windowed gameplay inside the native content area
+                        // so the title bar never covers the picture. Fullscreen
+                        // still extends beneath the hover-only toolbar to avoid
+                        // resizing the drawable when the controls appear.
+                        .ignoresSafeArea(
+                            edges: isFullScreen ? .all : []
+                        )
+                    }
                 case .stopped:
                     ContentUnavailableView {
                         Label("Session Ended", systemImage: "stop.circle")

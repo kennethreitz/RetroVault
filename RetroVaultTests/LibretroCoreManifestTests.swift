@@ -997,6 +997,15 @@ struct LibretroCoreManifestTests {
             switch session.phase {
             case .running:
                 didStart = true
+                // A Vulkan session presents into its CAMetalLayer rather
+                // than the software video buffer; the environment tests
+                // cover that path.
+                if session.usesVulkanPresentation {
+                    // Give the core's render thread time to submit its first
+                    // real frame; a crash here fails the test.
+                    try await Task.sleep(for: .seconds(2))
+                    return
+                }
                 if let frame = session.videoBuffer.snapshot() {
                     #expect(frame.width > 0)
                     #expect(frame.height > 0)
