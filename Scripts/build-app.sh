@@ -38,6 +38,10 @@ if [ ! -x "$repository_root/Build/CemuCompanion/Cemu.app/Contents/MacOS/Cemu" ];
     "$repository_root/Scripts/fetch-cemu-companion.sh"
 fi
 
+if [ ! -f "$repository_root/Build/MoltenVK/libMoltenVK.dylib" ]; then
+    "$repository_root/Scripts/fetch-moltenvk.sh"
+fi
+
 echo "Building RetroVault (Release, ad-hoc signed)…"
 rm -rf "$derived_data"
 xcodebuild \

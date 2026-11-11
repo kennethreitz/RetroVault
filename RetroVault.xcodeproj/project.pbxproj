@@ -667,6 +667,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 05816E2460084915D96D05FA /* Build configuration list for PBXNativeTarget "RetroVault" */;
 			buildPhases = (
+				C0A500000000000000000001 /* Fetch MoltenVK */,
 				6636297A7F863ECAEB190CFB /* Sources */,
 				782B37780E00AF14F838410D /* Frameworks */,
 				D92E97EBA0145E0C941E4407 /* Resources */,
@@ -749,6 +750,26 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		C0A500000000000000000001 /* Fetch MoltenVK */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Scripts/fetch-moltenvk.sh",
+			);
+			name = "Fetch MoltenVK";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/Scripts/fetch-moltenvk.sh\"\n";
+		};
 		C0A300000000000000000001 /* Embed Cemu Companion */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;

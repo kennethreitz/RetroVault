@@ -105,6 +105,17 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Vulkan runtime
+
+- [MoltenVK 1.4.2](https://github.com/KhronosGroup/MoltenVK/releases/tag/v1.4.2)
+  (2026-07-24) — Apache-2.0. `Scripts/fetch-moltenvk.sh` downloads the
+  `MoltenVK-macos.tar` release (SHA-256
+  `f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e`), thins
+  it to arm64, and `Scripts/embed-moltenvk.sh` embeds
+  `libMoltenVK.dylib` at `Contents/Frameworks`, re-signed with the app's
+  identity. Its `LICENSE` is copied to
+  `Contents/Resources/Acknowledgements/MoltenVK-LICENSE.txt`.
+
 ## Hosted emulators
 
 - [Cemu 2.6](https://github.com/cemu-project/Cemu/tree/v2.6) and the reviewed
