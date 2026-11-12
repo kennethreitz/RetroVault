@@ -120,11 +120,13 @@ enum LibretroQuickStateRestorePolicy {
 enum LibretroQuickStateCompatibility {
     static let fingerprintFileName = "Quick.state.core"
 
-    /// Dolphin can crash the host process while deserializing an otherwise
-    /// current state. Keep its durable memory-card saves, but do not offer a
-    /// Resume path until state restoration can be isolated from the app.
+    /// Cores whose deserialized state can take the host down with it. PCSX2
+    /// writes a large state and its restore path has not been proven under
+    /// this runtime, so PS2 keeps its memory cards and loses Resume and
+    /// rewind until that is tested.
     static func isSupported(coreID: String) -> Bool {
         coreID.caseInsensitiveCompare("libretro-dolphin") != .orderedSame
+            && coreID.caseInsensitiveCompare("libretro-pcsx2") != .orderedSame
     }
 
     static func requiresCoreFingerprint(coreID: String) -> Bool {
@@ -331,9 +333,13 @@ enum LibretroContentLoadingPolicy {
 enum LibretroRewindPolicy {
     static func isEnabled(forCoreID coreID: String) -> Bool {
         let normalizedCoreID = coreID.lowercased()
+        // PS2 joins the exclusions: a PCSX2 state is tens of megabytes and
+        // its restore path is untested here, so a rewind buffer of them is
+        // both expensive and unsafe.
         return !normalizedCoreID.contains("n64")
             && !normalizedCoreID.contains("mupen64")
             && !normalizedCoreID.contains("dolphin")
+            && !normalizedCoreID.contains("pcsx2")
     }
 }
 

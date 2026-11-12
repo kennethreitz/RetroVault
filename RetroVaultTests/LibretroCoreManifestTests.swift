@@ -1774,6 +1774,23 @@ struct LibretroCoreManifestTests {
                 forCoreID: "libretro-dolphin"
             )
         )
+        // PCSX2 states are large and have not been proven to restore under
+        // this runtime, so PS2 gets neither rewind nor Resume for now.
+        #expect(
+            !LibretroRewindPolicy.isEnabled(
+                forCoreID: "libretro-pcsx2"
+            )
+        )
+        #expect(
+            !LibretroQuickStateCompatibility.isSupported(
+                coreID: "libretro-pcsx2"
+            )
+        )
+        #expect(
+            LibretroQuickStateCompatibility.isSupported(
+                coreID: "libretro-ppsspp"
+            )
+        )
         #expect(
             LibretroRewindPolicy.isEnabled(
                 forCoreID: "libretro-bsnes-mercury-balanced"
