@@ -1388,10 +1388,13 @@ struct LibretroCoreManifestTests {
     /// ```sh
     /// RETROVAULT_PS2_TEST_ROM="/path/game.iso" \
     /// RETROVAULT_PS2_TEST_BIOS="/path/scph39001.bin" \
-    ///   swift test --filter PlayStation2SmokeTest
+    ///   swift test --filter PlayStation2Smoke
     /// ```
     ///
-    /// It runs the OpenGL path. Nothing here is committed with real content.
+    /// It runs the Vulkan path, which is the only one that works here, so
+    /// `RETROVAULT_MOLTENVK_PATH` must point at a MoltenVK build when the
+    /// test is run outside Xcode. Nothing here is committed with real
+    /// content.
     @Test("Runs a PlayStation 2 smoke-test image when one is provided")
     @MainActor
     func runsPlayStation2SmokeTestImage() async throws {
