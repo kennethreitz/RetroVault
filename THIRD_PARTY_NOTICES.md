@@ -105,6 +105,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Vulkan runtime
+
+- [MoltenVK 1.4.2](https://github.com/KhronosGroup/MoltenVK/releases/tag/v1.4.2)
+  (2026-07-24) — Apache-2.0. `Scripts/fetch-moltenvk.sh` downloads the
+  `MoltenVK-macos.tar` release (SHA-256
+  `f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e`), thins
+  it to arm64, and `Scripts/embed-moltenvk.sh` embeds
+  `libMoltenVK.dylib` at `Contents/Frameworks`, re-signed with the app's
+  identity. Its `LICENSE` is copied to
+  `Contents/Resources/Acknowledgements/MoltenVK-LICENSE.txt`.
+- `Scripts/fetch-moltenvk.sh` also fetches the compile-time Khronos Vulkan
+  headers from the MoltenVK 1.4.2 tarball (`vulkan/`, Apache-2.0 OR MIT,
+  Vulkan header version 357) and the Libretro headers from
+  `libretro-common` at `d9597c359a5ca8399a4e244f816e7e975a92a2aa`
+  (`libretro.h`) and `a0403d4273fbd5ce6971f6f41c90c6df2b02e14b`
+  (`libretro_vulkan.h`), both MIT. They are fetched into
+  `Build/MoltenVK/include`, not committed or shipped as runtime code.
+
 ## Hosted emulators
 
 - [Cemu 2.6](https://github.com/cemu-project/Cemu/tree/v2.6) and the reviewed
@@ -138,6 +156,7 @@ The manifest is the source of truth for the exact core set embedded in a build.
 | [Gearcoleco](https://github.com/drhelius/Gearcoleco.git/tree/0803d3e28f11d5aece83eb822dadcefa9a06f0d0) | `0803d3e2` | GPL-3.0-only | [Notice](https://github.com/drhelius/Gearcoleco/blob/0803d3e28f11d5aece83eb822dadcefa9a06f0d0/LICENSE) |
 | [Gearsystem](https://github.com/drhelius/Gearsystem.git/tree/c4f8dcd603a3037e2c05d9a63240455b505b002c) | `c4f8dcd6` | GPL-3.0-only | [Notice](https://github.com/drhelius/Gearsystem/blob/c4f8dcd603a3037e2c05d9a63240455b505b002c/LICENSE) |
 | [Genesis Plus GX](https://github.com/libretro/Genesis-Plus-GX.git/tree/fa4dca561e08d5be9077419f7b255e1da213ed21) | `fa4dca56` | LicenseRef-Genesis-Plus-GX-NonCommercial | [Notice](https://github.com/libretro/Genesis-Plus-GX/blob/fa4dca561e08d5be9077419f7b255e1da213ed21/LICENSE.txt) |
+| [LRPS2](https://github.com/libretro/parallel-ps2.git/tree/5d07b2dc444e4d8ac5cb301ac7c8c9b9eedccd95) | `5d07b2dc` | GPL-3.0-or-later | [Notice](https://github.com/libretro/parallel-ps2/blob/5d07b2dc444e4d8ac5cb301ac7c8c9b9eedccd95/COPYING.GPLv3) |
 | [melonDS](https://github.com/libretro/melonDS.git/tree/66b5d2634cd0a79030562811e6e05f5532f800ba) | `66b5d263` | GPL-3.0-only | [Notice](https://github.com/libretro/melonDS/blob/66b5d2634cd0a79030562811e6e05f5532f800ba/LICENSE) |
 | [mGBA](https://github.com/libretro/mgba.git/tree/6dce57eef127dc4cc292644f38196e0e7c58590c) | `6dce57ee` | MPL-2.0 | [Notice](https://github.com/libretro/mgba/blob/6dce57eef127dc4cc292644f38196e0e7c58590c/LICENSE) |
 | [Nestopia UE](https://github.com/libretro/nestopia.git/tree/b0fd87dd07e3c52903435d302b04e5e97796f127) | `b0fd87dd` | GPL-2.0-or-later | [Notice](https://github.com/libretro/nestopia/blob/b0fd87dd07e3c52903435d302b04e5e97796f127/COPYING) |
@@ -145,7 +164,7 @@ The manifest is the source of truth for the exact core set embedded in a build.
 | [PCSX-ReARMed](https://github.com/libretro/pcsx_rearmed.git/tree/050981b6eeb715f142854f57c68086f62921f027) | `050981b6` | GPL-2.0-only | [Notice](https://github.com/libretro/pcsx_rearmed/blob/050981b6eeb715f142854f57c68086f62921f027/COPYING) |
 | [PicoDrive](https://github.com/libretro/picodrive.git/tree/78a662e3135871a6c657d5e61900f6704152e594) | `78a662e3` | LicenseRef-PicoDrive-NonCommercial | [Notice](https://github.com/libretro/picodrive/blob/78a662e3135871a6c657d5e61900f6704152e594/COPYING) |
 | [PokeMini](https://github.com/libretro/PokeMini.git/tree/bb009b1379ad15f1514f20ca7cbf710b4af42b3e) | `bb009b13` | GPL-3.0-or-later | [Notice](https://github.com/libretro/PokeMini/blob/bb009b1379ad15f1514f20ca7cbf710b4af42b3e/LICENSE) |
-| [PPSSPP](https://github.com/hrydgard/ppsspp.git/tree/fa50bb1976065c4f8b1b47af227d367fe9771555) | `fa50bb19` | GPL-2.0-or-later | [Notice](https://github.com/hrydgard/ppsspp/blob/fa50bb1976065c4f8b1b47af227d367fe9771555/LICENSE.TXT) |
+| [PPSSPP](https://github.com/hrydgard/ppsspp.git/tree/39205d99ad2ede48be878659f4021fda9e5ec858) | `39205d99` | GPL-2.0-or-later | [Notice](https://github.com/hrydgard/ppsspp/blob/39205d99ad2ede48be878659f4021fda9e5ec858/LICENSE.TXT) |
 | [ProSystem](https://github.com/libretro/prosystem-libretro.git/tree/363b6dfbd3e240762e022c2b4897b4fe55722be3) | `363b6dfb` | GPL-2.0-only | [Notice](https://github.com/libretro/prosystem-libretro/blob/363b6dfbd3e240762e022c2b4897b4fe55722be3/License.txt) |
 | [Stella 2014](https://github.com/libretro/stella2014-libretro.git/tree/4a7da82595d27b8df7af1ecb467a64b642a41bc9) | `4a7da825` | GPL-2.0-only | [Notice](https://github.com/libretro/stella2014-libretro/blob/4a7da82595d27b8df7af1ecb467a64b642a41bc9/stella/license.txt) |
 

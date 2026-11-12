@@ -20,6 +20,15 @@ struct SettingsView: View {
     @AppStorage(LibretroCorePreferences.enablesExperimentalCoresKey)
     private var enablesExperimentalCores =
         LibretroCorePreferences.enabledByDefault
+    @AppStorage(LibretroVulkanPreferences.prefersVulkanKey)
+    private var prefersVulkan =
+        LibretroVulkanPreferences.prefersVulkanByDefault
+    @AppStorage(LibretroVulkanPreferences.lowestLatencyKey)
+    private var lowestVulkanLatency =
+        LibretroVulkanPreferences.lowestLatencyByDefault
+    @AppStorage(LibretroPPSSPPPreferences.buffersFramesKey)
+    private var ppssppBuffersFrames =
+        LibretroPPSSPPPreferences.buffersFramesByDefault
     @AppStorage(LibretroPlayerPreferences.opensInFullScreenKey)
     private var opensGamesInFullScreen =
         LibretroPlayerPreferences.opensInFullScreenByDefault
@@ -202,6 +211,55 @@ struct SettingsView: View {
                     bar the reviewed cores are held to. Their systems stay \
                     hidden until this is on, and their video, audio, input, \
                     firmware, and save behaviour may be incomplete.
+                    """
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                Toggle(
+                    "Prefer Vulkan for Vulkan-capable cores",
+                    isOn: $prefersVulkan
+                )
+
+                Text(
+                    """
+                    Vulkan cores run through the bundled MoltenVK runtime. \
+                    This is experimental: leave it off to keep a core on its \
+                    OpenGL path until the Vulkan path has been checked on \
+                    this Mac. Cores with no working OpenGL path on macOS, \
+                    such as PlayStation 2, use Vulkan whatever this says. \
+                    Restart the game after changing it.
+                    """
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                Toggle(
+                    "Lowest latency (may tear)",
+                    isOn: $lowestVulkanLatency
+                )
+
+                Text(
+                    """
+                    Turns off display vsync for Vulkan games. This shaves \
+                    roughly a frame of input latency at the cost of possible \
+                    tearing. Restart the game after changing it.
+                    """
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                Toggle(
+                    "Buffer PPSSPP frames",
+                    isOn: $ppssppBuffersFrames
+                )
+
+                Text(
+                    """
+                    Off is the default: PPSSPP renders without its one-frame \
+                    buffer, which lowers input latency. On restores the \
+                    upstream buffer, which can be smoother on demanding \
+                    titles. Restart the game after changing it.
                     """
                 )
                 .font(.caption)
@@ -401,5 +459,6 @@ struct SettingsView: View {
         let url = URL(fileURLWithPath: path)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
+
     #endif
 }

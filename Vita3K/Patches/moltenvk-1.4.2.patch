@@ -1,0 +1,17 @@
+diff --git a/external/CMakeLists.txt b/external/CMakeLists.txt
+index a26cd3a..33d3d88 100644
+--- a/external/CMakeLists.txt
++++ b/external/CMakeLists.txt
+@@ -230,10 +230,10 @@ target_include_directories(vulkan INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/VulkanM
+ if(APPLE)
+ 	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK-macos.tar")
+ 		message(STATUS "Downloading MoltenVK...")
+-		file(DOWNLOAD https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-macos.tar
++		file(DOWNLOAD https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
+ 			"${CMAKE_BINARY_DIR}/external/MoltenVK-macos.tar"
+ 			SHOW_PROGRESS
+-			EXPECTED_HASH SHA256=5ea0c259df7ded9a275444820f09cced54d6e5a7c7a31d262de62a5cdb7e15cf)
++			EXPECTED_HASH SHA256=f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e)
+ 	endif()
+ 	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK")
+ 		execute_process(COMMAND tar xf "${CMAKE_BINARY_DIR}/external/MoltenVK-macos.tar" --strip-components=1 MoltenVK/MoltenVK 

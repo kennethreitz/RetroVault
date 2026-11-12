@@ -1299,6 +1299,7 @@
       ],
       "capabilities": [
         "hardwareVideo",
+        "vulkanVideo",
         "audio",
         "retropad",
         "serialization",
@@ -1313,10 +1314,7 @@
       ],
       "source": {
         "repository": "https://github.com/hrydgard/ppsspp.git",
-        "revision": "fa50bb1976065c4f8b1b47af227d367fe9771555",
-        "patches": [
-          "77045b89ad0f5a2ff4757546e6a675553c69400c"
-        ],
+        "revision": "39205d99ad2ede48be878659f4021fda9e5ec858",
         "licenseFile": "LICENSE.TXT",
         "submodules": [
           "libretro/libretro-common",
@@ -1329,7 +1327,6 @@
           "ext/zstd",
           "ext/cpu_features",
           "ext/rcheevos",
-          "ext/naett",
           "ext/libchdr",
           "ext/OpenXR-SDK",
           "ext/lua",
@@ -1357,6 +1354,10 @@
             "-DCMAKE_BUILD_TYPE=Release",
             "-DCMAKE_OSX_ARCHITECTURES=arm64",
             "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0",
+            "-DCMAKE_C_COMPILER=/usr/bin/clang",
+            "-DCMAKE_CXX_COMPILER=/usr/bin/clang++",
+            "-DCMAKE_OBJC_COMPILER=/usr/bin/clang",
+            "-DCMAKE_OBJCXX_COMPILER=/usr/bin/clang++",
             "-DUSE_SYSTEM_LIBPNG=OFF",
             "-DUSE_DISCORD=OFF",
             "-DUSE_MINIUPNPC=OFF",
@@ -1551,6 +1552,92 @@
           "9"
         ],
         "output": "build-retrovault/flycast_libretro.dylib"
+      }
+    },
+    {
+      "id": "libretro-pcsx2",
+      "displayName": "LRPS2",
+      "status": "experimental",
+      "binaryName": "pcsx2_libretro.dylib",
+      "systems": [
+        "ps2"
+      ],
+      "fileExtensions": [
+        "bin",
+        "chd",
+        "ciso",
+        "cso",
+        "cue",
+        "dump",
+        "elf",
+        "gz",
+        "img",
+        "iso",
+        "m3u",
+        "mdf",
+        "nrg",
+        "zso"
+      ],
+      "capabilities": [
+        "vulkanVideo",
+        "requiresVulkan",
+        "audio",
+        "retropad",
+        "serialization",
+        "diskControl"
+      ],
+      "firmware": [
+        {
+          "id": "ps2-bios",
+          "fileName": "pcsx2/bios",
+          "description": "PlayStation 2 BIOS dump. Any valid PS2 BIOS works; RomM serves the platform's firmware records into this folder.",
+          "required": true,
+          "sha256": [],
+          "sha1": null,
+          "isDirectory": true
+        }
+      ],
+      "source": {
+        "repository": "https://github.com/libretro/parallel-ps2.git",
+        "revision": "5d07b2dc444e4d8ac5cb301ac7c8c9b9eedccd95",
+        "licenseFile": "COPYING.GPLv3"
+      },
+      "license": {
+        "spdx": "GPL-3.0-or-later",
+        "redistributionStatus": "approved",
+        "noticeURL": "https://github.com/libretro/parallel-ps2/blob/5d07b2dc444e4d8ac5cb301ac7c8c9b9eedccd95/COPYING.GPLv3"
+      },
+      "build": {
+        "workingDirectory": ".",
+        "configure": {
+          "executable": "/usr/bin/env",
+          "arguments": [
+            "cmake",
+            "-S",
+            ".",
+            "-B",
+            "build-retrovault",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_POLICY_VERSION_MINIMUM=3.18",
+            "-DCMAKE_OSX_ARCHITECTURES=arm64",
+            "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0",
+            "-DCMAKE_C_COMPILER=/usr/bin/clang",
+            "-DCMAKE_CXX_COMPILER=/usr/bin/clang++",
+            "-DCMAKE_OBJC_COMPILER=/usr/bin/clang",
+            "-DCMAKE_OBJCXX_COMPILER=/usr/bin/clang++"
+          ]
+        },
+        "executable": "/usr/bin/env",
+        "arguments": [
+          "cmake",
+          "--build",
+          "build-retrovault",
+          "--target",
+          "pcsx2_libretro",
+          "--parallel",
+          "9"
+        ],
+        "output": "build-retrovault/libretro/pcsx2_libretro.dylib"
       }
     }
   ]

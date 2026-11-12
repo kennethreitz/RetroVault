@@ -1653,10 +1653,7 @@ actor RomMLibraryService: LibraryServing {
     )
 
     let missingRequirements = requirements.filter {
-      !isValidFirmware(
-        at: directory.appending(path: $0.fileName),
-        requirement: $0
-      )
+      !isFirmwareRequirementSatisfied($0, in: directory)
     }
     guard !missingRequirements.isEmpty else {
       return directory
@@ -1703,6 +1700,62 @@ actor RomMLibraryService: LibraryServing {
     }
 
     for requirement in missingRequirements {
+      // A directory requirement has no canonical filename: PS2 BIOS dumps
+      // come in whatever the platform's firmware records are named, and the
+      // core scans the folder for any valid one.
+      if requirement.isDirectory == true {
+        let folder = directory.appending(
+          path: requirement.fileName,
+          directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+          at: folder,
+          withIntermediateDirectories: true
+        )
+
+        var installed = 0
+        var lastFailure: Error?
+        for remote in remoteFirmware where !remote.isMissingFromFileSystem {
+          do {
+            let download = try await api.downloadFirmware(
+              remote,
+              at: session.serverURL,
+              token: token
+            )
+            defer {
+              try? FileManager.default.removeItem(at: download.temporaryFileURL)
+            }
+            try installFirmware(
+              download,
+              named: remote.fileName,
+              expectedSize: remote.fileSizeBytes,
+              expectedSHA1: remote.sha1Hash,
+              into: folder
+            )
+            installed += 1
+          } catch {
+            lastFailure = error
+            RetroVaultLog.libretro.error(
+              "Could not cache firmware \(remote.fileName, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+          }
+        }
+
+        if installed == 0, requirement.required {
+          if let lastFailure {
+            throw LibraryServiceError.couldNotPrepareFirmware(
+              fileName: requirement.fileName,
+              reason: lastFailure.localizedDescription
+            )
+          }
+          throw LibraryServiceError.missingFirmware(
+            fileName: requirement.fileName,
+            description: requirement.description
+          )
+        }
+        continue
+      }
+
       guard
         let remote = remoteFirmware.first(where: {
           !$0.isMissingFromFileSystem
@@ -1777,6 +1830,10 @@ actor RomMLibraryService: LibraryServing {
 
       let destination = directory.appending(path: requirement.fileName)
       do {
+        try FileManager.default.createDirectory(
+          at: destination.deletingLastPathComponent(),
+          withIntermediateDirectories: true
+        )
         if FileManager.default.fileExists(atPath: destination.path) {
           try FileManager.default.removeItem(at: destination)
         }
@@ -1795,11 +1852,7 @@ actor RomMLibraryService: LibraryServing {
     }
 
     if let missing = requirements.first(where: {
-      $0.required
-        && !isValidFirmware(
-          at: directory.appending(path: $0.fileName),
-          requirement: $0
-        )
+      $0.required && !isFirmwareRequirementSatisfied($0, in: directory)
     }) {
       throw LibraryServiceError.missingFirmware(
         fileName: missing.fileName,
@@ -2326,8 +2379,11 @@ actor RomMLibraryService: LibraryServing {
       }
 
       let saveRAMURL = gameDirectory.appending(path: "SaveRAM.srm")
-      let directoryBundleURLs = ["Cemu", "PPSSPP", "Vita3K"].map {
-        gameDirectory.appending(path: $0, directoryHint: .isDirectory)
+      let directoryBundleURLs = Self.directorySaveBundles.map {
+        gameDirectory.appending(
+          path: $0.bundle.directoryName,
+          directoryHint: .isDirectory
+        )
       }
       let storage: CartridgeSaveSyncConfiguration.Storage
       let localSaveURL: URL
@@ -2696,6 +2752,32 @@ actor RomMLibraryService: LibraryServing {
     }
   }
 
+  /// Cores whose saves are a directory of files rather than one save-RAM
+  /// blob. The directory is the upload unit, so each needs a stable name.
+  private struct DirectorySaveBundle: Sendable {
+    let directoryName: String
+    let archiveSuffix: String
+  }
+
+  /// The RomM artifact keeps the emulator in its name, because one game can
+  /// carry saves from more than one core.
+  private static let directorySaveBundles: [(matches: String, bundle: DirectorySaveBundle)] = [
+    ("cemu", .init(directoryName: "Cemu", archiveSuffix: ".cemu.zip")),
+    ("ppsspp", .init(directoryName: "PPSSPP", archiveSuffix: ".ppsspp.zip")),
+    ("vita3k", .init(directoryName: "Vita3K", archiveSuffix: ".vita3k.zip")),
+    ("ryujinx", .init(directoryName: "Ryujinx", archiveSuffix: ".ryujinx.zip")),
+    ("pcsx2", .init(directoryName: "PCSX2", archiveSuffix: ".ps2.zip")),
+  ]
+
+  private static func directorySaveBundle(
+    forCoreID coreID: String
+  ) -> DirectorySaveBundle? {
+    let normalized = coreID.lowercased()
+    return directorySaveBundles.first {
+      normalized.contains($0.matches)
+    }?.bundle
+  }
+
   private func saveFileName(
     for game: GameDetails,
     storage: CartridgeSaveSyncConfiguration.Storage,
@@ -2708,13 +2790,7 @@ actor RomMLibraryService: LibraryServing {
     case .saveRAM:
       ".srm"
     case .directoryBundle:
-      if coreID.lowercased().contains("cemu") {
-        ".cemu.zip"
-      } else if coreID.lowercased().contains("vita3k") {
-        ".vita3k.zip"
-      } else {
-        ".ppsspp.zip"
-      }
+      Self.directorySaveBundle(forCoreID: coreID)?.archiveSuffix ?? ".ppsspp.zip"
     }
     return safeFileName(
       "\(stem)\(suffix)",
@@ -2726,22 +2802,13 @@ actor RomMLibraryService: LibraryServing {
   private func saveStorage(
     forCoreID coreID: String
   ) -> CartridgeSaveSyncConfiguration.Storage {
-    let normalized = coreID.lowercased()
-    return normalized.contains("ppsspp") || normalized.contains("cemu")
-      || normalized.contains("vita3k")
+    Self.directorySaveBundle(forCoreID: coreID) != nil
       ? .directoryBundle
       : .saveRAM
   }
 
   private func saveDirectoryName(forCoreID coreID: String) -> String {
-    let normalized = coreID.lowercased()
-    if normalized.contains("cemu") {
-      return "Cemu"
-    }
-    if normalized.contains("vita3k") {
-      return "Vita3K"
-    }
-    return "PPSSPP"
+    Self.directorySaveBundle(forCoreID: coreID)?.directoryName ?? "PPSSPP"
   }
 
   private func remoteSaves(
@@ -3247,6 +3314,79 @@ actor RomMLibraryService: LibraryServing {
     }
     let values = try? url.resourceValues(forKeys: [.fileSizeKey])
     return Int64(values?.fileSize ?? -1) == expectedSize
+  }
+
+  /// Whether a firmware requirement is already met in the platform directory.
+  ///
+  /// A file requirement must match its declared name and hashes. A directory
+  /// requirement is met when the folder holds at least one non-empty regular
+  /// file, because PS2 BIOS dumps have no canonical name and the core scans
+  /// the folder for any valid one.
+  private func isFirmwareRequirementSatisfied(
+    _ requirement: LibretroCoreManifest.Core.Firmware,
+    in directory: URL
+  ) -> Bool {
+    let target = directory.appending(path: requirement.fileName)
+    guard requirement.isDirectory == true else {
+      return isValidFirmware(at: target, requirement: requirement)
+    }
+
+    guard
+      let entries = try? FileManager.default.contentsOfDirectory(
+        at: target,
+        includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]
+      )
+    else {
+      return false
+    }
+
+    return entries.contains { url in
+      guard
+        let values = try? url.resourceValues(
+          forKeys: [.isRegularFileKey, .fileSizeKey]
+        )
+      else {
+        return false
+      }
+      return values.isRegularFile == true && (values.fileSize ?? 0) > 0
+    }
+  }
+
+  /// Verifies a downloaded firmware file and places it in `folder`.
+  ///
+  /// The name comes from the server for directory requirements, so only its
+  /// last path component is used: a firmware record cannot write outside the
+  /// folder it was fetched for.
+  private func installFirmware(
+    _ download: RomMDownload,
+    named fileName: String,
+    expectedSize: Int64,
+    expectedSHA1: String?,
+    into folder: URL
+  ) throws {
+    guard
+      isValidFirmwarePackage(
+        at: download.temporaryFileURL,
+        expectedSize: expectedSize,
+        expectedSHA1: expectedSHA1
+      )
+    else {
+      throw LibraryServiceError.invalidFirmware(fileName: fileName)
+    }
+
+    let name = URL(fileURLWithPath: fileName).lastPathComponent
+    guard !name.isEmpty, name != ".", name != ".." else {
+      throw LibraryServiceError.invalidFirmware(fileName: fileName)
+    }
+
+    let destination = folder.appending(path: name)
+    if FileManager.default.fileExists(atPath: destination.path) {
+      try FileManager.default.removeItem(at: destination)
+    }
+    try FileManager.default.moveItem(
+      at: download.temporaryFileURL,
+      to: destination
+    )
   }
 
   private func isValidFirmware(

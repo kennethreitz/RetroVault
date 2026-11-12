@@ -5,6 +5,50 @@ for additional releases on the same day. This changelog records notable
 user-facing and architectural changes and is intentionally curated rather than
 being a list of every commit.
 
+## 2026.11.11
+
+### Added
+
+- Experimental Vulkan hardware rendering for Libretro cores, backed by a
+  bundled MoltenVK 1.4.2 runtime. Cores can declare a `vulkanVideo`
+  capability; Settings → Emulation → "Prefer Vulkan for Vulkan-capable
+  cores" opts them into the shared Vulkan context and its CAMetalLayer
+  presentation.
+
+- Settings → Emulation → "Lowest latency (may tear)" disables display vsync
+  for Vulkan sessions, trading possible tearing for roughly one frame less
+  input latency.
+
+- Settings → Emulation → "Buffer PPSSPP frames" restores PPSSPP's upstream
+  one-frame render-ahead buffer. It is off by default for lower latency, and
+  can be turned on for smoother playback on demanding titles.
+
+- Experimental PlayStation 2 playback through the bundled LRPS2 core, with
+  ISO, CHD, CSO, ZSO, CUE, and M3U disc images. It renders through the
+  bundled Vulkan runtime, because Apple's OpenGL lacks a feature PCSX2's GL
+  renderer needs, so it uses Vulkan regardless of the "Prefer Vulkan"
+  setting. It needs a PS2 BIOS from the platform's RomM firmware records and
+  keeps per-game memory cards in each game's own RomM save bundle. Resume
+  works after a real disc saved and restored a state; rewind stays off,
+  because a 48 MB state cannot fit a useful history in its budget.
+
+### Changed
+
+- The Libretro core build allows 90 minutes in CI, because building the
+  catalog now includes a full PCSX2 build.
+
+- PPSSPP is pinned to the shared-context Vulkan backend
+  (`39205d99ad2ede48be878659f4021fda9e5ec858`, 2026-10-16). The previous
+  v1.20.4 libretro path could not present through a frontend-owned swapchain.
+
+- The experimental Vita3K engine and the Libretro Vulkan path share
+  MoltenVK 1.4.2. MoltenVK and the Vulkan/Libretro headers are fetched at
+  build time; their licenses are included in the app's acknowledgements.
+
+- Vulkan sessions tear down the core context before unloading the game and
+  destroy the device only afterwards. Audio is rendered from a ring buffer
+  with a small cushion, rather than scheduling one player buffer per frame.
+
 ## 2026.11.9 (2026-11-09)
 
 ### Changed

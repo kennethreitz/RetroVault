@@ -8,23 +8,22 @@ that floor in its compiler flags (`-mmacosx-version-min=15.0` or
 `minimumMacOS`. Rebuild cores after changing it; a dylib stamped 26.0 will
 not load on macOS 15.
 
-The manifest includes a content-free 2048 pipeline test, 26 reviewed
-user-facing cores, and 1 experimental core. The current catalog supports Game Boy, Game Boy Color,
+The manifest includes a content-free 2048 pipeline test, 25 reviewed
+user-facing cores, and 2 experimental cores. The current catalog supports Game Boy, Game Boy Color,
 Game Boy Advance, NES, SNES, Master System, Game Gear, SG-1000, Atari 2600,
 Atari 5200, Atari 7800, ColecoVision, Nintendo 64, Arcade, Virtual Boy, Neo Geo
 Pocket and Pocket Color, WonderSwan and WonderSwan Color, Pokémon Mini,
 PlayStation, Nintendo DS, PC Engine /
 TurboGrafx-16, SuperGrafx, PC Engine CD / TurboGrafx-CD, Genesis / Mega Drive,
 Sega CD / Mega CD, Sega 32X, DOS, Arduboy, Pico-8, GameCube, Wii, and PSP.
-Dreamcast is experimental and stays hidden until experimental cores are
-enabled in Settings.
+PlayStation 2 and Dreamcast are experimental and stay hidden until
+experimental cores are enabled in Settings.
 
-Nintendo 3DS is not supported. The only maintained libretro core, Azahar,
-ships Vulkan and software renderers and has dropped OpenGL; its Vulkan path
-asks the frontend for a Vulkan hardware context that this runtime does not
-provide, and being refused makes the core fail to load the game at all.
-Restoring 3DS support means adding a Vulkan render path, not re-adding the
-core.
+Nintendo 3DS is not supported yet. The maintained Azahar core ships Vulkan
+and software renderers and has dropped OpenGL on Apple platforms; the runtime
+now provides the Vulkan hardware context it needs behind the Vulkan
+preference, but Azahar is not in the catalog and its firmware, system-file,
+and input work is not done. Adding 3DS is a separate core-integration step.
 
 The test core proves source pinning, ARM64 compilation, license collection,
 hashing, signing, and the frontend lifecycle. User-facing cores additionally
@@ -90,6 +89,7 @@ Scripts/build-libretro-cores.sh --core libretro-arduous
 Scripts/build-libretro-cores.sh --core libretro-fake08
 Scripts/build-libretro-cores.sh --core libretro-dolphin
 Scripts/build-libretro-cores.sh --core libretro-ppsspp
+Scripts/build-libretro-cores.sh --core libretro-pcsx2
 ```
 
 Build release artifacts with a Developer ID identity:
@@ -196,8 +196,47 @@ RetroVault's reviewed integration patch records that expected condition in the
 Libretro log instead of drawing a long-lived warning over the game.
 
 PPSSPP provides PSP playback through the same hardware-rendering frontend and
-accepts ISO, CSO, PBP, CHD, ELF, and PRX content. Its pinned `assets` tree is
+accepts ISO, CSO, PBP, CHD, ELF, and PRX content. It also supports the Vulkan
+path described below: enable Settings → Emulation → "Prefer Vulkan for
+Vulkan-capable cores" to let it use MoltenVK instead of OpenGL. Its pinned `assets` tree is
 bundled under `System/PPSSPP`; these are redistributable emulator runtime
 assets, not PSP firmware or game content. The stable source pin carries
 PPSSPP's upstream macOS Core-profile context fix so its GLSL shaders and
 framebuffer presentation are correct on Apple silicon.
+
+LRPS2 provides PlayStation 2 playback and accepts ISO, CHD, CSO, ZSO, CUE,
+M3U, and related disc images. It runs on the Vulkan path: Apple's OpenGL
+stops at 4.1 without `GL_ARB_shading_language_420pack`, which PCSX2's GL
+renderer requires, so the core creates no GS device there and shows no
+picture. The entry therefore declares `requiresVulkan`, which offers it
+Vulkan whatever the "Prefer Vulkan" setting says, and pins its renderer to
+Vulkan. It is experimental: enable experimental cores and supply a BIOS
+dump. RetroVault has no filename for a PS2 BIOS to look for, so the manifest
+asks RomM for the platform's firmware records and installs them into a
+`pcsx2/bios` folder; any valid dump boots. PCSX2's shared memory card option
+is pinned off, so each game's cards live in its own RomM save bundle. Rewind
+is off, because a 48 MB state cannot fit a useful history in the rewind
+budget; Resume works, and was checked by saving and restoring a state from a
+real disc. The core links only system libraries, so it needs no bundled
+runtime assets.
+
+## Vulkan cores
+
+A core that wants the Vulkan hardware path declares the `vulkanVideo`
+capability in its manifest entry. Only those cores are offered
+`RETRO_HW_CONTEXT_VULKAN` from `GET_PREFERRED_HW_RENDER`; existing OpenGL
+cores keep their current context. The runtime embeds MoltenVK 1.4.2 at
+`Contents/Frameworks/libMoltenVK.dylib`, creates the swapchain on the
+player's `CAMetalLayer`, and presents the core's `set_image` frame with
+`vkCmdBlitImage`. The MTKView is not created for a Vulkan session.
+
+The content-free smoke core under `Tests/Fixtures/VulkanTestCore` is a
+development fixture built by `Scripts/build-vulkan-test-core.sh`. It is not
+listed in the catalog and is not exposed in the app; the runtime tests use
+it for manual harness work.
+
+Phase 1 limits: 8-bit RGBA/BGRA images only, nearest or linear blit (the
+Metal video filters are not applied), no cross-queue-family image handover,
+and no `create_device2` negotiation. `set_command_buffers`,
+`wait_sync_index`, queue locking, and signal semaphores are implemented, but
+the scoped cores currently use `set_image`.

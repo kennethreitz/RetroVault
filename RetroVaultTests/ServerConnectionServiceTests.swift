@@ -1420,6 +1420,228 @@ struct LibraryTests {
         #expect(try Data(contentsOf: cachedURL) == data)
     }
 
+    // PS2 BIOS dumps have no canonical filename, so the manifest asks for a
+    // folder and RomM's platform firmware records fill it. The core scans the
+    // folder for any valid BIOS.
+    @Test("Installs a PlayStation 2 BIOS folder from RomM firmware records")
+    func installsPlayStation2BIOSFolder() async throws {
+        let token = try ClientToken(
+            rawValue: "rmm_" + String(repeating: "b", count: 64)
+        )
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        func makeFirmware(
+            id: Int,
+            fileName: String,
+            contents: String,
+            isMissing: Bool = false
+        ) -> (RomMFirmware, Data) {
+            let data = Data(contents.utf8)
+            let sha1 = Insecure.SHA1.hash(data: data)
+                .map { String(format: "%02x", $0) }
+                .joined()
+            return (
+                RomMFirmware(
+                    id: id,
+                    fileName: fileName,
+                    fileSizeBytes: Int64(data.count),
+                    sha1Hash: sha1,
+                    isVerified: true,
+                    isMissingFromFileSystem: isMissing
+                ),
+                data
+            )
+        }
+
+        let bios = makeFirmware(
+            id: 1,
+            fileName: "scph39001.bin",
+            contents: "ps2 bios"
+        )
+        let erom = makeFirmware(id: 2, fileName: "EROM.BIN", contents: "erom")
+        // RomM exposes a record whose file is gone; it must be skipped.
+        let absent = makeFirmware(
+            id: 3,
+            fileName: "rom1.bin",
+            contents: "rom1",
+            isMissing: true
+        )
+        // A server-supplied name must not escape the BIOS folder.
+        let traversal = makeFirmware(
+            id: 4,
+            fileName: "../../evil.bin",
+            contents: "evil"
+        )
+
+        let api = MockRomMClient(
+            token: token,
+            user: RomMUser(id: 1, username: "kenneth", scopes: ["firmware.read"]),
+            firmwareFiles: [
+                bios.0: bios.1,
+                erom.0: erom.1,
+                absent.0: absent.1,
+                traversal.0: traversal.1,
+            ]
+        )
+        let requirement = LibretroCoreManifest.Core.Firmware(
+            id: "ps2-bios",
+            fileName: "pcsx2/bios",
+            description: "PlayStation 2 BIOS",
+            required: true,
+            sha256: [],
+            sha1: nil,
+            isDirectory: true
+        )
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let service = RomMLibraryService(
+            api: api,
+            credentialStore: credentials,
+            firmwareDirectory: directory
+        )
+
+        let systemDirectory = try #require(
+            try await service.prepareFirmwareForPlay(
+                for: 15,
+                requirements: [requirement],
+                in: session
+            )
+        )
+        let biosFolder = systemDirectory.appending(
+            path: "pcsx2/bios",
+            directoryHint: .isDirectory
+        )
+        #expect(try Data(contentsOf: biosFolder.appending(path: "scph39001.bin")) == bios.1)
+        #expect(try Data(contentsOf: biosFolder.appending(path: "EROM.BIN")) == erom.1)
+        #expect(try Data(contentsOf: biosFolder.appending(path: "evil.bin")) == traversal.1)
+        #expect(!FileManager.default.fileExists(atPath: biosFolder.appending(path: "rom1.bin").path))
+        #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "evil.bin").path))
+
+        // The cached folder keeps a prepared system playable while offline.
+        await credentials.removeToken()
+        let offlineService = RomMLibraryService(
+            api: MockRomMClient(
+                token: token,
+                user: RomMUser(id: 1, username: "kenneth", scopes: []),
+                firmwareFiles: [:]
+            ),
+            credentialStore: credentials,
+            firmwareDirectory: directory
+        )
+        let cachedDirectory = try await offlineService.prepareFirmwareForPlay(
+            for: 15,
+            requirements: [requirement],
+            in: session
+        )
+        #expect(cachedDirectory == systemDirectory)
+    }
+
+    @Test("Reports a PlayStation 2 BIOS folder that RomM cannot fill")
+    func reportsMissingPlayStation2BIOSFolder() async throws {
+        let token = try ClientToken(
+            rawValue: "rmm_" + String(repeating: "c", count: 64)
+        )
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let service = RomMLibraryService(
+            api: MockRomMClient(
+                token: token,
+                user: RomMUser(id: 1, username: "kenneth", scopes: ["firmware.read"]),
+                firmwareFiles: [:]
+            ),
+            credentialStore: credentials,
+            firmwareDirectory: directory
+        )
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+
+        await #expect(throws: LibraryServiceError.self) {
+            try await service.prepareFirmwareForPlay(
+                for: 15,
+                requirements: [
+                    .init(
+                        id: "ps2-bios",
+                        fileName: "pcsx2/bios",
+                        description: "PlayStation 2 BIOS",
+                        required: true,
+                        sha256: [],
+                        sha1: nil,
+                        isDirectory: true
+                    )
+                ],
+                in: session
+            )
+        }
+    }
+
+    // PCSX2 writes per-game memory cards into the save directory the runtime
+    // names, so one PS2 game's cards become one RomM artifact.
+    @Test("Keeps PlayStation 2 memory cards in a per-game bundle")
+    func keepsPlayStation2MemoryCardsPerGame() async throws {
+        let token = try ClientToken(
+            rawValue: "rmm_" + String(repeating: "d", count: 64)
+        )
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let api = SaveSyncMockRomMClient(token: token, availableSaves: [:])
+        let service = RomMLibraryService(
+            api: api,
+            credentialStore: credentials,
+            saveDirectory: directory
+        )
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let game = mockGameDetails(
+            id: 51_200,
+            fileName: "Gran Turismo 4 (USA).iso",
+            systemName: "PlayStation 2"
+        )
+        await api.setLatestGameDetails(game)
+
+        let prepared = try #require(
+            try await service.prepareCartridgeSaveForPlay(
+                game,
+                in: session,
+                emulator: "RetroVault",
+                coreID: "libretro-pcsx2"
+            )
+        )
+        #expect(prepared.effectiveStorage == .directoryBundle)
+        #expect(prepared.localSaveURL.lastPathComponent == "PCSX2")
+        #expect(prepared.uploadFileName == "Gran Turismo 4 (USA).ps2.zip")
+
+        let card = prepared.localSaveURL.appending(path: "Mcd001.ps2")
+        try Data("memory card".utf8).write(to: card)
+        #expect(
+            try await service.syncCartridgeSaveAfterPlay(prepared) == .uploaded
+        )
+        #expect(await api.uploadedFileNames == ["Gran Turismo 4 (USA).ps2.zip"])
+    }
+
     @Test("Discovers and caches Vita PUP firmware from RomM")
     func cachesVitaFirmwarePackages() async throws {
         let token = try ClientToken(

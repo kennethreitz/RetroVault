@@ -16,6 +16,13 @@ enum LibretroPlayerOrigin: String, Codable, Hashable, Sendable {
     case bigPicture
 }
 
+/// The video path a running core selected.
+enum LibretroHardwareRenderer: Equatable, Sendable {
+    case software
+    case openGL
+    case vulkan
+}
+
 struct LibretroRunRequest: Codable, Hashable, Sendable {
     let title: String
     let coreID: String
@@ -113,9 +120,16 @@ enum LibretroQuickStateRestorePolicy {
 enum LibretroQuickStateCompatibility {
     static let fingerprintFileName = "Quick.state.core"
 
+    /// Cores whose deserialized state can take the host down with it.
+    ///
     /// Dolphin can crash the host process while deserializing an otherwise
-    /// current state. Keep its durable memory-card saves, but do not offer a
-    /// Resume path until state restoration can be isolated from the app.
+    /// current state, so it keeps its durable memory-card saves but offers no
+    /// Resume until restoration can be isolated from the app.
+    ///
+    /// PS2 was held back on the same suspicion. A real disc then saved and
+    /// restored a 48 MB PCSX2 state without disturbing the session, so PS2
+    /// keeps Resume. Rewind stays off: one state that size cannot fit a
+    /// useful history in the rewind budget.
     static func isSupported(coreID: String) -> Bool {
         coreID.caseInsensitiveCompare("libretro-dolphin") != .orderedSame
     }
@@ -321,12 +335,41 @@ enum LibretroContentLoadingPolicy {
     }
 }
 
+/// Folders a core expects to exist beside its firmware before it starts.
+///
+/// PCSX2 writes its shader cache, settings, memory cards, and save states
+/// under `<system>/pcsx2` and reports a failure for each one it cannot
+/// create, so the runtime makes them first. A missing cache folder alone
+/// costs every launch a shader rebuild and logs an error.
+enum LibretroSystemLayout {
+    static func workingDirectories(
+        forCoreID coreID: String,
+        in systemDirectory: URL
+    ) -> [URL] {
+        guard coreID.caseInsensitiveCompare("libretro-pcsx2") == .orderedSame
+        else {
+            return []
+        }
+        let root = systemDirectory.appending(
+            path: "pcsx2",
+            directoryHint: .isDirectory
+        )
+        return ["cache", "inis", "memcards", "sstates"].map {
+            root.appending(path: $0, directoryHint: .isDirectory)
+        }
+    }
+}
+
 enum LibretroRewindPolicy {
     static func isEnabled(forCoreID coreID: String) -> Bool {
         let normalizedCoreID = coreID.lowercased()
+        // PS2 joins the exclusions: a PCSX2 state is tens of megabytes and
+        // its restore path is untested here, so a rewind buffer of them is
+        // both expensive and unsafe.
         return !normalizedCoreID.contains("n64")
             && !normalizedCoreID.contains("mupen64")
             && !normalizedCoreID.contains("dolphin")
+            && !normalizedCoreID.contains("pcsx2")
     }
 }
 
@@ -750,6 +793,56 @@ enum LibretroPlayerPreferences {
     static let opensInFullScreenKey =
         "libretro.player.opens-in-full-screen.v1"
     static let opensInFullScreenByDefault = false
+}
+
+/// Opt-in for the Vulkan hardware path.
+///
+/// A core still has to declare `vulkanVideo`; this preference only decides
+/// whether such a core is offered Vulkan instead of its OpenGL fallback.
+/// Off by default until the real-core checks have run on hardware.
+enum LibretroVulkanPreferences {
+    static let prefersVulkanKey = "libretro.vulkan.prefer.v1"
+    static let prefersVulkanByDefault = false
+    static let lowestLatencyKey = "libretro.vulkan.lowest-latency.v1"
+    static let lowestLatencyByDefault = false
+
+    static func prefersVulkan(
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        defaults.object(forKey: prefersVulkanKey) as? Bool
+            ?? prefersVulkanByDefault
+    }
+
+    /// Disables display vsync on the Vulkan layer. Lower input-to-photon
+    /// latency, at the cost of possible tearing.
+    static func usesLowestLatency(
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        defaults.object(forKey: lowestLatencyKey) as? Bool
+            ?? lowestLatencyByDefault
+    }
+}
+
+/// Decides whether a core is offered a Vulkan context.
+///
+/// `requiresVulkan` marks a core whose OpenGL path cannot work on this
+/// platform, so the preference only speaks for cores that could use either.
+/// PlayStation 2 is the first: Apple's OpenGL stops at 4.1 without
+/// `GL_ARB_shading_language_420pack`, which PCSX2's GL renderer needs.
+enum LibretroVulkanPolicy {
+    static func usesVulkan(
+        capabilities: Set<String>,
+        prefersVulkan: Bool,
+        hasMoltenVK: Bool
+    ) -> Bool {
+        guard
+            capabilities.contains("vulkanVideo"),
+            hasMoltenVK
+        else {
+            return false
+        }
+        return prefersVulkan || capabilities.contains("requiresVulkan")
+    }
 }
 
 enum LibretroTransportPreferences {
@@ -1723,6 +1816,9 @@ final class LibretroSession {
     let request: LibretroRunRequest
     let videoBuffer = LibretroVideoBuffer()
     let input = LibretroInputState()
+    /// Exists for the whole player lifetime: a Vulkan core needs its layer
+    /// before the phase changes to `.running`.
+    let vulkanSurface = LibretroVulkanSurface()
     private let displaySleep = DisplaySleepAssertion()
 
     private(set) var phase: Phase = .idle
@@ -1736,6 +1832,9 @@ final class LibretroSession {
     private(set) var canRewind = false
     private(set) var saveSyncPhase: SaveSyncPhase = .idle
     private(set) var shouldClosePlayer = false
+    /// Set before `.running`, so the player never creates the Metal view for
+    /// a Vulkan session.
+    private(set) var usesVulkanPresentation = false
 
     var allowsRewind: Bool {
         request.allowsRewind
@@ -1785,6 +1884,7 @@ final class LibretroSession {
             request: request,
             videoBuffer: videoBuffer,
             input: input,
+            vulkanSurface: vulkanSurface,
             installation: installation
         )
         hasQuickState = engine.hasQuickState
@@ -1999,8 +2099,14 @@ final class LibretroSession {
 
     private func receive(_ event: LibretroEngine.Event) {
         switch event {
-        case let .running(coreName, framesPerSecond):
+        case let .running(coreName, framesPerSecond, renderer):
+            usesVulkanPresentation = renderer == .vulkan
             phase = .running(coreName: coreName, framesPerSecond: framesPerSecond)
+            if renderer == .vulkan {
+                RetroVaultLog.libretro.notice(
+                    "Using the Vulkan hardware renderer"
+                )
+            }
             saveSyncPhase = .idle
             displaySleep.begin(reason: "Playing \(request.title)")
             RetroVaultLog.libretro.notice(
@@ -2278,7 +2384,7 @@ final class LibretroStagedContent {
     }
 }
 
-private enum LibretroABI {
+enum LibretroABI {
     static let apiVersion: UInt32 = 1
     static let joypadDevice = LibretroControllerDevice.joypad
     static let analogDevice: UInt32 = 5
@@ -2350,6 +2456,10 @@ private enum LibretroABI {
         case getTargetRefreshRate = 50
         case getInputBitmasks = 51
         case getPreferredHardwareRender = 56
+        /// `41 | RETRO_ENVIRONMENT_EXPERIMENTAL`.
+        case getHardwareRenderInterface = 65_577
+        /// `43 | RETRO_ENVIRONMENT_EXPERIMENTAL`.
+        case setHardwareRenderContextNegotiationInterface = 65_579
         /// `28 | RETRO_ENVIRONMENT_EXPERIMENTAL`, which is how `libretro.h`
         /// spells the sensor interface.
         case getSensorInterface = 65_564
@@ -2359,6 +2469,7 @@ private enum LibretroABI {
         case none = 0
         case openGL = 1
         case openGLCore = 3
+        case vulkan = 6
     }
 }
 
@@ -2383,13 +2494,13 @@ private typealias RetroSensorGetInputCallback =
     @convention(c) (UInt32, UInt32) -> Float
 private typealias RetroSetRumbleStateCallback =
     @convention(c) (UInt32, UInt32, UInt16) -> Bool
-private typealias RetroHardwareContextCallback =
+typealias RetroHardwareContextCallback =
     @convention(c) () -> Void
-private typealias RetroHardwareFramebufferCallback =
+typealias RetroHardwareFramebufferCallback =
     @convention(c) () -> UInt
-private typealias RetroHardwareProc =
+typealias RetroHardwareProc =
     @convention(c) () -> Void
-private typealias RetroHardwareProcAddressCallback =
+typealias RetroHardwareProcAddressCallback =
     @convention(c) (UnsafePointer<CChar>?) -> RetroHardwareProc?
 
 /// `struct retro_sensor_interface`, filled in for the core on request.
@@ -2404,7 +2515,7 @@ private struct RetroRumbleInterface {
     var setRumbleState: RetroSetRumbleStateCallback?
 }
 
-private struct RetroHardwareRenderCallback {
+struct RetroHardwareRenderCallback {
     var contextType: Int32
     var contextReset: RetroHardwareContextCallback?
     var getCurrentFramebuffer: RetroHardwareFramebufferCallback?
@@ -2837,8 +2948,21 @@ private final class LibretroCore {
 
 private final class LibretroAudioOutput: @unchecked Sendable {
     private let engine = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
+    private var sourceNode: AVAudioSourceNode?
     private var format: AVAudioFormat?
+    private var sampleRate: Double = 48_000
+
+    /// Interleaved stereo samples between the emulation thread and the audio
+    /// render thread. A small constant cushion keeps the audio clock ahead of
+    /// frame jitter without the player-node scheduling gaps.
+    private let lock = NSLock()
+    private var ring: [Float] = []
+    private var readIndex = 0
+    private var writeIndex = 0
+    private var available = 0
+    private var ringCapacity = 0
+    private static let cushionSeconds = 0.04
+
     private var individualSamples: [Int16] = []
     private var isUserMuted = false
     private var suppressesTransportAudio = false
@@ -2851,21 +2975,36 @@ private final class LibretroAudioOutput: @unchecked Sendable {
         guard sampleRate > 0 else {
             return
         }
-
-        let format = AVAudioFormat(
-            standardFormatWithSampleRate: sampleRate,
-            channels: 2
-        )
-        guard let format else {
+        guard
+            let format = AVAudioFormat(
+                standardFormatWithSampleRate: sampleRate,
+                channels: 2
+            )
+        else {
             throw LibretroRuntimeError.invalidSystemInformation
         }
 
         self.format = format
-        engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: format)
+        self.sampleRate = sampleRate
+        ringCapacity = max(Int(sampleRate) * 4, 4_096)
+        ring = Array(repeating: 0, count: ringCapacity)
+        resetRing(prefill: true)
+
+        let source = AVAudioSourceNode(format: format) {
+            [weak self] _, _, frameCount, audioBufferList in
+            guard let self else {
+                return noErr
+            }
+            return self.render(
+                frameCount: frameCount,
+                audioBufferList: audioBufferList
+            )
+        }
+        sourceNode = source
+        engine.attach(source)
+        engine.connect(source, to: engine.mainMixerNode, format: format)
         engine.prepare()
         try engine.start()
-        player.play()
     }
 
     func append(left: Int16, right: Int16) {
@@ -2876,17 +3015,20 @@ private final class LibretroAudioOutput: @unchecked Sendable {
         individualSamples.append(right)
         if individualSamples.count >= 1_024 {
             individualSamples.withUnsafeBufferPointer {
-                schedule(samples: $0.baseAddress, frames: $0.count / 2)
+                write(
+                    samples: $0.baseAddress,
+                    frames: $0.count / 2
+                )
             }
             individualSamples.removeAll(keepingCapacity: true)
         }
     }
 
     func append(samples: UnsafePointer<Int16>?, frames: Int) {
-        guard !suppressesAudio else {
+        guard !suppressesAudio, let samples, frames > 0 else {
             return
         }
-        schedule(samples: samples, frames: frames)
+        write(samples: samples, frames: frames)
     }
 
     func setTransportAudioSuppressed(_ shouldSuppressAudio: Bool) {
@@ -2907,50 +3049,106 @@ private final class LibretroAudioOutput: @unchecked Sendable {
 
     func discardPendingSamples() {
         individualSamples.removeAll(keepingCapacity: true)
+        resetRing(prefill: false)
     }
 
     func flush() {
         individualSamples.removeAll(keepingCapacity: true)
-        player.stop()
-        if engine.isRunning {
-            player.play()
-        }
+        resetRing(prefill: true)
     }
 
     func stop() {
-        if !individualSamples.isEmpty {
-            individualSamples.withUnsafeBufferPointer {
-                schedule(samples: $0.baseAddress, frames: $0.count / 2)
-            }
-            individualSamples.removeAll()
-        }
+        individualSamples.removeAll()
+        resetRing(prefill: false)
         isUserMuted = false
         suppressesTransportAudio = false
-        player.stop()
         engine.stop()
     }
 
-    private func schedule(samples: UnsafePointer<Int16>?, frames: Int) {
-        guard
-            frames > 0,
-            let samples,
-            let format,
-            let buffer = AVAudioPCMBuffer(
-                pcmFormat: format,
-                frameCapacity: AVAudioFrameCount(frames)
-            ),
-            let channels = buffer.floatChannelData
-        else {
+    private func resetRing(prefill: Bool) {
+        lock.lock()
+        readIndex = 0
+        writeIndex = 0
+        available = 0
+        if prefill, ringCapacity > 0 {
+            let frames = min(
+                Int(sampleRate * Self.cushionSeconds),
+                ringCapacity / 2
+            )
+            available = min(frames * 2, ringCapacity)
+            for index in 0 ..< available {
+                ring[index] = 0
+            }
+            writeIndex = available % ringCapacity
+        }
+        lock.unlock()
+    }
+
+    private func write(
+        samples: UnsafePointer<Int16>?,
+        frames: Int
+    ) {
+        guard let samples, frames > 0, ringCapacity > 0 else {
             return
         }
-
-        buffer.frameLength = AVAudioFrameCount(frames)
+        lock.lock()
         let scale = Float(Int16.max)
-        for index in 0 ..< frames {
-            channels[0][index] = Float(samples[index * 2]) / scale
-            channels[1][index] = Float(samples[index * 2 + 1]) / scale
+        for index in 0 ..< frames * 2 {
+            ring[writeIndex] = Float(samples[index]) / scale
+            writeIndex = (writeIndex + 1) % ringCapacity
+            if available < ringCapacity {
+                available += 1
+            } else {
+                readIndex = (readIndex + 1) % ringCapacity
+            }
         }
-        player.scheduleBuffer(buffer)
+        lock.unlock()
+    }
+
+    private func render(
+        frameCount: AVAudioFrameCount,
+        audioBufferList: UnsafeMutablePointer<AudioBufferList>
+    ) -> OSStatus {
+        let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+        guard
+            buffers.count >= 2,
+            let left = buffers[0].mData?
+                .assumingMemoryBound(to: Float.self),
+            let right = buffers[1].mData?
+                .assumingMemoryBound(to: Float.self)
+        else {
+            return noErr
+        }
+
+        let frames = Int(frameCount)
+        lock.lock()
+        let framesToCopy = min(frames, available / 2)
+        for frame in 0 ..< framesToCopy {
+            let offset = (readIndex + frame * 2) % ringCapacity
+            left[frame] = ring[offset]
+            right[frame] = ring[(offset + 1) % ringCapacity]
+        }
+        if framesToCopy > 0 {
+            readIndex = (readIndex + framesToCopy * 2) % ringCapacity
+            available -= framesToCopy * 2
+        }
+        lock.unlock()
+
+        if framesToCopy < frames {
+            let byteCount = (frames - framesToCopy)
+                * MemoryLayout<Float>.size
+            memset(
+                left.advanced(by: framesToCopy),
+                0,
+                byteCount
+            )
+            memset(
+                right.advanced(by: framesToCopy),
+                0,
+                byteCount
+            )
+        }
+        return noErr
     }
 }
 
@@ -3193,6 +3391,28 @@ private final class LibretroCStringStore {
     }
 }
 
+/// PPSSPP's render-ahead buffer.
+///
+/// "No buffer" lowers controller-to-photon latency; "Up to 1" restores the
+/// upstream one-frame buffer, which can be smoother on demanding titles.
+enum LibretroPPSSPPPreferences {
+    static let buffersFramesKey = "libretro.ppsspp.buffer-frames.v1"
+    static let buffersFramesByDefault = false
+
+    static func buffersFrames(
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        defaults.object(forKey: buffersFramesKey) as? Bool
+            ?? buffersFramesByDefault
+    }
+
+    static func inflightFrames(
+        defaults: UserDefaults = .standard
+    ) -> String {
+        buffersFrames(defaults: defaults) ? "Up to 1" : "No buffer"
+    }
+}
+
 enum LibretroCoreOptionPreferences {
     private static let values = [
         // DOSBox Pure's ARM64 dynamic recompiler allocates its code cache with
@@ -3239,6 +3459,19 @@ enum LibretroCoreOptionPreferences {
         // handing over one frame per call, and the frontend paces a 30 Hz
         // game at 60 Hz, running it at double speed.
         "reicast_detect_vsync_swap_interval": "enabled",
+
+        // PCSX2 keeps one memory card per game when this is off, and files
+        // it under the save directory the frontend handed the core. That is
+        // what lets RetroVault sync one PS2 game's card to RomM without
+        // another game's saves travelling with it. Shared cards live under
+        // the system directory instead, which belongs to the firmware cache.
+        "pcsx2_shared_memory_cards": "disabled",
+
+        // Apple's OpenGL tops out at 4.1 and lacks GL_ARB_shading_language_420pack,
+        // which PCSX2's GL renderer requires, so it cannot create a GS device
+        // on macOS. Auto would pick GL first and show nothing, so the Vulkan
+        // renderer is pinned.
+        "pcsx2_renderer": "Vulkan",
     ]
 
     /// Resolves the value to hand a core for `key`.
@@ -3254,6 +3487,9 @@ enum LibretroCoreOptionPreferences {
         availableValues: [String] = [],
         internalResolution: LibretroInternalResolution = .native
     ) -> String {
+        if key == "ppsspp_inflight_frames" {
+            return LibretroPPSSPPPreferences.inflightFrames()
+        }
         if let override = values[key] {
             return override
         }
@@ -3268,7 +3504,7 @@ enum LibretroCoreOptionPreferences {
     }
 }
 
-private final class LibretroEnvironment {
+final class LibretroEnvironment {
     private let strings = LibretroCStringStore()
     private let systemDirectory: UnsafePointer<CChar>
     private let saveDirectory: UnsafePointer<CChar>
@@ -3276,13 +3512,30 @@ private final class LibretroEnvironment {
     /// Read once when the session is built rather than per option, so a core
     /// cannot see the preference change midway through publishing its list.
     private let internalResolution: LibretroInternalResolution
+    private let capabilities: Set<String>
+    private let prefersVulkan: Bool
+    private let vulkanSurface: LibretroVulkanSurface
     private var variables: [String: UnsafePointer<CChar>] = [:]
     private(set) var wantsKeyboard = false
     private(set) var keyboardEvent: RetroKeyboardEventCallback?
     private var hardwareRenderer: LibretroOpenGLRenderer?
+    private var vulkanContext: LibretroVulkanContext?
     private var hardwareContextReset: RetroHardwareContextCallback?
     private var hardwareContextDestroy: RetroHardwareContextCallback?
     private var isHardwareContextActive = false
+    private(set) var hardwareRendererKind: LibretroHardwareRenderer = .software
+
+    var usesVulkan: Bool {
+        hardwareRendererKind == .vulkan
+    }
+
+    private var supportsVulkan: Bool {
+        LibretroVulkanPolicy.usesVulkan(
+            capabilities: capabilities,
+            prefersVulkan: prefersVulkan,
+            hasMoltenVK: LibretroVulkanContext.bundledLibraryURL != nil
+        )
+    }
 
     private(set) var pixelFormat = LibretroABI.PixelFormat.zeroRGB1555
     /// Updated by SET_GEOMETRY and SET_SYSTEM_AV_INFO, which N64 cores use to
@@ -3312,12 +3565,18 @@ private final class LibretroEnvironment {
         systemDirectory: URL,
         saveDirectory: URL,
         assetsDirectory: URL,
-        internalResolution: LibretroInternalResolution
+        internalResolution: LibretroInternalResolution,
+        capabilities: Set<String>,
+        prefersVulkan: Bool,
+        vulkanSurface: LibretroVulkanSurface
     ) {
         self.systemDirectory = strings.store(systemDirectory.path)
         self.saveDirectory = strings.store(saveDirectory.path)
         self.assetsDirectory = strings.store(assetsDirectory.path)
         self.internalResolution = internalResolution
+        self.capabilities = capabilities
+        self.prefersVulkan = prefersVulkan
+        self.vulkanSurface = vulkanSurface
     }
 
     func handle(command rawCommand: UInt32, data: UnsafeMutableRawPointer?) -> Bool {
@@ -3470,30 +3729,123 @@ private final class LibretroEnvironment {
                 return false
             }
             data.storeBytes(
-                of: LibretroABI.HardwareContext.openGLCore.rawValue,
+                of: (supportsVulkan
+                    ? LibretroABI.HardwareContext.vulkan
+                    : LibretroABI.HardwareContext.openGLCore
+                ).rawValue,
                 as: Int32.self
+            )
+            return true
+        case .getHardwareRenderInterface:
+            guard
+                let data,
+                let pointer = vulkanContext?.interfacePointer()
+            else {
+                return false
+            }
+            data.storeBytes(of: pointer, as: UnsafeMutableRawPointer?.self)
+            return true
+        case .setHardwareRenderContextNegotiationInterface:
+            guard let vulkanContext else {
+                return false
+            }
+            vulkanContext.setNegotiationInterface(
+                data.map { UnsafeRawPointer($0) }
             )
             return true
         }
     }
 
     func makeHardwareContextCurrent() {
+        guard !usesVulkan else {
+            return
+        }
         _ = hardwareRenderer?.makeCurrent()
     }
 
     func currentHardwareFramebuffer() -> UInt {
-        hardwareRenderer?.currentFramebuffer() ?? 0
+        guard !usesVulkan else {
+            return 0
+        }
+        return hardwareRenderer?.currentFramebuffer() ?? 0
     }
 
     func hardwareProcAddress(_ name: UnsafePointer<CChar>?) -> RetroHardwareProc? {
-        hardwareRenderer?.procAddress(name)
+        guard !usesVulkan else {
+            return nil
+        }
+        return hardwareRenderer?.procAddress(name)
     }
 
     func captureHardwareFrame(width: Int, height: Int) -> LibretroVideoFrame? {
-        hardwareRenderer?.capture(width: width, height: height)
+        guard !usesVulkan else {
+            return nil
+        }
+        return hardwareRenderer?.capture(width: width, height: height)
+    }
+
+    /// Presents the image the core handed over with `set_image`.
+    ///
+    /// Vulkan frames never enter the software readback path: the core image
+    /// is blitted straight to the swapchain.
+    /// Acquires the swapchain image before `retro_run`, so cores that call
+    /// `get_sync_index` during the frame see the image they will present.
+    func beginHardwareFrame() {
+        guard usesVulkan, let vulkanContext else {
+            return
+        }
+        vulkanContext.beginFrame()
+    }
+
+    func presentHardwareFrame(width: Int, height: Int) -> Bool {
+        guard let vulkanContext else {
+            return false
+        }
+        do {
+            try vulkanContext.present(
+                width: width,
+                height: height,
+                aspectRatio: requestedAspectRatio
+            )
+            return true
+        } catch {
+            RetroVaultLog.libretro.error(
+                """
+                Vulkan presentation failed: \
+                \(error.localizedDescription, privacy: .public)
+                """
+            )
+            return false
+        }
+    }
+
+    /// Tells a Vulkan core that its context is going away, while the device
+    /// and interface are still valid. PPSSPP deletes its graphics context in
+    /// `retro_unload_game`, so the callback has to run first.
+    func prepareForCoreUnload() {
+        guard usesVulkan, isHardwareContextActive else {
+            return
+        }
+        hardwareContextDestroy?()
+        hardwareContextReset = nil
+        hardwareContextDestroy = nil
+        isHardwareContextActive = false
     }
 
     func destroyHardwareRenderer() {
+        if let vulkanContext {
+            if isHardwareContextActive {
+                hardwareContextDestroy?()
+            }
+            hardwareContextReset = nil
+            hardwareContextDestroy = nil
+            isHardwareContextActive = false
+            vulkanContext.destroy()
+            self.vulkanContext = nil
+            hardwareRendererKind = .software
+            return
+        }
+
         guard hardwareRenderer != nil else {
             return
         }
@@ -3505,9 +3857,30 @@ private final class LibretroEnvironment {
         hardwareContextDestroy = nil
         isHardwareContextActive = false
         hardwareRenderer = nil
+        hardwareRendererKind = .software
     }
 
     func activateHardwareRenderer() -> Bool {
+        if let vulkanContext {
+            guard !isHardwareContextActive else {
+                return true
+            }
+            do {
+                try vulkanContext.start()
+            } catch {
+                RetroVaultLog.libretro.error(
+                    """
+                    Could not start Vulkan: \
+                    \(error.localizedDescription, privacy: .public)
+                    """
+                )
+                return false
+            }
+            hardwareContextReset?()
+            isHardwareContextActive = true
+            return true
+        }
+
         guard let hardwareRenderer else {
             return true
         }
@@ -3532,6 +3905,38 @@ private final class LibretroEnvironment {
         let callback = data.assumingMemoryBound(
             to: RetroHardwareRenderCallback.self
         )
+
+        if callback.pointee.contextType
+            == LibretroABI.HardwareContext.vulkan.rawValue
+        {
+            // The core asks during retro_load_game. The layer and the
+            // MoltenVK wrapper exist already; the instance and device wait
+            // until activateHardwareRenderer, after the load returns, so the
+            // negotiation interface is known.
+            guard supportsVulkan else {
+                return false
+            }
+            if vulkanContext == nil {
+                do {
+                    vulkanContext = try LibretroVulkanContext(
+                        surface: vulkanSurface
+                    )
+                } catch {
+                    RetroVaultLog.libretro.error(
+                        """
+                        Could not create the Vulkan context: \
+                        \(error.localizedDescription, privacy: .public)
+                        """
+                    )
+                    return false
+                }
+            }
+            hardwareRendererKind = .vulkan
+            hardwareContextReset = callback.pointee.contextReset
+            hardwareContextDestroy = callback.pointee.contextDestroy
+            return true
+        }
+
         guard
             callback.pointee.contextType
                 == LibretroABI.HardwareContext.openGLCore.rawValue,
@@ -3545,6 +3950,7 @@ private final class LibretroEnvironment {
         }
 
         hardwareRenderer = renderer
+        hardwareRendererKind = .openGL
         hardwareContextReset = callback.pointee.contextReset
         hardwareContextDestroy = callback.pointee.contextDestroy
         callback.pointee.getCurrentFramebuffer =
@@ -3556,6 +3962,7 @@ private final class LibretroEnvironment {
             hardwareContextReset = nil
             hardwareContextDestroy = nil
             hardwareRenderer = nil
+            hardwareRendererKind = .software
             return false
         }
         return true
@@ -3666,7 +4073,11 @@ private final class LibretroEnvironment {
 
 private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget {
     enum Event: Sendable {
-        case running(coreName: String, framesPerSecond: Double)
+        case running(
+            coreName: String,
+            framesPerSecond: Double,
+            hardwareRenderer: LibretroHardwareRenderer
+        )
         case stopped
         case failed(String)
         case controllerExitRequested
@@ -3713,6 +4124,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
     private let request: LibretroRunRequest
     private let videoBuffer: LibretroVideoBuffer
     private let inputState: LibretroInputState
+    private let vulkanSurface: LibretroVulkanSurface
     private let audioOutput = LibretroAudioOutput()
     private let queue = DispatchQueue(
         label: "org.kennethreitz.RetroVault.libretro",
@@ -3737,11 +4149,13 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
         request: LibretroRunRequest,
         videoBuffer: LibretroVideoBuffer,
         input: LibretroInputState,
+        vulkanSurface: LibretroVulkanSurface,
         installation: LibretroInstallation? = nil
     ) {
         self.request = request
         self.videoBuffer = videoBuffer
         inputState = input
+        self.vulkanSurface = vulkanSurface
         installationOverride = installation
 
         let paths = Self.paths(for: request)
@@ -3835,10 +4249,37 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
 
     func video(data: UnsafeRawPointer?, width: UInt32, height: UInt32, pitch: Int) {
         guard let data else {
+            // A Vulkan frame duplicate still consumes the swapchain image
+            // acquired before retro_run. Present the last image again so the
+            // image is not leaked and the picture stays on screen.
+            if environment?.usesVulkan == true {
+                _ = environment?.presentHardwareFrame(
+                    width: Int(width),
+                    height: Int(height)
+                )
+            }
             return
         }
 
         if UInt(bitPattern: data) == UInt.max {
+            if environment?.usesVulkan == true {
+                guard
+                    environment?.presentHardwareFrame(
+                        width: Int(width),
+                        height: Int(height)
+                    ) == true
+                else {
+                    stop()
+                    emit(
+                        .failed(
+                            "The Vulkan frame could not be presented."
+                        )
+                    )
+                    return
+                }
+                return
+            }
+
             guard
                 let frame = environment?.captureHardwareFrame(
                     width: Int(width),
@@ -4040,8 +4481,18 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 if persistSaveMemory(from: core) {
                     emit(.saveMemoryPersisted)
                 }
-                environment?.destroyHardwareRenderer()
-                core.unloadGame()
+                // context_destroy must run before retro_unload_game: PPSSPP
+                // deletes its graphics context during unload, and calling the
+                // callback afterwards dereferences freed state. The Vulkan
+                // device itself outlives both.
+                if environment?.usesVulkan == true {
+                    environment?.prepareForCoreUnload()
+                    core.unloadGame()
+                    environment?.destroyHardwareRenderer()
+                } else {
+                    environment?.destroyHardwareRenderer()
+                    core.unloadGame()
+                }
             } else {
                 environment?.destroyHardwareRenderer()
             }
@@ -4073,11 +4524,15 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                 throw LibretroRuntimeError.alreadyRunning
             }
 
+            let capabilities = Set(manifestCore.capabilities)
             let runtimeEnvironment = LibretroEnvironment(
                 systemDirectory: paths.system,
                 saveDirectory: paths.saves,
                 assetsDirectory: paths.assets,
-                internalResolution: .native
+                internalResolution: .native,
+                capabilities: capabilities,
+                prefersVulkan: LibretroVulkanPreferences.prefersVulkan(),
+                vulkanSurface: vulkanSurface
             )
             environment = runtimeEnvironment
 
@@ -4087,6 +4542,12 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             let systemInfo = try loadedCore.systemInfo()
             loadedCore.initialize()
             initialized = true
+
+            if capabilities.contains("vulkanVideo") {
+                // ARMSX2 opens MoltenVK from inside retro_load_game. Point
+                // its loader at the same library the frontend will use.
+                LibretroVulkanContext.prepareEnvironment()
+            }
             let needsFullPath = LibretroContentLoadingPolicy.needsFullPath(
                 coreID: request.coreID,
                 reportedByCore: systemInfo.needsFullPath
@@ -4200,7 +4661,8 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             emit(
                 .running(
                     coreName: "\(manifestCore.displayName) · \(systemInfo.name) \(systemInfo.version)",
-                    framesPerSecond: avInfo.framesPerSecond
+                    framesPerSecond: avInfo.framesPerSecond,
+                    hardwareRenderer: runtimeEnvironment.hardwareRendererKind
                 )
             )
             switch quickStateRestore {
@@ -4402,6 +4864,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                         )
                         if didRewind {
                             runtimeEnvironment.makeHardwareContextCurrent()
+                            runtimeEnvironment.beginHardwareFrame()
                             loadedCore.run()
                             audioOutput.flush()
                         }
@@ -4424,6 +4887,7 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
                     continue
                 }
                 runtimeEnvironment.makeHardwareContextCurrent()
+                runtimeEnvironment.beginHardwareFrame()
                 loadedCore.run()
                 achievements?.frame()
                 deliverAchievementNotices(
@@ -4878,7 +5342,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             paths.states,
             paths.assets,
             saveMemoryURL.deletingLastPathComponent(),
-        ] {
+        ] + LibretroSystemLayout.workingDirectories(
+            forCoreID: request.coreID,
+            in: paths.system
+        ) {
             try FileManager.default.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true

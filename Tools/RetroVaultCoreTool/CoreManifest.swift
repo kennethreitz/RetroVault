@@ -39,6 +39,10 @@ extension CoreManifest {
     enum Capability: String, Codable, CaseIterable, Sendable {
         case softwareVideo
         case hardwareVideo
+        case vulkanVideo
+        /// The core has no working OpenGL path on macOS, so the frontend
+        /// offers Vulkan whether or not the user prefers it.
+        case requiresVulkan
         case audio
         case retropad
         case keyboard
@@ -57,6 +61,7 @@ extension CoreManifest {
         let required: Bool
         let sha256: [String]
         let sha1: [String]?
+        let isDirectory: Bool?
     }
 
     struct Source: Codable, Sendable {
@@ -339,7 +344,13 @@ enum ManifestValidator {
         }
 
         for firmware in core.firmware {
-            guard isSlug(firmware.id), isSafeFileName(firmware.fileName) else {
+            // A directory requirement names a folder under the platform
+            // directory, so it is a relative path rather than a bare name.
+            let fileNameIsValid =
+                firmware.isDirectory == true
+                ? isSafeRelativePath(firmware.fileName, allowCurrentDirectory: false)
+                : isSafeFileName(firmware.fileName)
+            guard isSlug(firmware.id), fileNameIsValid else {
                 throw CoreToolError.validation(
                     "\(core.id) has an invalid firmware identifier or filename."
                 )

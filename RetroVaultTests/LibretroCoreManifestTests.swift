@@ -64,6 +64,86 @@ struct LibretroCoreManifestTests {
         )
     }
 
+    // A shared card set lives in the firmware cache, where one PS2 game's
+    // saves would travel with another's. Per-content cards land in the save
+    // directory the runtime hands the core, which is the RomM bundle.
+    @Test("Keeps PS2 memory cards per game")
+    func keepsPS2MemoryCardsPerGame() {
+        #expect(
+            LibretroCoreOptionPreferences.value(
+                for: "pcsx2_shared_memory_cards",
+                default: "enabled",
+                availableValues: ["disabled", "enabled"]
+            ) == "disabled"
+        )
+    }
+
+    // Apple's OpenGL stops at 4.1 without GL_ARB_shading_language_420pack,
+    // so PCSX2's GL renderer cannot create a device. The preference exists
+    // for cores that could use either path, not for one that has only one.
+    @Test("Offers Vulkan to a core that cannot use OpenGL")
+    func offersVulkanToVulkanOnlyCores() {
+        #expect(
+            LibretroVulkanPolicy.usesVulkan(
+                capabilities: ["vulkanVideo", "requiresVulkan"],
+                prefersVulkan: false,
+                hasMoltenVK: true
+            )
+        )
+        #expect(
+            !LibretroVulkanPolicy.usesVulkan(
+                capabilities: ["vulkanVideo", "requiresVulkan"],
+                prefersVulkan: true,
+                hasMoltenVK: false
+            )
+        )
+        #expect(
+            !LibretroVulkanPolicy.usesVulkan(
+                capabilities: ["vulkanVideo"],
+                prefersVulkan: false,
+                hasMoltenVK: true
+            )
+        )
+        #expect(
+            LibretroVulkanPolicy.usesVulkan(
+                capabilities: ["vulkanVideo"],
+                prefersVulkan: true,
+                hasMoltenVK: true
+            )
+        )
+        #expect(
+            !LibretroVulkanPolicy.usesVulkan(
+                capabilities: ["hardwareVideo"],
+                prefersVulkan: true,
+                hasMoltenVK: true
+            )
+        )
+    }
+
+    @Test("Prepares PCSX2's writable folders only for the PS2 core")
+    func preparesPCSX2WorkingFolders() throws {
+        let system = URL(fileURLWithPath: "/tmp/ps2-system")
+        let directories = LibretroSystemLayout.workingDirectories(
+            forCoreID: "libretro-pcsx2",
+            in: system
+        )
+        #expect(
+            directories.map(\.lastPathComponent)
+                == ["cache", "inis", "memcards", "sstates"]
+        )
+        #expect(
+            directories.allSatisfy {
+                $0.deletingLastPathComponent().lastPathComponent == "pcsx2"
+            }
+        )
+        #expect(
+            LibretroSystemLayout.workingDirectories(
+                forCoreID: "libretro-ppsspp",
+                in: system
+            ).isEmpty
+        )
+    }
+
     @Test("Attaches a Memory Pak to the first N64 controller")
     func attachesNintendo64MemoryPak() {
         #expect(
@@ -393,7 +473,7 @@ struct LibretroCoreManifestTests {
         #expect(supports("Pico-8"))
         // Offered only by experimental cores.
         #expect(!supports("Dreamcast"))
-        #expect(!manifest.supportsSystem(named: "PlayStation 2"))
+        #expect(!supports("PlayStation 2"))
 
         // With experimental cores switched on, Dreamcast becomes playable.
         #expect(
@@ -402,6 +482,71 @@ struct LibretroCoreManifestTests {
                 includingExperimental: true
             )
         )
+        #expect(
+            manifest.supportsSystem(
+                named: "PlayStation 2",
+                includingExperimental: true
+            )
+        )
+    }
+
+    // RomM reports the PS2 platform as "PlayStation 2". The generic slug
+    // fallback would turn that into "playstation-2", which no core declares.
+    @Test("Matches PlayStation 2 games to LRPS2")
+    func matchesPlayStation2Games() throws {
+        let manifestURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Libretro/CoreManifest.json")
+        let manifest = try JSONDecoder().decode(
+            LibretroCoreManifest.self,
+            from: Data(contentsOf: manifestURL)
+        )
+
+        for systemName in ["PlayStation 2", "Sony PlayStation 2", "PS2"] {
+            #expect(
+                manifest.compatibleCore(
+                    systemName: systemName,
+                    fileExtension: "iso",
+                    includingExperimental: true
+                )?.id == "libretro-pcsx2",
+                "expected LRPS2 for \(systemName)"
+            )
+        }
+
+        for fileExtension in ["iso", "chd", "cso", "zso", "m3u", "elf"] {
+            #expect(
+                manifest.compatibleCore(
+                    systemName: "PlayStation 2",
+                    fileExtension: fileExtension,
+                    includingExperimental: true
+                ) != nil,
+                "expected a core for .\(fileExtension)"
+            )
+        }
+
+        // The PS1 mapping must not swallow PlayStation 2, or the reverse.
+        #expect(
+            manifest.compatibleCore(
+                systemName: "PlayStation",
+                fileExtension: "chd",
+                includingExperimental: true
+            )?.id == "libretro-pcsx-rearmed"
+        )
+
+        let core = try #require(manifest.core(id: "libretro-pcsx2"))
+        #expect(core.status == .experimental)
+        #expect(core.systems == ["ps2"])
+        #expect(core.binaryName == "pcsx2_libretro.dylib")
+        // No OpenGL path works on macOS, so the core must be given Vulkan.
+        #expect(core.capabilities.contains("vulkanVideo"))
+        #expect(core.capabilities.contains("requiresVulkan"))
+        #expect(!core.capabilities.contains("hardwareVideo"))
+        // PS2 BIOS dumps have no canonical name, so the core asks for a folder.
+        #expect(core.firmware.count == 1)
+        #expect(core.firmware.first?.fileName == "pcsx2/bios")
+        #expect(core.firmware.first?.isDirectory == true)
+        #expect(core.firmware.first?.required == true)
     }
 
     // 3DS support was removed: Azahar only offers Vulkan and Software
@@ -997,6 +1142,15 @@ struct LibretroCoreManifestTests {
             switch session.phase {
             case .running:
                 didStart = true
+                // A Vulkan session presents into its CAMetalLayer rather
+                // than the software video buffer; the environment tests
+                // cover that path.
+                if session.usesVulkanPresentation {
+                    // Give the core's render thread time to submit its first
+                    // real frame; a crash here fails the test.
+                    try await Task.sleep(for: .seconds(2))
+                    return
+                }
                 if let frame = session.videoBuffer.snapshot() {
                     #expect(frame.width > 0)
                     #expect(frame.height > 0)
@@ -1162,8 +1316,7 @@ struct LibretroCoreManifestTests {
 
     @Test("Runs a PlayStation smoke-test image when one is provided")
     @MainActor
-    func runsPlayStationSmokeTestImage() async throws {
-        guard
+    func runsPlayStationSmokeTestImage() async throws {        guard
             let path = ProcessInfo.processInfo.environment[
                 "RETROVAULT_PLAYSTATION_TEST_ROM"
             ],
@@ -1224,6 +1377,163 @@ struct LibretroCoreManifestTests {
                 ? "PCSX-ReARMed returned no visible frame within 30 seconds."
                 : "PCSX-ReARMed did not start within 30 seconds."
         )
+    }
+
+    /// The PS2 launch harness.
+    ///
+    /// PCSX2 needs a BIOS before it will boot anything, and a BIOS dump has
+    /// no fixed name, so the harness takes the dump directly and lays out the
+    /// `pcsx2/bios` folder the core scans:
+    ///
+    /// ```sh
+    /// RETROVAULT_PS2_TEST_ROM="/path/game.iso" \
+    /// RETROVAULT_PS2_TEST_BIOS="/path/scph39001.bin" \
+    ///   swift test --filter PlayStation2Smoke
+    /// ```
+    ///
+    /// It runs the Vulkan path, which is the only one that works here, so
+    /// `RETROVAULT_MOLTENVK_PATH` must point at a MoltenVK build when the
+    /// test is run outside Xcode. Nothing here is committed with real
+    /// content.
+    @Test("Runs a PlayStation 2 smoke-test image when one is provided")
+    @MainActor
+    func runsPlayStation2SmokeTestImage() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard
+            let path = environment["RETROVAULT_PS2_TEST_ROM"],
+            FileManager.default.fileExists(atPath: path),
+            let biosPath = environment["RETROVAULT_PS2_TEST_BIOS"],
+            FileManager.default.fileExists(atPath: biosPath)
+        else {
+            return
+        }
+
+        // The core looks for <system>/pcsx2/bios and accepts any dump name.
+        let systemRoot = FileManager.default.temporaryDirectory
+            .appending(
+                path: "ps2-smoke-\(UUID().uuidString)",
+                directoryHint: .isDirectory
+            )
+        let biosFolder = systemRoot.appending(
+            path: "pcsx2/bios",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: biosFolder,
+            withIntermediateDirectories: true
+        )
+        defer {
+            try? FileManager.default.removeItem(at: systemRoot)
+        }
+        try FileManager.default.copyItem(
+            at: URL(fileURLWithPath: biosPath),
+            to: biosFolder.appending(
+                path: URL(fileURLWithPath: biosPath).lastPathComponent
+            )
+        )
+
+        let repositoryURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let coresDirectory = environment["RETROVAULT_TEST_CORES_DIRECTORY"]
+            .map(URL.init(fileURLWithPath:))
+            ?? repositoryURL.appending(
+                path: "Build/LibretroCores/Cores",
+                directoryHint: .isDirectory
+            )
+        let installation = try LibretroInstallation(
+            manifestURL: repositoryURL.appending(
+                path: "Libretro/CoreManifest.json"
+            ),
+            coresDirectory: coresDirectory
+        )
+        let session = LibretroSession(
+            request: LibretroRunRequest(
+                title: "PlayStation 2 Integration Test",
+                coreID: "libretro-pcsx2",
+                contentURL: URL(fileURLWithPath: path),
+                systemDirectory: systemRoot
+            ),
+            installation: installation
+        )
+        session.start()
+        defer {
+            session.stop()
+        }
+
+        var didStart = false
+        var sawFrame = false
+        launch: for _ in 0..<600 {
+            switch session.phase {
+            case .running:
+                didStart = true
+                // A Vulkan session presents into its CAMetalLayer rather
+                // than the software video buffer; the environment tests
+                // cover that path.
+                if session.usesVulkanPresentation {
+                    try await Task.sleep(for: .seconds(2))
+                    sawFrame = true
+                } else if let frame = session.videoBuffer.snapshot(),
+                          containsVisiblePixels(frame) {
+                    sawFrame = true
+                }
+                if sawFrame {
+                    break launch
+                }
+            case let .failed(message):
+                Issue.record("LRPS2 failed to start: \(message)")
+                return
+            case .idle, .starting, .stopped:
+                break
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+
+        guard sawFrame else {
+            Issue.record(
+                didStart
+                    ? "LRPS2 returned no visible frame within 60 seconds."
+                    : "LRPS2 did not start within 60 seconds."
+            )
+            return
+        }
+
+        // Proves the quick-state exclusion can be lifted for PS2: a restore
+        // either leaves the core running or takes the process down, and a
+        // crash fails this test run outright.
+        guard environment["RETROVAULT_PS2_TEST_QUICK_STATE"] == "1" else {
+            return
+        }
+
+        session.saveQuickState()
+        var saved = false
+        for _ in 0..<200 {
+            if session.hasQuickState {
+                saved = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        #expect(saved, "LRPS2 did not save a quick state.")
+
+        try await Task.sleep(for: .seconds(2))
+        session.loadQuickState()
+
+        var restored = false
+        for _ in 0..<200 {
+            if session.message == "Quick state restored." {
+                restored = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        #expect(restored, "LRPS2 did not restore the quick state: \(session.message ?? "no message")")
+
+        try await Task.sleep(for: .seconds(2))
+        guard case .running = session.phase else {
+            Issue.record("LRPS2 stopped after restoring a quick state.")
+            return
+        }
     }
 
     @Test("Stages long full-path content with adjacent disc files")
@@ -1687,6 +1997,24 @@ struct LibretroCoreManifestTests {
         #expect(
             !LibretroRewindPolicy.isEnabled(
                 forCoreID: "libretro-dolphin"
+            )
+        )
+        // A real PS2 disc saved and restored a 48 MB PCSX2 state without
+        // taking the session down, so Resume is offered; rewind is not,
+        // because that state size cannot fit a useful history.
+        #expect(
+            !LibretroRewindPolicy.isEnabled(
+                forCoreID: "libretro-pcsx2"
+            )
+        )
+        #expect(
+            LibretroQuickStateCompatibility.isSupported(
+                coreID: "libretro-pcsx2"
+            )
+        )
+        #expect(
+            LibretroQuickStateCompatibility.isSupported(
+                coreID: "libretro-ppsspp"
             )
         )
         #expect(
