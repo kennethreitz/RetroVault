@@ -1585,7 +1585,17 @@
         "serialization",
         "diskControl"
       ],
-      "firmware": [],
+      "firmware": [
+        {
+          "id": "ps2-bios",
+          "fileName": "pcsx2/bios",
+          "description": "PlayStation 2 BIOS dump. Any valid PS2 BIOS works; RomM serves the platform's firmware records into this folder.",
+          "required": true,
+          "sha256": [],
+          "sha1": null,
+          "isDirectory": true
+        }
+      ],
       "source": {
         "repository": "https://github.com/libretro/parallel-ps2.git",
         "revision": "5d07b2dc444e4d8ac5cb301ac7c8c9b9eedccd95",

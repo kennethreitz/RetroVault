@@ -459,7 +459,11 @@ struct LibretroCoreManifestTests {
         #expect(core.systems == ["ps2"])
         #expect(core.binaryName == "pcsx2_libretro.dylib")
         #expect(core.capabilities.contains("hardwareVideo"))
-        #expect(core.firmware.isEmpty)
+        // PS2 BIOS dumps have no canonical name, so the core asks for a folder.
+        #expect(core.firmware.count == 1)
+        #expect(core.firmware.first?.fileName == "pcsx2/bios")
+        #expect(core.firmware.first?.isDirectory == true)
+        #expect(core.firmware.first?.required == true)
     }
 
     // 3DS support was removed: Azahar only offers Vulkan and Software

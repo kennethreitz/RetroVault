@@ -52,6 +52,29 @@ struct LibretroCoreManifest: Decodable, Sendable {
             let required: Bool
             let sha256: [String]
             let sha1: [String]?
+            /// A requirement that is a directory holding any valid files
+            /// rather than one exact filename. PS2 BIOS dumps have no
+            /// canonical name, so a core asks for `pcsx2/bios` and accepts
+            /// whatever the platform's firmware records provide.
+            let isDirectory: Bool?
+
+            init(
+                id: String,
+                fileName: String,
+                description: String,
+                required: Bool,
+                sha256: [String],
+                sha1: [String]?,
+                isDirectory: Bool? = nil
+            ) {
+                self.id = id
+                self.fileName = fileName
+                self.description = description
+                self.required = required
+                self.sha256 = sha256
+                self.sha1 = sha1
+                self.isDirectory = isDirectory
+            }
         }
     }
 
