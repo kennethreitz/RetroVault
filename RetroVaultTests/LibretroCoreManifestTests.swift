@@ -393,7 +393,7 @@ struct LibretroCoreManifestTests {
         #expect(supports("Pico-8"))
         // Offered only by experimental cores.
         #expect(!supports("Dreamcast"))
-        #expect(!manifest.supportsSystem(named: "PlayStation 2"))
+        #expect(!supports("PlayStation 2"))
 
         // With experimental cores switched on, Dreamcast becomes playable.
         #expect(
@@ -402,6 +402,64 @@ struct LibretroCoreManifestTests {
                 includingExperimental: true
             )
         )
+        #expect(
+            manifest.supportsSystem(
+                named: "PlayStation 2",
+                includingExperimental: true
+            )
+        )
+    }
+
+    // RomM reports the PS2 platform as "PlayStation 2". The generic slug
+    // fallback would turn that into "playstation-2", which no core declares.
+    @Test("Matches PlayStation 2 games to LRPS2")
+    func matchesPlayStation2Games() throws {
+        let manifestURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Libretro/CoreManifest.json")
+        let manifest = try JSONDecoder().decode(
+            LibretroCoreManifest.self,
+            from: Data(contentsOf: manifestURL)
+        )
+
+        for systemName in ["PlayStation 2", "Sony PlayStation 2", "PS2"] {
+            #expect(
+                manifest.compatibleCore(
+                    systemName: systemName,
+                    fileExtension: "iso",
+                    includingExperimental: true
+                )?.id == "libretro-pcsx2",
+                "expected LRPS2 for \(systemName)"
+            )
+        }
+
+        for fileExtension in ["iso", "chd", "cso", "zso", "m3u", "elf"] {
+            #expect(
+                manifest.compatibleCore(
+                    systemName: "PlayStation 2",
+                    fileExtension: fileExtension,
+                    includingExperimental: true
+                ) != nil,
+                "expected a core for .\(fileExtension)"
+            )
+        }
+
+        // The PS1 mapping must not swallow PlayStation 2, or the reverse.
+        #expect(
+            manifest.compatibleCore(
+                systemName: "PlayStation",
+                fileExtension: "chd",
+                includingExperimental: true
+            )?.id == "libretro-pcsx-rearmed"
+        )
+
+        let core = try #require(manifest.core(id: "libretro-pcsx2"))
+        #expect(core.status == .experimental)
+        #expect(core.systems == ["ps2"])
+        #expect(core.binaryName == "pcsx2_libretro.dylib")
+        #expect(core.capabilities.contains("hardwareVideo"))
+        #expect(core.firmware.isEmpty)
     }
 
     // 3DS support was removed: Azahar only offers Vulkan and Software

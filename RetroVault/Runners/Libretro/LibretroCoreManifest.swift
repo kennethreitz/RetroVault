@@ -186,6 +186,8 @@ struct LibretroCoreManifest: Decodable, Sendable {
             "pokemon-mini"
         case "playstation", "playstation 1", "sony playstation", "ps1", "psx":
             "psx"
+        case "playstation 2", "sony playstation 2", "ps2":
+            "ps2"
         case "playstation portable", "sony playstation portable", "psp":
             "psp"
         case "pc engine", "nec pc engine", "turbografx-16", "turbografx 16",
