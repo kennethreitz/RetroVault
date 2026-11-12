@@ -195,7 +195,9 @@ RetroVault's reviewed integration patch records that expected condition in the
 Libretro log instead of drawing a long-lived warning over the game.
 
 PPSSPP provides PSP playback through the same hardware-rendering frontend and
-accepts ISO, CSO, PBP, CHD, ELF, and PRX content. Its pinned `assets` tree is
+accepts ISO, CSO, PBP, CHD, ELF, and PRX content. It also supports the Vulkan
+path described below: enable Settings → Emulation → "Prefer Vulkan for
+Vulkan-capable cores" to let it use MoltenVK instead of OpenGL. Its pinned `assets` tree is
 bundled under `System/PPSSPP`; these are redistributable emulator runtime
 assets, not PSP firmware or game content. The stable source pin carries
 PPSSPP's upstream macOS Core-profile context fix so its GLSL shaders and

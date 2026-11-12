@@ -1299,6 +1299,7 @@
       ],
       "capabilities": [
         "hardwareVideo",
+        "vulkanVideo",
         "audio",
         "retropad",
         "serialization",
@@ -1313,10 +1314,7 @@
       ],
       "source": {
         "repository": "https://github.com/hrydgard/ppsspp.git",
-        "revision": "fa50bb1976065c4f8b1b47af227d367fe9771555",
-        "patches": [
-          "77045b89ad0f5a2ff4757546e6a675553c69400c"
-        ],
+        "revision": "39205d99ad2ede48be878659f4021fda9e5ec858",
         "licenseFile": "LICENSE.TXT",
         "submodules": [
           "libretro/libretro-common",
@@ -1329,7 +1327,6 @@
           "ext/zstd",
           "ext/cpu_features",
           "ext/rcheevos",
-          "ext/naett",
           "ext/libchdr",
           "ext/OpenXR-SDK",
           "ext/lua",
@@ -1357,6 +1354,10 @@
             "-DCMAKE_BUILD_TYPE=Release",
             "-DCMAKE_OSX_ARCHITECTURES=arm64",
             "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0",
+            "-DCMAKE_C_COMPILER=/usr/bin/clang",
+            "-DCMAKE_CXX_COMPILER=/usr/bin/clang++",
+            "-DCMAKE_OBJC_COMPILER=/usr/bin/clang",
+            "-DCMAKE_OBJCXX_COMPILER=/usr/bin/clang++",
             "-DUSE_SYSTEM_LIBPNG=OFF",
             "-DUSE_DISCORD=OFF",
             "-DUSE_MINIUPNPC=OFF",

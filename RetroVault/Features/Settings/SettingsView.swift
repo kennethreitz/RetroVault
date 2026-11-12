@@ -26,6 +26,9 @@ struct SettingsView: View {
     @AppStorage(LibretroVulkanPreferences.lowestLatencyKey)
     private var lowestVulkanLatency =
         LibretroVulkanPreferences.lowestLatencyByDefault
+    @AppStorage(LibretroPPSSPPPreferences.buffersFramesKey)
+    private var ppssppBuffersFrames =
+        LibretroPPSSPPPreferences.buffersFramesByDefault
     @AppStorage(LibretroPlayerPreferences.opensInFullScreenKey)
     private var opensGamesInFullScreen =
         LibretroPlayerPreferences.opensInFullScreenByDefault
@@ -239,6 +242,22 @@ struct SettingsView: View {
                     Turns off display vsync for Vulkan games. This shaves \
                     roughly a frame of input latency at the cost of possible \
                     tearing. Restart the game after changing it.
+                    """
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                Toggle(
+                    "Buffer PPSSPP frames",
+                    isOn: $ppssppBuffersFrames
+                )
+
+                Text(
+                    """
+                    Off is the default: PPSSPP renders without its one-frame \
+                    buffer, which lowers input latency. On restores the \
+                    upstream buffer, which can be smoother on demanding \
+                    titles. Restart the game after changing it.
                     """
                 )
                 .font(.caption)
