@@ -40,7 +40,9 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: validate
     runs-on: macos-26
-    timeout-minutes: 30
+    # PCSX2 alone is a full emulator build; 30 minutes is not enough for the
+    # whole catalog on a three-core runner.
+    timeout-minutes: 90
 
     steps:
       - name: Check out RetroVault
