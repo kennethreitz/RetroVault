@@ -40,6 +40,9 @@ extension CoreManifest {
         case softwareVideo
         case hardwareVideo
         case vulkanVideo
+        /// The core has no working OpenGL path on macOS, so the frontend
+        /// offers Vulkan whether or not the user prefers it.
+        case requiresVulkan
         case audio
         case retropad
         case keyboard

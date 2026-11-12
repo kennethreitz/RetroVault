@@ -78,6 +78,72 @@ struct LibretroCoreManifestTests {
         )
     }
 
+    // Apple's OpenGL stops at 4.1 without GL_ARB_shading_language_420pack,
+    // so PCSX2's GL renderer cannot create a device. The preference exists
+    // for cores that could use either path, not for one that has only one.
+    @Test("Offers Vulkan to a core that cannot use OpenGL")
+    func offersVulkanToVulkanOnlyCores() {
+        #expect(
+            LibretroVulkanPolicy.usesVulkan(
+                capabilities: ["vulkanVideo", "requiresVulkan"],
+                prefersVulkan: false,
+                hasMoltenVK: true
+            )
+        )
+        #expect(
+            !LibretroVulkanPolicy.usesVulkan(
+                capabilities: ["vulkanVideo", "requiresVulkan"],
+                prefersVulkan: true,
+                hasMoltenVK: false
+            )
+        )
+        #expect(
+            !LibretroVulkanPolicy.usesVulkan(
+                capabilities: ["vulkanVideo"],
+                prefersVulkan: false,
+                hasMoltenVK: true
+            )
+        )
+        #expect(
+            LibretroVulkanPolicy.usesVulkan(
+                capabilities: ["vulkanVideo"],
+                prefersVulkan: true,
+                hasMoltenVK: true
+            )
+        )
+        #expect(
+            !LibretroVulkanPolicy.usesVulkan(
+                capabilities: ["hardwareVideo"],
+                prefersVulkan: true,
+                hasMoltenVK: true
+            )
+        )
+    }
+
+    @Test("Prepares PCSX2's writable folders only for the PS2 core")
+    func preparesPCSX2WorkingFolders() throws {
+        let system = URL(fileURLWithPath: "/tmp/ps2-system")
+        let directories = LibretroSystemLayout.workingDirectories(
+            forCoreID: "libretro-pcsx2",
+            in: system
+        )
+        #expect(
+            directories.map(\.lastPathComponent)
+                == ["cache", "inis", "memcards", "sstates"]
+        )
+        #expect(
+            directories.allSatisfy {
+                $0.deletingLastPathComponent().lastPathComponent == "pcsx2"
+            }
+        )
+        #expect(
+            LibretroSystemLayout.workingDirectories(
+                forCoreID: "libretro-ppsspp",
+                in: system
+            ).isEmpty
+        )
+    }
+
     @Test("Attaches a Memory Pak to the first N64 controller")
     func attachesNintendo64MemoryPak() {
         #expect(
@@ -472,7 +538,10 @@ struct LibretroCoreManifestTests {
         #expect(core.status == .experimental)
         #expect(core.systems == ["ps2"])
         #expect(core.binaryName == "pcsx2_libretro.dylib")
-        #expect(core.capabilities.contains("hardwareVideo"))
+        // No OpenGL path works on macOS, so the core must be given Vulkan.
+        #expect(core.capabilities.contains("vulkanVideo"))
+        #expect(core.capabilities.contains("requiresVulkan"))
+        #expect(!core.capabilities.contains("hardwareVideo"))
         // PS2 BIOS dumps have no canonical name, so the core asks for a folder.
         #expect(core.firmware.count == 1)
         #expect(core.firmware.first?.fileName == "pcsx2/bios")
@@ -1394,6 +1463,13 @@ struct LibretroCoreManifestTests {
             switch session.phase {
             case .running:
                 didStart = true
+                // A Vulkan session presents into its CAMetalLayer rather
+                // than the software video buffer; the environment tests
+                // cover that path.
+                if session.usesVulkanPresentation {
+                    try await Task.sleep(for: .seconds(2))
+                    return
+                }
                 if let frame = session.videoBuffer.snapshot(),
                    containsVisiblePixels(frame) {
                     return

@@ -330,6 +330,31 @@ enum LibretroContentLoadingPolicy {
     }
 }
 
+/// Folders a core expects to exist beside its firmware before it starts.
+///
+/// PCSX2 writes its shader cache, settings, memory cards, and save states
+/// under `<system>/pcsx2` and reports a failure for each one it cannot
+/// create, so the runtime makes them first. A missing cache folder alone
+/// costs every launch a shader rebuild and logs an error.
+enum LibretroSystemLayout {
+    static func workingDirectories(
+        forCoreID coreID: String,
+        in systemDirectory: URL
+    ) -> [URL] {
+        guard coreID.caseInsensitiveCompare("libretro-pcsx2") == .orderedSame
+        else {
+            return []
+        }
+        let root = systemDirectory.appending(
+            path: "pcsx2",
+            directoryHint: .isDirectory
+        )
+        return ["cache", "inis", "memcards", "sstates"].map {
+            root.appending(path: $0, directoryHint: .isDirectory)
+        }
+    }
+}
+
 enum LibretroRewindPolicy {
     static func isEnabled(forCoreID coreID: String) -> Bool {
         let normalizedCoreID = coreID.lowercased()
@@ -790,6 +815,28 @@ enum LibretroVulkanPreferences {
     ) -> Bool {
         defaults.object(forKey: lowestLatencyKey) as? Bool
             ?? lowestLatencyByDefault
+    }
+}
+
+/// Decides whether a core is offered a Vulkan context.
+///
+/// `requiresVulkan` marks a core whose OpenGL path cannot work on this
+/// platform, so the preference only speaks for cores that could use either.
+/// PlayStation 2 is the first: Apple's OpenGL stops at 4.1 without
+/// `GL_ARB_shading_language_420pack`, which PCSX2's GL renderer needs.
+enum LibretroVulkanPolicy {
+    static func usesVulkan(
+        capabilities: Set<String>,
+        prefersVulkan: Bool,
+        hasMoltenVK: Bool
+    ) -> Bool {
+        guard
+            capabilities.contains("vulkanVideo"),
+            hasMoltenVK
+        else {
+            return false
+        }
+        return prefersVulkan || capabilities.contains("requiresVulkan")
     }
 }
 
@@ -3414,6 +3461,12 @@ enum LibretroCoreOptionPreferences {
         // another game's saves travelling with it. Shared cards live under
         // the system directory instead, which belongs to the firmware cache.
         "pcsx2_shared_memory_cards": "disabled",
+
+        // Apple's OpenGL tops out at 4.1 and lacks GL_ARB_shading_language_420pack,
+        // which PCSX2's GL renderer requires, so it cannot create a GS device
+        // on macOS. Auto would pick GL first and show nothing, so the Vulkan
+        // renderer is pinned.
+        "pcsx2_renderer": "Vulkan",
     ]
 
     /// Resolves the value to hand a core for `key`.
@@ -3472,9 +3525,11 @@ final class LibretroEnvironment {
     }
 
     private var supportsVulkan: Bool {
-        capabilities.contains("vulkanVideo")
-            && prefersVulkan
-            && LibretroVulkanContext.bundledLibraryURL != nil
+        LibretroVulkanPolicy.usesVulkan(
+            capabilities: capabilities,
+            prefersVulkan: prefersVulkan,
+            hasMoltenVK: LibretroVulkanContext.bundledLibraryURL != nil
+        )
     }
 
     private(set) var pixelFormat = LibretroABI.PixelFormat.zeroRGB1555
@@ -5282,7 +5337,10 @@ private final class LibretroEngine: @unchecked Sendable, LibretroCallbackTarget 
             paths.states,
             paths.assets,
             saveMemoryURL.deletingLastPathComponent(),
-        ] {
+        ] + LibretroSystemLayout.workingDirectories(
+            forCoreID: request.coreID,
+            in: paths.system
+        ) {
             try FileManager.default.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true

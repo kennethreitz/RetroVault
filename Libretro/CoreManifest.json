@@ -1579,7 +1579,8 @@
         "zso"
       ],
       "capabilities": [
-        "hardwareVideo",
+        "vulkanVideo",
+        "requiresVulkan",
         "audio",
         "retropad",
         "serialization",
