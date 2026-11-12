@@ -204,16 +204,20 @@ assets, not PSP firmware or game content. The stable source pin carries
 PPSSPP's upstream macOS Core-profile context fix so its GLSL shaders and
 framebuffer presentation are correct on Apple silicon.
 
-LRPS2 provides PlayStation 2 playback through the OpenGL hardware context and
-accepts ISO, CHD, CSO, ZSO, CUE, M3U, and related disc images. It is
-experimental: enable experimental cores and supply a BIOS dump. RetroVault has
-no filename for a PS2 BIOS to look for, so the manifest asks RomM for the
-platform's firmware records and installs them into a `pcsx2/bios` folder; any
-valid dump boots. PCSX2's shared memory card option is pinned off, so each
-game's cards live in its own RomM save bundle, and PS2 is excluded from rewind
-and from automatic quick-state resume until its state restore path is proven
-on this runtime. The core links only system libraries, so it needs no bundled
-runtime assets.
+LRPS2 provides PlayStation 2 playback and accepts ISO, CHD, CSO, ZSO, CUE,
+M3U, and related disc images. It runs on the Vulkan path: Apple's OpenGL
+stops at 4.1 without `GL_ARB_shading_language_420pack`, which PCSX2's GL
+renderer requires, so the core creates no GS device there and shows no
+picture. The entry therefore declares `requiresVulkan`, which offers it
+Vulkan whatever the "Prefer Vulkan" setting says, and pins its renderer to
+Vulkan. It is experimental: enable experimental cores and supply a BIOS
+dump. RetroVault has no filename for a PS2 BIOS to look for, so the manifest
+asks RomM for the platform's firmware records and installs them into a
+`pcsx2/bios` folder; any valid dump boots. PCSX2's shared memory card option
+is pinned off, so each game's cards live in its own RomM save bundle, and PS2
+is excluded from rewind and from automatic quick-state resume until its state
+restore path is proven on this runtime. The core links only system libraries,
+so it needs no bundled runtime assets.
 
 ## Vulkan cores
 

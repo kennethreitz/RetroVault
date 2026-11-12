@@ -62,6 +62,18 @@ PPSSPP is the first real-core target. It already selects its backend from
 enough; no PPSSPP core option is forced. Build its core with
 `Scripts/build-libretro-cores.sh --core libretro-ppsspp`.
 
+PlayStation 2 (LRPS2) is the second, and the first core that cannot fall back
+to OpenGL: Apple's OpenGL stops at 4.1 without
+`GL_ARB_shading_language_420pack`, which PCSX2's GL renderer requires, so the
+GS device never starts and the picture is black. Its entry declares
+`requiresVulkan`, so `LibretroVulkanPolicy` offers it Vulkan whether or not
+the preference is on, and `pcsx2_renderer` is pinned to Vulkan because the
+core's own auto-selection would try GL first. The runtime also creates
+PCSX2's writable folders (`pcsx2/cache`, `inis`, `memcards`, `sstates`) before
+launch; without them the core logs a failure per folder and rebuilds shaders
+every run. Verified on an M-series Mac at macOS 27: BIOS boot, disc read, and
+a presented frame in about six seconds.
+
 PPSSPP is pinned to `39205d99ad2ede48be878659f4021fda9e5ec858` (2026-10-16)
 rather than the previous v1.20.4 release. v1.20.4 still used the old
 `libretro_vulkan.cpp` wrapper and called `vk->InitSwapchain`; its render

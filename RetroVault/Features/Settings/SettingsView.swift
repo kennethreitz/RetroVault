@@ -226,7 +226,9 @@ struct SettingsView: View {
                     Vulkan cores run through the bundled MoltenVK runtime. \
                     This is experimental: leave it off to keep a core on its \
                     OpenGL path until the Vulkan path has been checked on \
-                    this Mac. Restart the game after changing it.
+                    this Mac. Cores with no working OpenGL path on macOS, \
+                    such as PlayStation 2, use Vulkan whatever this says. \
+                    Restart the game after changing it.
                     """
                 )
                 .font(.caption)

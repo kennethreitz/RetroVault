@@ -24,9 +24,12 @@ being a list of every commit.
   can be turned on for smoother playback on demanding titles.
 
 - Experimental PlayStation 2 playback through the bundled LRPS2 core, with
-  ISO, CHD, CSO, ZSO, CUE, and M3U disc images. It needs a PS2 BIOS from the
-  platform's RomM firmware records, keeps per-game memory cards in each
-  game's own RomM save bundle, and has no rewind or quick-state resume yet.
+  ISO, CHD, CSO, ZSO, CUE, and M3U disc images. It renders through the
+  bundled Vulkan runtime, because Apple's OpenGL lacks a feature PCSX2's GL
+  renderer needs, so it uses Vulkan regardless of the "Prefer Vulkan"
+  setting. It needs a PS2 BIOS from the platform's RomM firmware records,
+  keeps per-game memory cards in each game's own RomM save bundle, and has no
+  rewind or quick-state resume yet.
 
 ### Changed
 
