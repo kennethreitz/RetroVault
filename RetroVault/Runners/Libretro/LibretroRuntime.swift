@@ -120,13 +120,18 @@ enum LibretroQuickStateRestorePolicy {
 enum LibretroQuickStateCompatibility {
     static let fingerprintFileName = "Quick.state.core"
 
-    /// Cores whose deserialized state can take the host down with it. PCSX2
-    /// writes a large state and its restore path has not been proven under
-    /// this runtime, so PS2 keeps its memory cards and loses Resume and
-    /// rewind until that is tested.
+    /// Cores whose deserialized state can take the host down with it.
+    ///
+    /// Dolphin can crash the host process while deserializing an otherwise
+    /// current state, so it keeps its durable memory-card saves but offers no
+    /// Resume until restoration can be isolated from the app.
+    ///
+    /// PS2 was held back on the same suspicion. A real disc then saved and
+    /// restored a 48 MB PCSX2 state without disturbing the session, so PS2
+    /// keeps Resume. Rewind stays off: one state that size cannot fit a
+    /// useful history in the rewind budget.
     static func isSupported(coreID: String) -> Bool {
         coreID.caseInsensitiveCompare("libretro-dolphin") != .orderedSame
-            && coreID.caseInsensitiveCompare("libretro-pcsx2") != .orderedSame
     }
 
     static func requiresCoreFingerprint(coreID: String) -> Bool {

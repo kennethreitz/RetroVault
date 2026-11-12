@@ -1462,7 +1462,8 @@ struct LibretroCoreManifestTests {
         }
 
         var didStart = false
-        for _ in 0..<600 {
+        var sawFrame = false
+        launch: for _ in 0..<600 {
             switch session.phase {
             case .running:
                 didStart = true
@@ -1471,11 +1472,13 @@ struct LibretroCoreManifestTests {
                 // cover that path.
                 if session.usesVulkanPresentation {
                     try await Task.sleep(for: .seconds(2))
-                    return
+                    sawFrame = true
+                } else if let frame = session.videoBuffer.snapshot(),
+                          containsVisiblePixels(frame) {
+                    sawFrame = true
                 }
-                if let frame = session.videoBuffer.snapshot(),
-                   containsVisiblePixels(frame) {
-                    return
+                if sawFrame {
+                    break launch
                 }
             case let .failed(message):
                 Issue.record("LRPS2 failed to start: \(message)")
@@ -1486,11 +1489,51 @@ struct LibretroCoreManifestTests {
             try await Task.sleep(for: .milliseconds(100))
         }
 
-        Issue.record(
-            didStart
-                ? "LRPS2 returned no visible frame within 60 seconds."
-                : "LRPS2 did not start within 60 seconds."
-        )
+        guard sawFrame else {
+            Issue.record(
+                didStart
+                    ? "LRPS2 returned no visible frame within 60 seconds."
+                    : "LRPS2 did not start within 60 seconds."
+            )
+            return
+        }
+
+        // Proves the quick-state exclusion can be lifted for PS2: a restore
+        // either leaves the core running or takes the process down, and a
+        // crash fails this test run outright.
+        guard environment["RETROVAULT_PS2_TEST_QUICK_STATE"] == "1" else {
+            return
+        }
+
+        session.saveQuickState()
+        var saved = false
+        for _ in 0..<200 {
+            if session.hasQuickState {
+                saved = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        #expect(saved, "LRPS2 did not save a quick state.")
+
+        try await Task.sleep(for: .seconds(2))
+        session.loadQuickState()
+
+        var restored = false
+        for _ in 0..<200 {
+            if session.message == "Quick state restored." {
+                restored = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        #expect(restored, "LRPS2 did not restore the quick state: \(session.message ?? "no message")")
+
+        try await Task.sleep(for: .seconds(2))
+        guard case .running = session.phase else {
+            Issue.record("LRPS2 stopped after restoring a quick state.")
+            return
+        }
     }
 
     @Test("Stages long full-path content with adjacent disc files")
@@ -1956,15 +1999,16 @@ struct LibretroCoreManifestTests {
                 forCoreID: "libretro-dolphin"
             )
         )
-        // PCSX2 states are large and have not been proven to restore under
-        // this runtime, so PS2 gets neither rewind nor Resume for now.
+        // A real PS2 disc saved and restored a 48 MB PCSX2 state without
+        // taking the session down, so Resume is offered; rewind is not,
+        // because that state size cannot fit a useful history.
         #expect(
             !LibretroRewindPolicy.isEnabled(
                 forCoreID: "libretro-pcsx2"
             )
         )
         #expect(
-            !LibretroQuickStateCompatibility.isSupported(
+            LibretroQuickStateCompatibility.isSupported(
                 coreID: "libretro-pcsx2"
             )
         )

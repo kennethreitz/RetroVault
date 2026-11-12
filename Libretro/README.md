@@ -214,10 +214,11 @@ Vulkan. It is experimental: enable experimental cores and supply a BIOS
 dump. RetroVault has no filename for a PS2 BIOS to look for, so the manifest
 asks RomM for the platform's firmware records and installs them into a
 `pcsx2/bios` folder; any valid dump boots. PCSX2's shared memory card option
-is pinned off, so each game's cards live in its own RomM save bundle, and PS2
-is excluded from rewind and from automatic quick-state resume until its state
-restore path is proven on this runtime. The core links only system libraries,
-so it needs no bundled runtime assets.
+is pinned off, so each game's cards live in its own RomM save bundle. Rewind
+is off, because a 48 MB state cannot fit a useful history in the rewind
+budget; Resume works, and was checked by saving and restoring a state from a
+real disc. The core links only system libraries, so it needs no bundled
+runtime assets.
 
 ## Vulkan cores
 
