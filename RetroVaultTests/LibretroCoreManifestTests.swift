@@ -1247,8 +1247,7 @@ struct LibretroCoreManifestTests {
 
     @Test("Runs a PlayStation smoke-test image when one is provided")
     @MainActor
-    func runsPlayStationSmokeTestImage() async throws {
-        guard
+    func runsPlayStationSmokeTestImage() async throws {        guard
             let path = ProcessInfo.processInfo.environment[
                 "RETROVAULT_PLAYSTATION_TEST_ROM"
             ],
@@ -1308,6 +1307,110 @@ struct LibretroCoreManifestTests {
             didStart
                 ? "PCSX-ReARMed returned no visible frame within 30 seconds."
                 : "PCSX-ReARMed did not start within 30 seconds."
+        )
+    }
+
+    /// The PS2 launch harness.
+    ///
+    /// PCSX2 needs a BIOS before it will boot anything, and a BIOS dump has
+    /// no fixed name, so the harness takes the dump directly and lays out the
+    /// `pcsx2/bios` folder the core scans:
+    ///
+    /// ```sh
+    /// RETROVAULT_PS2_TEST_ROM="/path/game.iso" \
+    /// RETROVAULT_PS2_TEST_BIOS="/path/scph39001.bin" \
+    ///   swift test --filter PlayStation2SmokeTest
+    /// ```
+    ///
+    /// It runs the OpenGL path. Nothing here is committed with real content.
+    @Test("Runs a PlayStation 2 smoke-test image when one is provided")
+    @MainActor
+    func runsPlayStation2SmokeTestImage() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard
+            let path = environment["RETROVAULT_PS2_TEST_ROM"],
+            FileManager.default.fileExists(atPath: path),
+            let biosPath = environment["RETROVAULT_PS2_TEST_BIOS"],
+            FileManager.default.fileExists(atPath: biosPath)
+        else {
+            return
+        }
+
+        // The core looks for <system>/pcsx2/bios and accepts any dump name.
+        let systemRoot = FileManager.default.temporaryDirectory
+            .appending(
+                path: "ps2-smoke-\(UUID().uuidString)",
+                directoryHint: .isDirectory
+            )
+        let biosFolder = systemRoot.appending(
+            path: "pcsx2/bios",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: biosFolder,
+            withIntermediateDirectories: true
+        )
+        defer {
+            try? FileManager.default.removeItem(at: systemRoot)
+        }
+        try FileManager.default.copyItem(
+            at: URL(fileURLWithPath: biosPath),
+            to: biosFolder.appending(
+                path: URL(fileURLWithPath: biosPath).lastPathComponent
+            )
+        )
+
+        let repositoryURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let coresDirectory = environment["RETROVAULT_TEST_CORES_DIRECTORY"]
+            .map(URL.init(fileURLWithPath:))
+            ?? repositoryURL.appending(
+                path: "Build/LibretroCores/Cores",
+                directoryHint: .isDirectory
+            )
+        let installation = try LibretroInstallation(
+            manifestURL: repositoryURL.appending(
+                path: "Libretro/CoreManifest.json"
+            ),
+            coresDirectory: coresDirectory
+        )
+        let session = LibretroSession(
+            request: LibretroRunRequest(
+                title: "PlayStation 2 Integration Test",
+                coreID: "libretro-pcsx2",
+                contentURL: URL(fileURLWithPath: path),
+                systemDirectory: systemRoot
+            ),
+            installation: installation
+        )
+        session.start()
+        defer {
+            session.stop()
+        }
+
+        var didStart = false
+        for _ in 0..<600 {
+            switch session.phase {
+            case .running:
+                didStart = true
+                if let frame = session.videoBuffer.snapshot(),
+                   containsVisiblePixels(frame) {
+                    return
+                }
+            case let .failed(message):
+                Issue.record("LRPS2 failed to start: \(message)")
+                return
+            case .idle, .starting, .stopped:
+                break
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+
+        Issue.record(
+            didStart
+                ? "LRPS2 returned no visible frame within 60 seconds."
+                : "LRPS2 did not start within 60 seconds."
         )
     }
 
