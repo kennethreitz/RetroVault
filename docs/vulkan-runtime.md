@@ -80,8 +80,8 @@ turning it on can be smoother on demanding titles. Restart the game.
 
 ## Not done (Phase 2+)
 
-- PS2/3DS core entries in `CoreManifest.json`, their build arguments,
-  firmware/resource handling, and per-core renderer options.
+- The 3DS core entry, its build arguments, and its firmware/resource
+  handling.
 - Core-options v2. Both scoped cores fall back to `SET_VARIABLES`, so the
   renderer option is currently a flat list.
 - The Metal video filters and integer-scaling presets. Vulkan presentation
@@ -90,7 +90,9 @@ turning it on can be smoother on demanding titles. Restart the game.
   a frontend-created device.
 - Cross-queue-family image handover; formats other than 8-bit RGBA/BGRA;
   HDR; `set_command_buffers` coverage from a real core.
-- ARMSX2's recompiler entitlements (`allow-unsigned-executable-memory`) and
-  the PS2 BIOS/resources flow.
+- An ARMSX2 entry. Its libretro core is Vulkan-only on macOS, needs
+  `pcsx2/resources` matched to the build, and asks for entitlements
+  (`allow-unsigned-executable-memory`) this app does not carry. PlayStation 2
+  ships through LRPS2 on the OpenGL path instead.
 - A PR, a manifest entry, and release/notarization validation with a
   Developer ID identity.

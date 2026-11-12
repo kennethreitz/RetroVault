@@ -23,7 +23,15 @@ being a list of every commit.
   one-frame render-ahead buffer. It is off by default for lower latency, and
   can be turned on for smoother playback on demanding titles.
 
+- Experimental PlayStation 2 playback through the bundled LRPS2 core, with
+  ISO, CHD, CSO, ZSO, CUE, and M3U disc images. It needs a PS2 BIOS from the
+  platform's RomM firmware records, keeps per-game memory cards in each
+  game's own RomM save bundle, and has no rewind or quick-state resume yet.
+
 ### Changed
+
+- The Libretro core build allows 90 minutes in CI, because building the
+  catalog now includes a full PCSX2 build.
 
 - PPSSPP is pinned to the shared-context Vulkan backend
   (`39205d99ad2ede48be878659f4021fda9e5ec858`, 2026-10-16). The previous

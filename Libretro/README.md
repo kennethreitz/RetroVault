@@ -8,16 +8,16 @@ that floor in its compiler flags (`-mmacosx-version-min=15.0` or
 `minimumMacOS`. Rebuild cores after changing it; a dylib stamped 26.0 will
 not load on macOS 15.
 
-The manifest includes a content-free 2048 pipeline test, 26 reviewed
-user-facing cores, and 1 experimental core. The current catalog supports Game Boy, Game Boy Color,
+The manifest includes a content-free 2048 pipeline test, 25 reviewed
+user-facing cores, and 2 experimental cores. The current catalog supports Game Boy, Game Boy Color,
 Game Boy Advance, NES, SNES, Master System, Game Gear, SG-1000, Atari 2600,
 Atari 5200, Atari 7800, ColecoVision, Nintendo 64, Arcade, Virtual Boy, Neo Geo
 Pocket and Pocket Color, WonderSwan and WonderSwan Color, Pokémon Mini,
 PlayStation, Nintendo DS, PC Engine /
 TurboGrafx-16, SuperGrafx, PC Engine CD / TurboGrafx-CD, Genesis / Mega Drive,
 Sega CD / Mega CD, Sega 32X, DOS, Arduboy, Pico-8, GameCube, Wii, and PSP.
-Dreamcast is experimental and stays hidden until experimental cores are
-enabled in Settings.
+PlayStation 2 and Dreamcast are experimental and stay hidden until
+experimental cores are enabled in Settings.
 
 Nintendo 3DS is not supported yet. The maintained Azahar core ships Vulkan
 and software renderers and has dropped OpenGL on Apple platforms; the runtime
@@ -89,6 +89,7 @@ Scripts/build-libretro-cores.sh --core libretro-arduous
 Scripts/build-libretro-cores.sh --core libretro-fake08
 Scripts/build-libretro-cores.sh --core libretro-dolphin
 Scripts/build-libretro-cores.sh --core libretro-ppsspp
+Scripts/build-libretro-cores.sh --core libretro-pcsx2
 ```
 
 Build release artifacts with a Developer ID identity:
@@ -202,6 +203,17 @@ bundled under `System/PPSSPP`; these are redistributable emulator runtime
 assets, not PSP firmware or game content. The stable source pin carries
 PPSSPP's upstream macOS Core-profile context fix so its GLSL shaders and
 framebuffer presentation are correct on Apple silicon.
+
+LRPS2 provides PlayStation 2 playback through the OpenGL hardware context and
+accepts ISO, CHD, CSO, ZSO, CUE, M3U, and related disc images. It is
+experimental: enable experimental cores and supply a BIOS dump. RetroVault has
+no filename for a PS2 BIOS to look for, so the manifest asks RomM for the
+platform's firmware records and installs them into a `pcsx2/bios` folder; any
+valid dump boots. PCSX2's shared memory card option is pinned off, so each
+game's cards live in its own RomM save bundle, and PS2 is excluded from rewind
+and from automatic quick-state resume until its state restore path is proven
+on this runtime. The core links only system libraries, so it needs no bundled
+runtime assets.
 
 ## Vulkan cores
 
