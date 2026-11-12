@@ -1590,6 +1590,58 @@ struct LibraryTests {
         }
     }
 
+    // PCSX2 writes per-game memory cards into the save directory the runtime
+    // names, so one PS2 game's cards become one RomM artifact.
+    @Test("Keeps PlayStation 2 memory cards in a per-game bundle")
+    func keepsPlayStation2MemoryCardsPerGame() async throws {
+        let token = try ClientToken(
+            rawValue: "rmm_" + String(repeating: "d", count: 64)
+        )
+        let credentials = MemoryCredentialStore()
+        await credentials.save(token)
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let api = SaveSyncMockRomMClient(token: token, availableSaves: [:])
+        let service = RomMLibraryService(
+            api: api,
+            credentialStore: credentials,
+            saveDirectory: directory
+        )
+        let session = ServerSession(
+            serverURL: try ServerURL("https://romm.example.com"),
+            username: "kenneth"
+        )
+        let game = mockGameDetails(
+            id: 51_200,
+            fileName: "Gran Turismo 4 (USA).iso",
+            systemName: "PlayStation 2"
+        )
+        await api.setLatestGameDetails(game)
+
+        let prepared = try #require(
+            try await service.prepareCartridgeSaveForPlay(
+                game,
+                in: session,
+                emulator: "RetroVault",
+                coreID: "libretro-pcsx2"
+            )
+        )
+        #expect(prepared.effectiveStorage == .directoryBundle)
+        #expect(prepared.localSaveURL.lastPathComponent == "PCSX2")
+        #expect(prepared.uploadFileName == "Gran Turismo 4 (USA).ps2.zip")
+
+        let card = prepared.localSaveURL.appending(path: "Mcd001.ps2")
+        try Data("memory card".utf8).write(to: card)
+        #expect(
+            try await service.syncCartridgeSaveAfterPlay(prepared) == .uploaded
+        )
+        #expect(await api.uploadedFileNames == ["Gran Turismo 4 (USA).ps2.zip"])
+    }
+
     @Test("Discovers and caches Vita PUP firmware from RomM")
     func cachesVitaFirmwarePackages() async throws {
         let token = try ClientToken(

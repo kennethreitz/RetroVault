@@ -2379,8 +2379,11 @@ actor RomMLibraryService: LibraryServing {
       }
 
       let saveRAMURL = gameDirectory.appending(path: "SaveRAM.srm")
-      let directoryBundleURLs = ["Cemu", "PPSSPP", "Vita3K"].map {
-        gameDirectory.appending(path: $0, directoryHint: .isDirectory)
+      let directoryBundleURLs = Self.directorySaveBundles.map {
+        gameDirectory.appending(
+          path: $0.bundle.directoryName,
+          directoryHint: .isDirectory
+        )
       }
       let storage: CartridgeSaveSyncConfiguration.Storage
       let localSaveURL: URL
@@ -2749,6 +2752,32 @@ actor RomMLibraryService: LibraryServing {
     }
   }
 
+  /// Cores whose saves are a directory of files rather than one save-RAM
+  /// blob. The directory is the upload unit, so each needs a stable name.
+  private struct DirectorySaveBundle: Sendable {
+    let directoryName: String
+    let archiveSuffix: String
+  }
+
+  /// The RomM artifact keeps the emulator in its name, because one game can
+  /// carry saves from more than one core.
+  private static let directorySaveBundles: [(matches: String, bundle: DirectorySaveBundle)] = [
+    ("cemu", .init(directoryName: "Cemu", archiveSuffix: ".cemu.zip")),
+    ("ppsspp", .init(directoryName: "PPSSPP", archiveSuffix: ".ppsspp.zip")),
+    ("vita3k", .init(directoryName: "Vita3K", archiveSuffix: ".vita3k.zip")),
+    ("ryujinx", .init(directoryName: "Ryujinx", archiveSuffix: ".ryujinx.zip")),
+    ("pcsx2", .init(directoryName: "PCSX2", archiveSuffix: ".ps2.zip")),
+  ]
+
+  private static func directorySaveBundle(
+    forCoreID coreID: String
+  ) -> DirectorySaveBundle? {
+    let normalized = coreID.lowercased()
+    return directorySaveBundles.first {
+      normalized.contains($0.matches)
+    }?.bundle
+  }
+
   private func saveFileName(
     for game: GameDetails,
     storage: CartridgeSaveSyncConfiguration.Storage,
@@ -2761,13 +2790,7 @@ actor RomMLibraryService: LibraryServing {
     case .saveRAM:
       ".srm"
     case .directoryBundle:
-      if coreID.lowercased().contains("cemu") {
-        ".cemu.zip"
-      } else if coreID.lowercased().contains("vita3k") {
-        ".vita3k.zip"
-      } else {
-        ".ppsspp.zip"
-      }
+      Self.directorySaveBundle(forCoreID: coreID)?.archiveSuffix ?? ".ppsspp.zip"
     }
     return safeFileName(
       "\(stem)\(suffix)",
@@ -2779,22 +2802,13 @@ actor RomMLibraryService: LibraryServing {
   private func saveStorage(
     forCoreID coreID: String
   ) -> CartridgeSaveSyncConfiguration.Storage {
-    let normalized = coreID.lowercased()
-    return normalized.contains("ppsspp") || normalized.contains("cemu")
-      || normalized.contains("vita3k")
+    Self.directorySaveBundle(forCoreID: coreID) != nil
       ? .directoryBundle
       : .saveRAM
   }
 
   private func saveDirectoryName(forCoreID coreID: String) -> String {
-    let normalized = coreID.lowercased()
-    if normalized.contains("cemu") {
-      return "Cemu"
-    }
-    if normalized.contains("vita3k") {
-      return "Vita3K"
-    }
-    return "PPSSPP"
+    Self.directorySaveBundle(forCoreID: coreID)?.directoryName ?? "PPSSPP"
   }
 
   private func remoteSaves(

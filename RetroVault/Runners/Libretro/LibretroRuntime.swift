@@ -3401,6 +3401,13 @@ enum LibretroCoreOptionPreferences {
         // handing over one frame per call, and the frontend paces a 30 Hz
         // game at 60 Hz, running it at double speed.
         "reicast_detect_vsync_swap_interval": "enabled",
+
+        // PCSX2 keeps one memory card per game when this is off, and files
+        // it under the save directory the frontend handed the core. That is
+        // what lets RetroVault sync one PS2 game's card to RomM without
+        // another game's saves travelling with it. Shared cards live under
+        // the system directory instead, which belongs to the firmware cache.
+        "pcsx2_shared_memory_cards": "disabled",
     ]
 
     /// Resolves the value to hand a core for `key`.

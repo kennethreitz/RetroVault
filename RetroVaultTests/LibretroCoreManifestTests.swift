@@ -64,6 +64,20 @@ struct LibretroCoreManifestTests {
         )
     }
 
+    // A shared card set lives in the firmware cache, where one PS2 game's
+    // saves would travel with another's. Per-content cards land in the save
+    // directory the runtime hands the core, which is the RomM bundle.
+    @Test("Keeps PS2 memory cards per game")
+    func keepsPS2MemoryCardsPerGame() {
+        #expect(
+            LibretroCoreOptionPreferences.value(
+                for: "pcsx2_shared_memory_cards",
+                default: "enabled",
+                availableValues: ["disabled", "enabled"]
+            ) == "disabled"
+        )
+    }
+
     @Test("Attaches a Memory Pak to the first N64 controller")
     func attachesNintendo64MemoryPak() {
         #expect(
